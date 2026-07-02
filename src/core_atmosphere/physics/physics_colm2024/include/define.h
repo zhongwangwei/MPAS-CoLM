@@ -30,8 +30,8 @@
 ! 3.1 If defined, surface data in vector is mapped to gridded data for checking.
 #undef SrfdataDiag
 
-! 4. CoLM uses MPI collectives through MPAS-owned communicators.  The standalone
-!    CoLM master/IO/worker process decomposition is disabled in MOD_SPMD_Task.
+! 4. CoLM uses MPI collectives through MPAS-owned communicators.  The legacy
+!    CoLM process-pool decomposition is disabled in MOD_SPMD_Task.
 #define USEMPI
 
 ! 5. Hydrological process options.
@@ -103,7 +103,7 @@
 #define HYPERSPECTRAL
 
 ! MPAS embeds CoLM as a local land-surface physics package on each MPAS rank.
-! Reusing the CoLM standalone MPI master/IO/worker split inside MPAS leaves some
+! Reusing the legacy CoLM process split inside MPAS leaves some
 ! ranks without patch forcing/flux arrays, so the embedded library keeps CoLM
 ! land state on MPAS-owned cells. MPAS also supplies broadband shortwave forcing.
 #define MPAS_EMBEDDED_COLM

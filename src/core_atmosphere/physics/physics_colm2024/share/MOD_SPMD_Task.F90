@@ -187,7 +187,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      CALL CoLM_stop('MPAS embedded CoLM does not support a standalone history MPI task.')
+      CALL CoLM_stop('MPAS embedded CoLM does not support a dedicated history MPI task.')
 
    END SUBROUTINE spmd_assign_history_task
 

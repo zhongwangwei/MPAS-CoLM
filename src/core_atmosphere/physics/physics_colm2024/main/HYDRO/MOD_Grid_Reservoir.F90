@@ -139,6 +139,7 @@ CONTAINS
 
       ENDIF
 
+#ifndef MPAS_EMBEDDED_COLM
 #ifdef COLM_PARALLEL
       IF (.not. allocated(resv_data_address)) allocate (resv_data_address (0:p_np_compute-1))
 
@@ -181,6 +182,7 @@ CONTAINS
          allocate (resv_data_address(0)%val (numresv))
          resv_data_address(0)%val = resv_global_index(1:numresv)
       ENDIF
+#endif
 #endif
 
       IF (p_is_compute) THEN

@@ -219,7 +219,7 @@ CONTAINS
    SUBROUTINE pnetcdf_write_real8_points(ncid, varid, index, data, ndata, varname, filename)
 
    USE mpi, only: MPI_OFFSET_KIND
-   USE pnetcdf, only: nfmpi_put_var1_double
+   USE pnetcdf, only: nf90mpi_put_var
    USE MOD_SPMD_Task, only: CoLM_stop
    IMPLICIT NONE
 
@@ -247,7 +247,7 @@ CONTAINS
 
          start(1) = int(index(i), MPI_OFFSET_KIND)
          value = data(i)
-         ierr = nfmpi_put_var1_double(ncid, varid, start, value)
+         ierr = nf90mpi_put_var(ncid, varid, value, start=start)
          CALL pnetcdf_check(ierr, 'write '//trim(varname), filename)
       ENDDO
 

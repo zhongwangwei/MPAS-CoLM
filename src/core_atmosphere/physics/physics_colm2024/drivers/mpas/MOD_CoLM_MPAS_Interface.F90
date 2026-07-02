@@ -4,7 +4,7 @@ MODULE MOD_CoLM_MPAS_Interface
 
    USE MOD_Precision
    USE MOD_LandPatch, only: numpatch, landpatch, elm_patch
-   USE MOD_Vars_Global, only: spval
+   USE MOD_Vars_Global, only: spval, nl_soil, dz_soi
    USE MOD_Vars_1DForcing, only: forc_pco2m, forc_po2m, forc_us, forc_vs, forc_t, forc_q, &
       forc_prc, forc_prl, forc_rain, forc_snow, forc_psrf, forc_pbot, forc_sols, forc_soll, &
       forc_solsd, forc_solld, forc_frl, forc_swrad, forc_hgt_u, forc_hgt_t, forc_hgt_q, &
@@ -13,27 +13,24 @@ MODULE MOD_CoLM_MPAS_Interface
    USE MOD_Vars_1DForcing, only: forc_solarin
 #endif
    USE MOD_Vars_1DFluxes, only: oroflag, fsena, lfevpa, fevpa, fgrnd, rnof, rsur, rsub
-   USE MOD_Vars_TimeInvariants, only: patchlatr, patchlonr, patchmask
-   USE MOD_Vars_TimeVariables, only: t_grnd, tref, qref, emis, z0m, alb
+   USE MOD_Vars_TimeInvariants, only: patchmask
+   USE MOD_Vars_TimeVariables, only: t_grnd, tref, qref, emis, z0m, alb, &
+      ldew, scv, snowdp, fsno, lai, t_soisno, wliq_soisno, wice_soisno
    USE MOD_TimeManager, only: timestamp
 
    IMPLICIT NONE
    PRIVATE
 
-	   PUBLIC :: colm_mpas_initialize_from_namelist
-	   PUBLIC :: colm_mpas_finalize
-	   PUBLIC :: colm_mpas_ready
-	   PUBLIC :: colm_mpas_find_patch
-	   PUBLIC :: colm_mpas_find_element
-   PUBLIC :: colm_mpas_set_forcing
+   PUBLIC :: colm_mpas_initialize_from_namelist
+   PUBLIC :: colm_mpas_finalize
+   PUBLIC :: colm_mpas_ready
    PUBLIC :: colm_mpas_set_element_forcing
    PUBLIC :: colm_mpas_step
    PUBLIC :: colm_mpas_get_surface
    PUBLIC :: colm_mpas_get_element_surface
+   PUBLIC :: colm_mpas_get_element_state
 
    logical, save :: colm_mpas_initialized = .false.
-   real(r8), allocatable, save :: colm_mpas_elm_lonr(:)
-   real(r8), allocatable, save :: colm_mpas_elm_latr(:)
    character(len=256), save :: colm_mpas_casename = ''
    character(len=256), save :: colm_mpas_dir_restart = ''
    integer, save :: colm_mpas_lc_year = -1
@@ -212,29 +209,20 @@ CONTAINS
 #endif
 
       IF (n_mpas > 0) THEN
-         CALL colm_mpas_restrict_to_mpas_cells(mpas_lon_rad, mpas_lat_rad, mpas_cell_id, &
-                                               n_mpas, cell_to_element, ierr)
+         CALL colm_mpas_restrict_to_mpas_cells(mpas_cell_id, n_mpas, cell_to_element, ierr)
          IF (ierr /= 0) RETURN
       ENDIF
 
-	      CALL elm_patch%build(landelm, landpatch, use_frac = .true.)
+      CALL elm_patch%build(landelm, landpatch, use_frac = .true.)
 
 #ifdef GridRiverLakeFlow
 #ifdef MPAS_EMBEDDED_COLM
-	      CALL colm_mpas_check_embedded_riverlake(ierr)
-	      IF (ierr /= 0) RETURN
+      CALL colm_mpas_check_embedded_riverlake(ierr)
+      IF (ierr /= 0) RETURN
 #endif
-	      CALL build_riverlake_network()
-	      IF (DEF_Reservoir_Method > 0) CALL reservoir_init()
+      CALL build_riverlake_network()
+      IF (DEF_Reservoir_Method > 0) CALL reservoir_init()
 #endif
-
-	      IF (allocated(colm_mpas_elm_lonr)) deallocate(colm_mpas_elm_lonr)
-	      IF (allocated(colm_mpas_elm_latr)) deallocate(colm_mpas_elm_latr)
-	      IF (numelm > 0) THEN
-         allocate(colm_mpas_elm_lonr(numelm))
-         allocate(colm_mpas_elm_latr(numelm))
-         CALL landelm%get_lonlat_radian(colm_mpas_elm_lonr, colm_mpas_elm_latr)
-      ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       CALL map_patch_to_pft
@@ -289,7 +277,7 @@ CONTAINS
 	      ENDIF
 	      IF (p_np_glb > 1 .and. p_is_root) THEN
 	         write(*,'(A)') 'CoLM2024 MPAS embedded GridRiverLakeFlow uses MPAS communicator ranks for distributed routing.'
-	         write(*,'(A)') 'CoLM standalone MPI process pools and replicated full-river-network fallback are disabled.'
+         write(*,'(A)') 'Legacy CoLM MPI process pools and replicated full-river-network fallback are disabled.'
 	      ENDIF
 		   END SUBROUTINE colm_mpas_check_embedded_riverlake
 #endif
@@ -401,23 +389,18 @@ CONTAINS
 	      CALL grid_riverlake_flow_final()
 #endif
 
-	      IF (allocated(colm_mpas_elm_lonr)) deallocate(colm_mpas_elm_lonr)
-	      IF (allocated(colm_mpas_elm_latr)) deallocate(colm_mpas_elm_latr)
 	      CALL spmd_exit()
 	      colm_mpas_initialized = .false.
 	      colm_mpas_restart_ready = .false.
 	   END SUBROUTINE colm_mpas_finalize
 
-	   SUBROUTINE colm_mpas_restrict_to_mpas_cells(mpas_lon_rad, mpas_lat_rad, mpas_cell_id, &
-                                               n_mpas_cells, cell_to_element, ierr)
+	   SUBROUTINE colm_mpas_restrict_to_mpas_cells(mpas_cell_id, n_mpas_cells, cell_to_element, ierr)
       USE MOD_LandElm, only: landelm
       USE MOD_LandPatch, only: landpatch, numpatch
       USE MOD_Mesh, only: numelm
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       USE MOD_LandPFT, only: landpft, numpft
 #endif
-      real(r8), intent(in) :: mpas_lon_rad(:)
-      real(r8), intent(in) :: mpas_lat_rad(:)
       integer, intent(in) :: mpas_cell_id(:)
       integer, intent(in) :: n_mpas_cells
       integer, intent(out) :: cell_to_element(:)
@@ -428,13 +411,9 @@ CONTAINS
       logical, allocatable :: keep_pft(:)
       integer, allocatable :: old_to_new(:)
       integer, allocatable :: old_element_for_cell(:)
-      real(r8), allocatable :: all_lon(:)
-      real(r8), allocatable :: all_lat(:)
       integer :: i
       integer :: old_element
       integer :: packed_count
-      real(r8) :: match_dist2
-      real(r8), parameter :: max_coord_match_dist2 = 1.e-10_r8
 
       ierr = 1
       IF (n_mpas_cells < 1) RETURN
@@ -444,21 +423,12 @@ CONTAINS
       allocate(keep_elm(numelm))
       allocate(old_to_new(numelm))
       allocate(old_element_for_cell(n_mpas_cells))
-      allocate(all_lon(numelm))
-      allocate(all_lat(numelm))
 
       keep_elm = .false.
       old_to_new = 0
-      CALL landelm%get_lonlat_radian(all_lon, all_lat)
 
       DO i = 1, n_mpas_cells
          CALL colm_mpas_find_element_by_eindex(mpas_cell_id(i), old_element)
-         IF (old_element <= 0) THEN
-            match_dist2 = huge(match_dist2)
-            CALL colm_mpas_find_element_in_arrays(mpas_lon_rad(i), mpas_lat_rad(i), &
-                                                  all_lon, all_lat, old_element, match_dist2)
-            IF (match_dist2 > max_coord_match_dist2) old_element = 0
-         ENDIF
          IF (old_element <= 0 .or. old_element > numelm) RETURN
 
          old_element_for_cell(i) = old_element
@@ -563,55 +533,27 @@ CONTAINS
       integer, intent(out) :: element
 
       integer :: i
+      integer :: hits
       integer*8 :: cell_id_i8
 
       element = 0
+      hits = 0
       cell_id_i8 = cell_id
       DO i = 1, landelm%nset
          IF (landelm%eindex(i) == cell_id_i8) THEN
+            hits = hits + 1
             element = i
-            RETURN
          ENDIF
       ENDDO
+      IF (hits /= 1) element = 0
    END SUBROUTINE colm_mpas_find_element_by_eindex
-
-   SUBROUTINE colm_mpas_find_element_in_arrays(lon_rad, lat_rad, lon_array, lat_array, element, best_dist2_out)
-      real(r8), intent(in) :: lon_rad
-      real(r8), intent(in) :: lat_rad
-      real(r8), intent(in) :: lon_array(:)
-      real(r8), intent(in) :: lat_array(:)
-      integer, intent(out) :: element
-      real(r8), intent(out), optional :: best_dist2_out
-
-      integer :: i
-      real(r8) :: dlon
-      real(r8) :: dist2
-      real(r8) :: best_dist2
-      real(r8), parameter :: two_pi = 6.283185307179586476925286766559_r8
-
-      element = 0
-      IF (size(lon_array) /= size(lat_array)) RETURN
-
-      best_dist2 = huge(best_dist2)
-      DO i = 1, size(lat_array)
-         dlon = abs(lon_array(i) - lon_rad)
-         dlon = min(dlon, two_pi - dlon)
-         dist2 = dlon * dlon + (lat_array(i) - lat_rad) * (lat_array(i) - lat_rad)
-         IF (dist2 < best_dist2) THEN
-            best_dist2 = dist2
-            element = i
-         ENDIF
-      ENDDO
-      IF (present(best_dist2_out)) best_dist2_out = best_dist2
-   END SUBROUTINE colm_mpas_find_element_in_arrays
 
    SUBROUTINE colm_mpas_ready(ready, patch_count)
       logical, intent(out) :: ready
       integer, intent(out), optional :: patch_count
 
       ready = allocated(forc_t) .and. allocated(oroflag) .and. allocated(fsena) .and. allocated(t_grnd) &
-         .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subfrc) &
-         .and. allocated(colm_mpas_elm_lonr) .and. allocated(colm_mpas_elm_latr)
+         .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subfrc)
       IF (present(patch_count)) THEN
          IF (allocated(oroflag)) THEN
             patch_count = size(oroflag)
@@ -620,69 +562,6 @@ CONTAINS
          ENDIF
       ENDIF
    END SUBROUTINE colm_mpas_ready
-
-   SUBROUTINE colm_mpas_find_patch(lon_rad, lat_rad, patch, ierr)
-      real(r8), intent(in) :: lon_rad
-      real(r8), intent(in) :: lat_rad
-      integer, intent(out) :: patch
-      integer, intent(out) :: ierr
-
-      integer :: i
-      real(r8) :: dlon
-      real(r8) :: dist2
-      real(r8) :: best_dist2
-      real(r8), parameter :: two_pi = 6.283185307179586476925286766559_r8
-
-      patch = 0
-      ierr = 1
-      IF (.not. allocated(patchlatr)) RETURN
-
-      best_dist2 = huge(best_dist2)
-      DO i = 1, size(patchlatr)
-         IF (allocated(patchmask)) THEN
-            IF (.not. patchmask(i)) CYCLE
-         ENDIF
-         dlon = abs(patchlonr(i) - lon_rad)
-         dlon = min(dlon, two_pi - dlon)
-         dist2 = dlon * dlon + (patchlatr(i) - lat_rad) * (patchlatr(i) - lat_rad)
-         IF (dist2 < best_dist2) THEN
-            best_dist2 = dist2
-            patch = i
-         ENDIF
-      ENDDO
-
-      IF (patch > 0) ierr = 0
-   END SUBROUTINE colm_mpas_find_patch
-
-   SUBROUTINE colm_mpas_find_element(lon_rad, lat_rad, element, ierr)
-      real(r8), intent(in) :: lon_rad
-      real(r8), intent(in) :: lat_rad
-      integer, intent(out) :: element
-      integer, intent(out) :: ierr
-
-      integer :: i
-      real(r8) :: dlon
-      real(r8) :: dist2
-      real(r8) :: best_dist2
-      real(r8), parameter :: two_pi = 6.283185307179586476925286766559_r8
-
-      element = 0
-      ierr = 1
-      IF (.not. allocated(colm_mpas_elm_latr)) RETURN
-
-      best_dist2 = huge(best_dist2)
-      DO i = 1, size(colm_mpas_elm_latr)
-         dlon = abs(colm_mpas_elm_lonr(i) - lon_rad)
-         dlon = min(dlon, two_pi - dlon)
-         dist2 = dlon * dlon + (colm_mpas_elm_latr(i) - lat_rad) * (colm_mpas_elm_latr(i) - lat_rad)
-         IF (dist2 < best_dist2) THEN
-            best_dist2 = dist2
-            element = i
-         ENDIF
-      ENDDO
-
-      IF (element > 0) ierr = 0
-   END SUBROUTINE colm_mpas_find_element
 
    SUBROUTINE colm_mpas_set_forcing(patch, pco2m, po2m, us, vs, tair, qair, prc, prl, rain, snow, &
                                     psrf, pbot, sols, soll, solsd, solld, frl, hgt_u, hgt_t, hgt_q, &
@@ -1054,4 +933,144 @@ CONTAINS
       ierr = 0
    END SUBROUTINE colm_mpas_get_element_surface
 
-END MODULE MOD_CoLM_MPAS_Interface
+   SUBROUTINE colm_mpas_get_element_state(element, canopy_water, snow_water, snow_depth, snow_cover, &
+                                          leaf_area_index, soil_liquid, soil_moisture, soil_temperature, ierr)
+      integer, intent(in) :: element
+      real(r8), intent(out) :: canopy_water, snow_water, snow_depth, snow_cover, leaf_area_index
+      real(r8), intent(out) :: soil_liquid(:), soil_moisture(:), soil_temperature(:)
+      integer, intent(out) :: ierr
+
+      integer :: patch
+      integer :: istt
+      integer :: iend
+      integer :: n
+      integer :: nlev
+      real(r8) :: wt
+      real(r8) :: sumwt
+      real(r8) :: bad_value
+      real(r8) :: patch_canopy_water
+      real(r8) :: patch_snow_water
+      real(r8) :: patch_snow_depth
+      real(r8) :: patch_snow_cover
+      real(r8) :: patch_lai
+      real(r8) :: patch_liquid
+      real(r8) :: patch_moisture
+      real(r8) :: soil_wt(size(soil_liquid))
+
+      ierr = 1
+      canopy_water = spval
+      snow_water = spval
+      snow_depth = spval
+      snow_cover = spval
+      leaf_area_index = spval
+      soil_liquid(:) = spval
+      soil_moisture(:) = spval
+      soil_temperature(:) = spval
+
+      nlev = min(size(soil_liquid), size(soil_moisture), size(soil_temperature), nl_soil)
+      IF (nlev < 1) RETURN
+      IF (.not. allocated(elm_patch%substt)) RETURN
+      IF (.not. allocated(elm_patch%subend)) RETURN
+      IF (.not. allocated(elm_patch%subfrc)) RETURN
+      IF (.not. allocated(ldew)) RETURN
+      IF (.not. allocated(scv)) RETURN
+      IF (.not. allocated(snowdp)) RETURN
+      IF (.not. allocated(fsno)) RETURN
+      IF (.not. allocated(lai)) RETURN
+      IF (.not. allocated(t_soisno)) RETURN
+      IF (.not. allocated(wliq_soisno)) RETURN
+      IF (.not. allocated(wice_soisno)) RETURN
+      IF (element < 1 .or. element > size(elm_patch%substt)) RETURN
+
+      istt = elm_patch%substt(element)
+      iend = elm_patch%subend(element)
+      IF (istt < 1 .or. iend < istt) RETURN
+
+      bad_value = 0.5_r8 * abs(spval)
+      canopy_water = 0._r8
+      snow_water = 0._r8
+      snow_depth = 0._r8
+      snow_cover = 0._r8
+      leaf_area_index = 0._r8
+      soil_liquid(:) = 0._r8
+      soil_moisture(:) = 0._r8
+      soil_temperature(:) = 0._r8
+      soil_wt(:) = 0._r8
+      sumwt = 0._r8
+
+      DO patch = istt, iend
+         IF (patch < 1 .or. patch > numpatch) CYCLE
+         IF (allocated(patchmask)) THEN
+            IF (.not. patchmask(patch)) CYCLE
+         ENDIF
+         wt = elm_patch%subfrc(patch)
+         IF (wt <= 0._r8) CYCLE
+
+         patch_canopy_water = ldew(patch)
+         IF (abs(patch_canopy_water) >= bad_value) patch_canopy_water = 0._r8
+         patch_snow_water = scv(patch)
+         IF (abs(patch_snow_water) >= bad_value) patch_snow_water = 0._r8
+         patch_snow_depth = snowdp(patch)
+         IF (abs(patch_snow_depth) >= bad_value) patch_snow_depth = 0._r8
+         patch_snow_cover = fsno(patch)
+         IF (abs(patch_snow_cover) >= bad_value) patch_snow_cover = 0._r8
+         patch_lai = lai(patch)
+         IF (abs(patch_lai) >= bad_value) patch_lai = 0._r8
+
+         sumwt = sumwt + wt
+         canopy_water = canopy_water + wt * max(0._r8, patch_canopy_water)
+         snow_water = snow_water + wt * max(0._r8, patch_snow_water)
+         snow_depth = snow_depth + wt * max(0._r8, patch_snow_depth)
+         snow_cover = snow_cover + wt * max(0._r8, min(1._r8, patch_snow_cover))
+         leaf_area_index = leaf_area_index + wt * max(0._r8, patch_lai)
+
+         DO n = 1, nlev
+            IF (n < lbound(t_soisno, 1) .or. n > ubound(t_soisno, 1)) CYCLE
+            IF (dz_soi(n) <= 0._r8) CYCLE
+            IF (abs(t_soisno(n, patch)) >= bad_value) CYCLE
+            IF (abs(wliq_soisno(n, patch)) >= bad_value) CYCLE
+            IF (abs(wice_soisno(n, patch)) >= bad_value) CYCLE
+
+            patch_liquid = max(0._r8, wliq_soisno(n, patch) / (1000._r8 * dz_soi(n)))
+            patch_moisture = max(0._r8, (wliq_soisno(n, patch) + wice_soisno(n, patch)) / (1000._r8 * dz_soi(n)))
+            soil_liquid(n) = soil_liquid(n) + wt * min(1._r8, patch_liquid)
+            soil_moisture(n) = soil_moisture(n) + wt * min(1._r8, patch_moisture)
+            soil_temperature(n) = soil_temperature(n) + wt * t_soisno(n, patch)
+            soil_wt(n) = soil_wt(n) + wt
+         ENDDO
+      ENDDO
+
+      IF (sumwt <= 0._r8) THEN
+         canopy_water = spval
+         snow_water = spval
+         snow_depth = spval
+         snow_cover = spval
+         leaf_area_index = spval
+         soil_liquid(:) = spval
+         soil_moisture(:) = spval
+         soil_temperature(:) = spval
+         RETURN
+      ENDIF
+
+      canopy_water = canopy_water / sumwt
+      snow_water = snow_water / sumwt
+      snow_depth = snow_depth / sumwt
+      snow_cover = snow_cover / sumwt
+      leaf_area_index = leaf_area_index / sumwt
+
+      DO n = 1, nlev
+         IF (soil_wt(n) > 0._r8) THEN
+            soil_liquid(n) = soil_liquid(n) / soil_wt(n)
+            soil_moisture(n) = soil_moisture(n) / soil_wt(n)
+            soil_temperature(n) = soil_temperature(n) / soil_wt(n)
+         ELSE
+            soil_liquid(n) = spval
+            soil_moisture(n) = spval
+            soil_temperature(n) = spval
+         ENDIF
+      ENDDO
+
+      ierr = 0
+   END SUBROUTINE colm_mpas_get_element_state
+
+	END MODULE MOD_CoLM_MPAS_Interface

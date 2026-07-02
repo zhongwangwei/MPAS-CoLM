@@ -17,11 +17,12 @@
  use mpas_atmphys_vars, only: dt_pbl, xice_threshold
 
 #ifdef MPAS_COLM2024
-	 use MOD_Precision, only: colm_r8 => r8
-	 use MOD_CoLM_MPAS_Interface, only: colm_mpas_initialize_from_namelist, colm_mpas_ready, &
-	                                    colm_mpas_set_element_forcing, &
-	                                    colm_mpas_step, colm_mpas_get_element_surface, &
-	                                    colm_mpas_finalize
+ use MOD_Precision, only: colm_r8 => r8
+ use MOD_CoLM_MPAS_Interface, only: colm_mpas_initialize_from_namelist, colm_mpas_ready, &
+                                    colm_mpas_set_element_forcing, &
+                                    colm_mpas_step, colm_mpas_get_element_surface, &
+                                    colm_mpas_get_element_state, &
+                                    colm_mpas_finalize
 #endif
 
  implicit none
@@ -280,14 +281,19 @@
  real(kind=colm_r8),intent(in):: dt
  integer,intent(in):: its,ite
 
- integer:: i
+ integer:: i, ns, nlev, nvalid_soil
  integer:: ierr
  real(kind=colm_r8):: sensible, latent, evaporation, ground_heat, runoff
  real(kind=colm_r8):: surface_runoff, subsurface_runoff, skin_temp, t2m_colm, q2m_colm
  real(kind=colm_r8):: emissivity, roughness, albedo
+ real(kind=colm_r8):: canopy_water, snow_water, snow_depth, snow_cover, leaf_area_index
+ real(kind=colm_r8):: soil_moisture_sum
+ real(kind=colm_r8),parameter:: colm_state_bad_value = 1.e30_colm_r8
+ real(kind=colm_r8),dimension(:),allocatable:: soil_liquid, soil_moisture, soil_temperature
  real(kind=RKIND),dimension(:),pointer:: hfx, lh, qfx, grdflx, sfcrunoff, udrunoff
  real(kind=RKIND),dimension(:),pointer:: sfc_albedo, sfc_emiss, z0, znt, qsfc, t2m, q2
- real(kind=RKIND),dimension(:),pointer:: skintemp
+ real(kind=RKIND),dimension(:),pointer:: skintemp, canwat, smstav, smstot, snow, snowc, snowh, lai
+ real(kind=RKIND),dimension(:,:),pointer:: sh2o, smois, tslb
 
  call mpas_pool_get_array(diag_physics,'hfx'       ,hfx       )
  call mpas_pool_get_array(diag_physics,'lh'        ,lh        )
@@ -302,35 +308,80 @@
  call mpas_pool_get_array(diag_physics,'qsfc'      ,qsfc      )
  call mpas_pool_get_array(diag_physics,'t2m'       ,t2m       )
  call mpas_pool_get_array(diag_physics,'q2'        ,q2        )
+ call mpas_pool_get_array(diag_physics,'canwat'    ,canwat    )
+ call mpas_pool_get_array(diag_physics,'smstav'    ,smstav    )
+ call mpas_pool_get_array(diag_physics,'smstot'    ,smstot    )
+ call mpas_pool_get_array(diag_physics,'lai'       ,lai       )
  call mpas_pool_get_array(sfc_input,'skintemp',skintemp)
+ call mpas_pool_get_array(sfc_input,'snow'    ,snow    )
+ call mpas_pool_get_array(sfc_input,'snowc'   ,snowc   )
+ call mpas_pool_get_array(sfc_input,'snowh'   ,snowh   )
+ call mpas_pool_get_array(sfc_input,'sh2o'    ,sh2o    )
+ call mpas_pool_get_array(sfc_input,'smois'   ,smois   )
+ call mpas_pool_get_array(sfc_input,'tslb'    ,tslb    )
 
-	 do i = its,ite
-	    if(colm_element_for_cell(i) <= 0) call physics_error_fatal("CoLM2024 MPAS cell-to-element map has an invalid element index.")
+ nlev = size(tslb, 1)
+ allocate(soil_liquid(nlev), soil_moisture(nlev), soil_temperature(nlev))
 
-	    call colm_mpas_get_element_surface(colm_element_for_cell(i), sensible, latent, evaporation, ground_heat, runoff, &
-	                                       surface_runoff, subsurface_runoff, skin_temp, t2m_colm, q2m_colm, &
-	                                       emissivity, roughness, albedo, ierr)
+ do i = its,ite
+    if(colm_element_for_cell(i) <= 0) call physics_error_fatal("CoLM2024 MPAS cell-to-element map has an invalid element index.")
+
+    call colm_mpas_get_element_surface(colm_element_for_cell(i), sensible, latent, evaporation, ground_heat, runoff, &
+                                       surface_runoff, subsurface_runoff, skin_temp, t2m_colm, q2m_colm, &
+                                       emissivity, roughness, albedo, ierr)
     if(ierr /= 0) call physics_error_fatal("Failed to retrieve CoLM2024 surface fluxes.")
+    call colm_mpas_get_element_state(colm_element_for_cell(i), canopy_water, snow_water, snow_depth, snow_cover, &
+                                     leaf_area_index, soil_liquid, soil_moisture, soil_temperature, ierr)
+    if(ierr /= 0) call physics_error_fatal("Failed to retrieve CoLM2024 surface state.")
 
-		    hfx(i) = real(sensible, RKIND)
-		    lh(i) = real(latent, RKIND)
-		    qfx(i) = real(evaporation, RKIND)
-		    grdflx(i) = real(ground_heat, RKIND)
-		    sfcrunoff(i) = real(surface_runoff * dt, RKIND)
-		    udrunoff(i) = real(subsurface_runoff * dt, RKIND)
-		    skintemp(i) = real(skin_temp, RKIND)
-		    t2m(i) = real(t2m_colm, RKIND)
-		    qsfc(i) = real(q2m_colm, RKIND)
-	    if(q2m_colm > 0._colm_r8 .and. q2m_colm < 1._colm_r8) then
-	       q2(i) = real(q2m_colm / (1._colm_r8 - q2m_colm), RKIND)
-	    else
-	       q2(i) = real(q2m_colm, RKIND)
-	    endif
-		    sfc_emiss(i) = real(emissivity, RKIND)
-		    z0(i) = real(roughness, RKIND)
-		    znt(i) = real(roughness, RKIND)
-		    if(albedo > 0._colm_r8 .and. albedo < 1._colm_r8) sfc_albedo(i) = real(albedo, RKIND)
+    hfx(i) = real(sensible, RKIND)
+    lh(i) = real(latent, RKIND)
+    qfx(i) = real(evaporation, RKIND)
+    grdflx(i) = real(ground_heat, RKIND)
+    sfcrunoff(i) = real(surface_runoff * dt, RKIND)
+    udrunoff(i) = real(subsurface_runoff * dt, RKIND)
+    skintemp(i) = real(skin_temp, RKIND)
+    t2m(i) = real(t2m_colm, RKIND)
+    qsfc(i) = real(q2m_colm, RKIND)
+    if(q2m_colm > 0._colm_r8 .and. q2m_colm < 1._colm_r8) then
+       q2(i) = real(q2m_colm / (1._colm_r8 - q2m_colm), RKIND)
+    else
+       q2(i) = real(q2m_colm, RKIND)
+    endif
+    sfc_emiss(i) = real(emissivity, RKIND)
+    z0(i) = real(roughness, RKIND)
+    znt(i) = real(roughness, RKIND)
+    if(albedo > 0._colm_r8 .and. albedo < 1._colm_r8) sfc_albedo(i) = real(albedo, RKIND)
+    canwat(i) = real(canopy_water, RKIND)
+    snow(i) = real(snow_water, RKIND)
+    snowh(i) = real(snow_depth, RKIND)
+    snowc(i) = real(max(0._colm_r8, min(1._colm_r8, snow_cover)), RKIND)
+    lai(i) = real(max(0._colm_r8, leaf_area_index), RKIND)
+
+    soil_moisture_sum = 0._colm_r8
+    nvalid_soil = 0
+    do ns = 1,nlev
+       if(abs(soil_liquid(ns)) < colm_state_bad_value .and. &
+          abs(soil_moisture(ns)) < colm_state_bad_value .and. &
+          abs(soil_temperature(ns)) < colm_state_bad_value) then
+          sh2o(ns,i) = real(soil_liquid(ns), RKIND)
+          smois(ns,i) = real(soil_moisture(ns), RKIND)
+          tslb(ns,i) = real(soil_temperature(ns), RKIND)
+          soil_moisture_sum = soil_moisture_sum + soil_moisture(ns)
+          nvalid_soil = nvalid_soil + 1
+       endif
+    enddo
+    if(nvalid_soil > 0) then
+       smstot(i) = real(soil_moisture_sum / real(nvalid_soil, colm_r8), RKIND)
+       if(abs(soil_moisture(1)) < colm_state_bad_value) then
+          smstav(i) = real(soil_moisture(1), RKIND)
+       else
+          smstav(i) = smstot(i)
+       endif
+    endif
  enddo
+
+ deallocate(soil_liquid, soil_moisture, soil_temperature)
 
  end subroutine colm2024_pull_mpas_surface
 #endif

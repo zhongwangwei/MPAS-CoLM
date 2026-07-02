@@ -222,32 +222,28 @@ CONTAINS
 
       IF (p_is_compute) THEN
 
-         IF (numucat > 0) THEN
+         allocate (is_built_resv (numucat))
+         allocate (wdsrf_next    (numucat))
+         allocate (veloc_next    (numucat))
+         allocate (hflux_fc      (numucat))
+         allocate (mflux_fc      (numucat))
+         allocate (zgrad_dn      (numucat))
+         allocate (sum_hflux_riv (numucat))
+         allocate (sum_mflux_riv (numucat))
+         allocate (sum_zgrad_riv (numucat))
+         allocate (ucatfilter    (numucat))
 
-            allocate (is_built_resv (numucat))
-            allocate (wdsrf_next    (numucat))
-            allocate (veloc_next    (numucat))
-            allocate (hflux_fc      (numucat))
-            allocate (mflux_fc      (numucat))
-            allocate (zgrad_dn      (numucat))
-            allocate (sum_hflux_riv (numucat))
-            allocate (sum_mflux_riv (numucat))
-            allocate (sum_zgrad_riv (numucat))
-            allocate (ucatfilter    (numucat))
+         allocate (hflux_sumups  (numucat))
+         allocate (mflux_sumups  (numucat))
+         allocate (zgrad_sumups  (numucat))
 
-            allocate (hflux_sumups  (numucat))
-            allocate (mflux_sumups  (numucat))
-            allocate (zgrad_sumups  (numucat))
-
-            IF (DEF_Reservoir_Method > 0) THEN
-               allocate (hflux_resv (numucat))
-               allocate (mflux_resv (numucat))
-            ENDIF
-
-            allocate (dt_res (numrivsys))
-            allocate (dt_all (numrivsys))
-
+         IF (DEF_Reservoir_Method > 0) THEN
+            allocate (hflux_resv (numucat))
+            allocate (mflux_resv (numucat))
          ENDIF
+
+         allocate (dt_res (max(1,numrivsys)))
+         allocate (dt_all (max(1,numrivsys)))
 
 #ifdef CoLMDEBUG
          totalrnof = sum(acc_rnof_uc)

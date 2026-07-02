@@ -1275,7 +1275,6 @@ CONTAINS
       ENDIF
 
       CALL build_mpas_embedded_local_ucats (parafile, nlon_ucat, numinpm, inpm_gdid)
-      CALL gather_mpas_embedded_ucat_addresses()
 
       CALL ncio_inquire_varsize (parafile, 'inpmat_x', varsize)
       inpn = varsize(1)
@@ -1325,27 +1324,18 @@ CONTAINS
 
 #ifdef COLM_PARALLEL
       IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-            p_comm_rivsys = p_comm_compute
-            CALL mpi_comm_size (p_comm_rivsys, p_np_rivsys, p_err)
-            rivsys_by_multiple_procs = p_np_rivsys > 1
-         ELSE
-            p_comm_rivsys = MPI_COMM_NULL
-            rivsys_by_multiple_procs = .false.
-         ENDIF
+         p_comm_rivsys = p_comm_compute
+         CALL mpi_comm_size (p_comm_rivsys, p_np_rivsys, p_err)
+         rivsys_by_multiple_procs = p_np_rivsys > 1
       ENDIF
 #else
       rivsys_by_multiple_procs = .false.
 #endif
 
       IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-            allocate (irivsys (numucat))
-            numrivsys = 1
-            irivsys(:) = 1
-         ELSE
-            numrivsys = 0
-         ENDIF
+         allocate (irivsys (numucat))
+         numrivsys = 1
+         IF (numucat > 0) irivsys(:) = 1
       ENDIF
 
       CALL readin_riverlake_parameter (parafile, 'topo_rivelv',    rdata1d = topo_rivelv   )
@@ -1517,60 +1507,6 @@ CONTAINS
 
    END SUBROUTINE build_mpas_embedded_local_ucats
 
-   ! ---------
-   SUBROUTINE gather_mpas_embedded_ucat_addresses()
-
-   USE MOD_SPMD_Task
-   IMPLICIT NONE
-
-   integer :: iworker, nrecv
-
-      allocate (numucat_wrk       (0:p_np_compute-1))
-      allocate (ucat_data_address (0:p_np_compute-1))
-      numucat_wrk(:) = 0
-
-#ifdef COLM_PARALLEL
-      IF (p_is_compute .and. (.not. p_is_root)) THEN
-         CALL mpi_send (numucat, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-         IF (numucat > 0) THEN
-            CALL mpi_send (ucat_ucid, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_err)
-         ENDIF
-      ENDIF
-
-      IF (p_is_root) THEN
-         DO iworker = 0, p_np_compute-1
-            IF (p_is_compute .and. p_address_compute(iworker) == p_iam_glb) THEN
-               nrecv = numucat
-            ELSE
-               CALL mpi_recv (nrecv, 1, MPI_INTEGER, p_address_compute(iworker), &
-                  mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-            ENDIF
-
-            numucat_wrk(iworker) = nrecv
-            allocate (ucat_data_address(iworker)%val (nrecv))
-
-            IF (nrecv > 0) THEN
-               IF (p_is_compute .and. p_address_compute(iworker) == p_iam_glb) THEN
-                  ucat_data_address(iworker)%val = ucat_ucid
-               ELSE
-                  CALL mpi_recv (ucat_data_address(iworker)%val, nrecv, MPI_INTEGER, &
-                     p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_stat, p_err)
-               ENDIF
-            ENDIF
-         ENDDO
-      ENDIF
-
-      CALL mpi_barrier (p_comm_glb, p_err)
-#else
-      numucat_wrk(0) = numucat
-      allocate (ucat_data_address(0)%val (numucat))
-      IF (numucat > 0) ucat_data_address(0)%val = ucat_ucid
-#endif
-
-   END SUBROUTINE gather_mpas_embedded_ucat_addresses
-
-   ! ---------
    SUBROUTINE build_mpas_embedded_local_topology (parafile)
 
    USE MOD_SPMD_Task
@@ -1736,6 +1672,7 @@ CONTAINS
 #else
       nucpart = nucpart_local
 #endif
+      nucpart = max(1, nucpart)
 
       allocate (idmap_uc2gd (nucpart,numinpm))
       allocate (area_uc2gd  (nucpart,numinpm))
