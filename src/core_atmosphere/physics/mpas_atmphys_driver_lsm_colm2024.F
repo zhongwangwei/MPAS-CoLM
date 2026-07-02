@@ -171,7 +171,7 @@
 	 integer:: i, k
 	 integer:: ierr
 	 real(kind=colm_r8):: aerdep(14)
-	 real(kind=colm_r8):: dt, grid_snow, hgt, oro, pbot, psrf, prc, prl, qair, rain, rhoair, snow, &
+	 real(kind=colm_r8):: dt, micro_rain, micro_snow, hgt, oro, pbot, psrf, prc, prl, qair, rain, rhoair, snow, &
 	                      solld, soll, solsd, sols, spectral_sw, swdir, swdif, tair, uair, vair
 	 real(kind=RKIND):: qv_cell
 	 real(kind=RKIND),dimension(:),pointer:: glw, swddir, swddif, swvisdir, swvisdif, swnirdir, swnirdif
@@ -228,21 +228,23 @@
 	    prc = 0._colm_r8
 	    prl = 0._colm_r8
 	    rain = 0._colm_r8
-		    snow = 0._colm_r8
+	    snow = 0._colm_r8
 
-		    if(config_convection_scheme .ne. 'off') then
-		       prc = max(0._colm_r8, real(raincv(i), colm_r8) / dt)
-		       rain = rain + prc
-		    endif
-		    if(config_microp_scheme .ne. 'off') then
-		       prl = max(0._colm_r8, real(rainncv(i), colm_r8) / dt)
-		       grid_snow = max(0._colm_r8, real(snowncv(i) + graupelncv(i), colm_r8) / dt)
-		       if(grid_snow <= 0._colm_r8 .and. sr(i) > 0._RKIND) then
-		          grid_snow = prl * min(1._colm_r8, real(sr(i), colm_r8))
-		       endif
-		       snow = min(prl, grid_snow)
-		       rain = rain + max(0._colm_r8, prl - snow)
-		    endif
+	    if(config_convection_scheme .ne. 'off') then
+	       prc = max(0._colm_r8, real(raincv(i), colm_r8) / dt)
+	       rain = rain + prc
+	    endif
+	    if(config_microp_scheme .ne. 'off') then
+	       micro_rain = max(0._colm_r8, real(rainncv(i), colm_r8) / dt)
+	       micro_snow = max(0._colm_r8, real(snowncv(i) + graupelncv(i), colm_r8) / dt)
+	       if(micro_snow <= 0._colm_r8 .and. sr(i) > 0._RKIND) then
+	          micro_snow = micro_rain * min(1._colm_r8, real(sr(i), colm_r8))
+	          micro_rain = max(0._colm_r8, micro_rain - micro_snow)
+	       endif
+	       prl = micro_rain + micro_snow
+	       rain = rain + micro_rain
+	       snow = snow + micro_snow
+	    endif
 
 	    swdir = max(0._colm_r8, real(swddir(i), colm_r8))
 	    swdif = max(0._colm_r8, real(swddif(i), colm_r8))
