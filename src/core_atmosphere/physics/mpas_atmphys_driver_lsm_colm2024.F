@@ -343,11 +343,7 @@
     skintemp(i) = real(skin_temp, RKIND)
     t2m(i) = real(t2m_colm, RKIND)
     qsfc(i) = real(q2m_colm, RKIND)
-    if(q2m_colm > 0._colm_r8 .and. q2m_colm < 1._colm_r8) then
-       q2(i) = real(q2m_colm / (1._colm_r8 - q2m_colm), RKIND)
-    else
-       q2(i) = real(q2m_colm, RKIND)
-    endif
+    q2(i) = real(q2m_colm, RKIND)
     sfc_emiss(i) = real(emissivity, RKIND)
     z0(i) = real(roughness, RKIND)
     znt(i) = real(roughness, RKIND)

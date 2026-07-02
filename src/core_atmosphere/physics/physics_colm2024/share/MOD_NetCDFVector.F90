@@ -93,22 +93,25 @@ CONTAINS
       CALL get_filename_block (filename, iblk, jblk, fileblock)
 
 #ifdef MPAS_EMBEDDED_COLM
+      write(rank_suffix,'("_mpasr",I8.8)') p_iam_glb
+      idot = len_trim(fileblock)
+      DO WHILE (idot > 0)
+         IF (fileblock(idot:idot) == '.') EXIT
+         idot = idot - 1
+      ENDDO
+
+      IF (idot > 0) THEN
+         fileblock_rank = fileblock(1:idot-1) // trim(rank_suffix) // fileblock(idot:len_trim(fileblock))
+      ELSE
+         fileblock_rank = trim(fileblock) // trim(rank_suffix)
+      ENDIF
+
       rank_local_file = .false.
       IF (present(for_write)) rank_local_file = for_write
+      IF ((.not. rank_local_file) .and. present(use_srcpos)) THEN
+         inquire(file=trim(fileblock_rank), exist=rank_local_file)
+      ENDIF
       IF (rank_local_file) THEN
-         write(rank_suffix,'("_mpasr",I8.8)') p_iam_glb
-         idot = len_trim(fileblock)
-         DO WHILE (idot > 0)
-            IF (fileblock(idot:idot) == '.') EXIT
-            idot = idot - 1
-         ENDDO
-
-         IF (idot > 0) THEN
-            fileblock_rank = fileblock(1:idot-1) // trim(rank_suffix) // fileblock(idot:len_trim(fileblock))
-         ELSE
-            fileblock_rank = trim(fileblock) // trim(rank_suffix)
-         ENDIF
-
          fileblock = fileblock_rank
          IF (present(use_srcpos)) use_srcpos = .false.
       ENDIF
@@ -191,7 +194,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -313,7 +316,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -439,7 +442,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -562,7 +565,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -686,7 +689,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -810,7 +813,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -934,7 +937,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
@@ -1059,7 +1062,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
-         IF (.not. any_data_exists) THEN
+         IF (pixelset%nset > 0 .and. .not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
                IF (.not. present(defval)) THEN
                   write(*,*) 'Warning : restart data '//trim(dataname) &
