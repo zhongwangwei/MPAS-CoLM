@@ -1,4 +1,4 @@
-# Makefile for CoLM program
+# Object list and staging rules for MPAS-embedded CoLM2024.
 
 include include/Makeoptions
 HEADER = include/define.h
