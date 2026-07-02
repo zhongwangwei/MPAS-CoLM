@@ -320,7 +320,6 @@ if(MPAS_COLM2024)
     set(COLM2024_SOURCE_SEARCH_DIRS
         include
         share
-        mksrfdata
         main
         main/HYDRO
         main/BGC

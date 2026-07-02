@@ -10,7 +10,7 @@ endif
 ifneq ($(strip $(PNETCDF_INC)),)
 INCLUDE_DIR += -I$(PNETCDF_INC)
 endif
-VPATH = include : share : mksrfdata \
+VPATH = include : share \
 	: main : main/HYDRO : main/BGC : main/URBAN : main/DA \
 	: main/ParaOpt : drivers/mpas : .bld
 
