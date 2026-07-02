@@ -1275,6 +1275,7 @@ CONTAINS
       ENDIF
 
       CALL build_mpas_embedded_local_ucats (parafile, nlon_ucat, numinpm, inpm_gdid)
+      CALL gather_mpas_embedded_ucat_addresses()
 
       CALL ncio_inquire_varsize (parafile, 'inpmat_x', varsize)
       inpn = varsize(1)

@@ -139,15 +139,10 @@ CONTAINS
 
       ENDIF
 
-#ifdef MPAS_EMBEDDED_COLM
-      ! MPAS embedded mode writes reservoir restart state from each owning rank
-      ! with resv_global_index, so no master-side global address table is needed.
-#else
 #ifdef COLM_PARALLEL
+      IF (.not. allocated(resv_data_address)) allocate (resv_data_address (0:p_np_compute-1))
+
       IF (p_is_root) THEN
-
-         allocate (resv_data_address (0:p_np_compute-1))
-
          DO iworker = 0, p_np_compute-1
 
             IF (p_address_compute(iworker) == p_iam_glb) THEN
@@ -186,7 +181,6 @@ CONTAINS
          allocate (resv_data_address(0)%val (numresv))
          resv_data_address(0)%val = resv_global_index(1:numresv)
       ENDIF
-#endif
 #endif
 
       IF (p_is_compute) THEN

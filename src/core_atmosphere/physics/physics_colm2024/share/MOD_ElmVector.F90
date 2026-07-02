@@ -68,15 +68,23 @@ CONTAINS
             numelm_worker, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
 
          IF (p_iam_compute == p_root) THEN
+#ifndef MPAS_EMBEDDED_COLM
             CALL mpi_send (numelm_worker, p_np_compute, MPI_INTEGER, &
                p_address_root, mpi_tag_size, p_comm_glb, p_err)
+#endif
          ENDIF
 
          mesg = (/p_iam_glb, numelm/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-         IF (numelm > 0) THEN
-            CALL mpi_send (indexelm, numelm, MPI_INTEGER8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+#ifdef MPAS_EMBEDDED_COLM
+         IF (.not. (p_is_root .and. p_iam_compute == p_root)) THEN
+#endif
+            CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
+            IF (numelm > 0) THEN
+               CALL mpi_send (indexelm, numelm, MPI_INTEGER8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+            ENDIF
+#ifdef MPAS_EMBEDDED_COLM
          ENDIF
+#endif
 #else
          IF (numelm > 0) THEN
             allocate (eindex_glb (numelm))
@@ -87,9 +95,11 @@ CONTAINS
 
       IF (p_is_root) THEN
 #ifdef USEMPI
+#ifndef MPAS_EMBEDDED_COLM
          allocate (numelm_worker (0:p_np_compute-1))
          CALL mpi_recv (numelm_worker, p_np_compute, MPI_INTEGER, p_address_compute(p_root), &
             mpi_tag_size, p_comm_glb, p_stat, p_err)
+#endif
 
          allocate (vec_worker_dsp (0:p_np_compute-1))
          vec_worker_dsp(0) = 0
@@ -109,6 +119,16 @@ CONTAINS
          ENDDO
 
          DO iwork = 0, p_np_compute-1
+#ifdef MPAS_EMBEDDED_COLM
+            IF (iwork == p_root) THEN
+               ndata = numelm_worker(iwork)
+               IF (ndata > 0) THEN
+                  idsp = vec_worker_dsp(iwork)
+                  eindex_glb(idsp+1:idsp+ndata) = indexelm(1:ndata)
+               ENDIF
+               CYCLE
+            ENDIF
+#endif
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 

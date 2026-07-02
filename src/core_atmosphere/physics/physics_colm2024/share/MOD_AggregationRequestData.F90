@@ -72,6 +72,10 @@ CONTAINS
 
    logical,  allocatable :: compute_done (:)
 
+#ifdef MPAS_EMBEDDED_COLM
+      RETURN
+#endif
+
       IF (p_is_active) THEN
 
          allocate (compute_done (0:p_np_compute-1))
@@ -471,7 +475,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
 
       allocate (ipt (totalreq))
       allocate (msk (totalreq))
@@ -648,6 +652,10 @@ CONTAINS
    IMPLICIT NONE
 
    integer :: smesg(2), iproc, idest
+
+#ifdef MPAS_EMBEDDED_COLM
+      RETURN
+#endif
 
       IF (p_is_compute) THEN
          DO iproc = 0, p_np_active-1

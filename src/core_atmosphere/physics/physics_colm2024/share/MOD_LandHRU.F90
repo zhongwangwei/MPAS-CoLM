@@ -76,6 +76,37 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
+#ifdef MPAS_EMBEDDED_COLM
+      IF (p_is_root) THEN
+         ncat = size(numhru_all_g)
+      ELSE
+         ncat = 0
+      ENDIF
+      CALL mpi_bcast (ncat, 1, MPI_INTEGER, p_root, p_comm_glb, p_err)
+      IF (.not. p_is_root) THEN
+         allocate (numhru_all_g(ncat))
+         allocate (lakeid(ncat))
+      ENDIF
+      CALL mpi_bcast (numhru_all_g, ncat, MPI_INTEGER, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (lakeid, ncat, MPI_INTEGER, p_root, p_comm_glb, p_err)
+
+      IF (p_is_compute) THEN
+         IF (numelm > 0) THEN
+            allocate (catnum(numelm))
+            allocate (ibuff(numelm))
+            catnum = landelm%eindex
+            numhru = sum(numhru_all_g(catnum))
+            ibuff = lakeid(catnum)
+            deallocate (lakeid)
+            allocate (lakeid(numelm))
+            lakeid = ibuff
+            deallocate (catnum)
+            deallocate (ibuff)
+         ELSE
+            numhru = 0
+         ENDIF
+      ENDIF
+#else
       IF (p_is_root) THEN
          DO iwork = 0, p_np_compute-1
 
@@ -114,13 +145,12 @@ CONTAINS
             numhru = 0
          ENDIF
       ENDIF
+#endif
 #else
       numhru = sum(numhru_all_g)
 #endif
 
-      IF (p_is_root) THEN
-         IF (allocated(numhru_all_g)) deallocate(numhru_all_g)
-      ENDIF
+      IF (allocated(numhru_all_g)) deallocate(numhru_all_g)
 
       IF (p_is_active) CALL allocate_block_data (grid_hru, hrudata)
       CALL catchment_data_read (DEF_CatchmentMesh_data, 'ihydrounit2d', grid_hru, hrudata)

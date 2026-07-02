@@ -148,7 +148,7 @@ CONTAINS
             wfmt = "('Check block  data:', A25, ' is in (', e20.10, ',', e20.10, ')', A)"
             write(str_print,wfmt) varname, gmin, gmax, trim(exception)
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
@@ -158,7 +158,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_active(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_active(p_root), &
@@ -272,7 +272,7 @@ CONTAINS
             wfmt = "('Check vector data:', A25, ' is in (', e20.10, ',', e20.10, ')', A)"
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
@@ -282,7 +282,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
@@ -397,7 +397,7 @@ CONTAINS
             wfmt = "('Check vector data:', A25, ' is in (', e20.10, ',', e20.10, ')', A)"
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
@@ -407,7 +407,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
@@ -525,7 +525,7 @@ CONTAINS
             wfmt = "('Check vector data:', A25, ' is in (', e20.10, ',', e20.10, ')', A)"
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
@@ -535,7 +535,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
@@ -655,7 +655,7 @@ CONTAINS
             wfmt = "('Check vector data:', A25, ' is in (', e20.10, ',', e20.10, ')', A)"
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
@@ -665,7 +665,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
@@ -864,7 +864,7 @@ CONTAINS
          IF (p_iam_compute == p_root) THEN
             wfmt = "('Check vector data:', A25, ' is in (', I20, ',', I20, ')')"
             write(str_print,wfmt) varname, vmin, vmax
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
             CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
@@ -872,7 +872,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
          CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
