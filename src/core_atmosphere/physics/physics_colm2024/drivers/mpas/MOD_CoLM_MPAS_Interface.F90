@@ -472,7 +472,7 @@ CONTAINS
             old_to_new(i) = packed_count
          ENDIF
       ENDDO
-      IF (packed_count < 1) RETURN
+      IF (packed_count /= n_mpas_cells) RETURN
 
       CALL colm_mpas_pack_mesh(keep_elm, old_to_new)
       CALL landelm%pset_pack(keep_elm, packed_count)

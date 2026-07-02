@@ -87,26 +87,31 @@ CONTAINS
    character(len=256) :: fileblock_rank
    character(len=32) :: rank_suffix
    integer :: idot
+   logical :: rank_local_file
 #endif
 
       CALL get_filename_block (filename, iblk, jblk, fileblock)
 
 #ifdef MPAS_EMBEDDED_COLM
-      write(rank_suffix,'("_mpasr",I8.8)') p_iam_glb
-      idot = len_trim(fileblock)
-      DO WHILE (idot > 0)
-         IF (fileblock(idot:idot) == '.') EXIT
-         idot = idot - 1
-      ENDDO
+      rank_local_file = .false.
+      IF (present(for_write)) rank_local_file = for_write
+      IF (rank_local_file) THEN
+         write(rank_suffix,'("_mpasr",I8.8)') p_iam_glb
+         idot = len_trim(fileblock)
+         DO WHILE (idot > 0)
+            IF (fileblock(idot:idot) == '.') EXIT
+            idot = idot - 1
+         ENDDO
 
-      IF (idot > 0) THEN
-         fileblock_rank = fileblock(1:idot-1) // trim(rank_suffix) // fileblock(idot:len_trim(fileblock))
-      ELSE
-         fileblock_rank = trim(fileblock) // trim(rank_suffix)
+         IF (idot > 0) THEN
+            fileblock_rank = fileblock(1:idot-1) // trim(rank_suffix) // fileblock(idot:len_trim(fileblock))
+         ELSE
+            fileblock_rank = trim(fileblock) // trim(rank_suffix)
+         ENDIF
+
+         fileblock = fileblock_rank
+         IF (present(use_srcpos)) use_srcpos = .false.
       ENDIF
-
-      fileblock = fileblock_rank
-      IF (present(use_srcpos)) use_srcpos = .false.
 #endif
 
    END SUBROUTINE get_filename_vector_block

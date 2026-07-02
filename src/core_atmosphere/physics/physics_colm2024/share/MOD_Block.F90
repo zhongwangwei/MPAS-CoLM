@@ -252,7 +252,14 @@ CONTAINS
          write (*,*)
       ENDIF
 
+#ifdef MPAS_EMBEDDED_COLM
+      IF (allocated(this%pio)) deallocate(this%pio)
+      allocate (this%pio (this%nxblk,this%nyblk))
+      this%pio(:,:) = -1
+      this%nblkme = 0
+#else
       CALL this%read_pio (dir_landdata)
+#endif
 
    END SUBROUTINE block_load_from_file
 

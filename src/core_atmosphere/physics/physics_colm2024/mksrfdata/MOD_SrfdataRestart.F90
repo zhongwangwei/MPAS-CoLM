@@ -447,7 +447,9 @@ CONTAINS
 #endif
 
 #ifdef USEMPI
+#ifndef MPAS_EMBEDDED_COLM
       CALL scatter_mesh_from_io_to_worker
+#endif
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
@@ -694,7 +696,7 @@ CONTAINS
       ENDIF
 
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
       IF (p_is_active) THEN
          IF (pixelset%nset > 0) THEN
             allocate (iworker (pixelset%nset))
