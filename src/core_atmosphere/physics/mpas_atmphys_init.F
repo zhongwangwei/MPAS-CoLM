@@ -23,6 +23,7 @@
  use mpas_atmphys_landuse
  use mpas_atmphys_o3climatology
  use mpas_atmphys_lsm_noahmpinit,only: init_lsm_noahmp
+ use mpas_atmphys_driver_lsm_colm2024,only: init_lsm_colm2024
 
  use bl_ugwpv1_ngw, only: ugwpv1_ngw_init
 
@@ -74,7 +75,7 @@
 ! * added call to subroutine init_lsm_noahmp to initialize the Noah-MP land surface scheme.
 !   Laura D. Fowler (laura@ucar.edu) / 2024-03-11.
 ! * added initialization of the integer variable mp_top_level to the physics_init code.
-!   Bill Skamarock / 2025-10-17 
+!   Bill Skamarock / 2025-10-17
 
  contains
 
@@ -158,7 +159,7 @@ use mpas_stream_manager
  type(MPAS_Time_Type):: currTime
 
  logical:: init_done
- integer:: ierr,julday 
+ integer:: ierr,julday
  integer:: iCell,iLag,k
  real(kind=RKIND):: layer_height
 
@@ -420,6 +421,8 @@ use mpas_stream_manager
        call init_lsm(dminfo,mesh,configs,diag_physics,sfc_input)
     elseif(config_lsm_scheme .eq. 'sf_noahmp') then
        call init_lsm_noahmp(configs,mesh,clock,diag_physics,diag_physics_noahmp,output_noahmp,sfc_input)
+    elseif(config_lsm_scheme .eq. 'sf_colm2024') then
+       call init_lsm_colm2024(dminfo,configs,mesh,diag_physics,sfc_input)
     endif
  endif
 
@@ -437,7 +440,7 @@ use mpas_stream_manager
 !initialization of longwave radiation processes: if we run the CAM radiation codes, the initia
 !lization of the longwave and shortwave parameterizations is the same, and needs to be called
 !only once:
- if(config_radt_lw_scheme.ne.'off') then    
+ if(config_radt_lw_scheme.ne.'off') then
     if(trim(config_radt_lw_scheme) .eq. 'cam_lw') then
        if(.not. init_done) then
           call init_radiation_lw(dminfo,configs,mesh,atm_input,diag,diag_physics,state,time_lev)

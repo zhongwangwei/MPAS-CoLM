@@ -1,0 +1,9 @@
+# MPAS-embedded CoLM2024 defaults.
+# The parent MPAS build passes FF/FOPTS into this submake, just as it does for
+# Noah-MP. These values only keep a direct `make mpas_objects` usable.
+
+FF ?= mpif90
+FOPTS ?= -ffree-form -cpp -ffree-line-length-0 -fallow-argument-mismatch
+NF_CONFIG ?= nf-config
+NETCDF_INC ?= $(shell $(NF_CONFIG) --includedir 2>/dev/null || nc-config --includedir)
+MOD_CMD ?= -J

@@ -10037,6 +10037,7 @@ CONTAINS
                        swupb,swupbc,swdnb,swdnbc,                      &
                        swupflx, swupflxc, swdnflx, swdnflxc,           &
                        swddir,swddni,swddif,                           &
+                       swvisdir,swvisdif,swnirdir,swnirdif,            &
                        ids,ide, jds,jde, kds,kde,                      & 
                        ims,ime, jms,jme, kms,kme,                      &
                        its,ite, jts,jte, kts,kte                       &
@@ -10085,7 +10086,7 @@ CONTAINS
 
 !--- output arguments:
   real,intent(out),dimension(ims:ime,jms:jme),optional:: &
-     swddir,swddni,swddif
+     swddir,swddni,swddif,swvisdir,swvisdif,swnirdir,swnirdif
   real,intent(out),dimension(ims:ime,kms:kme+2,jms:jme ),optional:: &
      swupflx,swupflxc,swdnflx,swdnflxc
 
@@ -10625,6 +10626,14 @@ CONTAINS
              swddif(i,j)  = swdkdif(1,1)          ! jararias 2013/08/10
           endif
 
+          if(present(swvisdir) .and. present(swvisdif) .and. &
+             present(swnirdir) .and. present(swnirdif)) then
+             swvisdir(i,j) = sibvisdir(1,1)
+             swvisdif(i,j) = sibvisdif(1,1)
+             swnirdir(i,j) = sibnirdir(1,1)
+             swnirdif(i,j) = sibnirdif(1,1)
+          endif
+
           if(present (swupflx)) then
              do k = kts, kte+2
                 swupflx(i,k,j)  = swuflx(1,k)
@@ -10653,6 +10662,20 @@ CONTAINS
              swupbc(i,j)    = 0.
              swdnb(i,j)     = 0.
              swdnbc(i,j)    = 0.
+          endif
+
+          if(present(swddir) .and. present(swddni) .and. present(swddif)) then
+             swddir(i,j) = 0.
+             swddni(i,j) = 0.
+             swddif(i,j) = 0.
+          endif
+
+          if(present(swvisdir) .and. present(swvisdif) .and. &
+             present(swnirdir) .and. present(swnirdif)) then
+             swvisdir(i,j) = 0.
+             swvisdif(i,j) = 0.
+             swnirdir(i,j) = 0.
+             swnirdif(i,j) = 0.
           endif
 
        endif

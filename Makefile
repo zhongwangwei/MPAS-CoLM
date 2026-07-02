@@ -1029,6 +1029,13 @@ endif # END OF GIT DESCRIBE VERSION
 ####################################################
 # Section for adding external libraries and includes
 ####################################################
+ifeq "$(COLM2024)" "true"
+COLM2024_DIR ?= $(PWD)/src/core_atmosphere/physics/physics_colm2024
+override CPPFLAGS += -DMPAS_COLM2024
+COLM2024_MESSAGE = "MPAS was built with CoLM2024 from $(COLM2024_DIR)."
+else
+COLM2024_MESSAGE = "MPAS was not built with CoLM2024."
+endif
 ifdef MPAS_EXTERNAL_LIBS
 	override LIBS += $(MPAS_EXTERNAL_LIBS)
 endif
@@ -1573,6 +1580,7 @@ mpas_main: $(MAIN_DEPS)
 	@echo $(OPENMP_OFFLOAD_MESSAGE)
 	@echo $(OPENACC_MESSAGE)
 	@echo $(MUSICA_MESSAGE)
+	@echo $(COLM2024_MESSAGE)
 	@echo $(SCOTCH_MESSAGE)
 	@echo $(SHAREDLIB_MESSAGE)
 ifeq "$(AUTOCLEAN)" "true"
@@ -1648,4 +1656,3 @@ errmsg:
 ifdef CORE
 	exit 1
 endif
-

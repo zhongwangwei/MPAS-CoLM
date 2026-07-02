@@ -52,7 +52,7 @@
 ! * renamed "kain_fritsch" to "cu_kain_fritsch" and "tiedtke" to "cu_tiedtke".
 !   Laura D. Fowler (laura@ucar.edu) / 2016-03-22.
 ! * renamed "ysu" to "bl_ysu", "ysu_gwdo" to "bl_gwdo_ysu", and "monin_obukhov" to "sf_monin_obukhov".
-!   Laura D. Fowler (laura@ucar.edu) / 2016-03-25. 
+!   Laura D. Fowler (laura@ucar.edu) / 2016-03-25.
 ! * added the option mp_thompson.
 !   Laura D. Fowler (laura@ucar.edu) / 2016-03-25.
 ! * added the option cu_grell_freitas.
@@ -224,7 +224,7 @@
  if(.not. (config_radt_lw_scheme .eq. 'off'    .or. &
            config_radt_lw_scheme .eq. 'cam_lw' .or. &
            config_radt_lw_scheme .eq. 'rrtmg_lw')) then
- 
+
     write(mpas_err_message,'(A,A20)') 'illegal value for longwave radiation scheme: ', &
           trim(config_radt_lw_scheme)
     call physics_error_fatal(mpas_err_message)
@@ -235,7 +235,7 @@
  if(.not. (config_radt_sw_scheme .eq. 'off'    .or. &
            config_radt_sw_scheme .eq. 'cam_sw' .or. &
            config_radt_sw_scheme .eq. 'rrtmg_sw')) then
- 
+
     write(mpas_err_message,'(A,A20)') 'illegal value for shortwave radiation _scheme: ', &
           trim(config_radt_sw_scheme)
     call physics_error_fatal(mpas_err_message)
@@ -272,7 +272,7 @@
            config_sfclayer_scheme .eq. 'sf_mynn'          .or. &
            config_sfclayer_scheme .eq. 'sf_monin_obukhov' .or. &
            config_sfclayer_scheme .eq. 'sf_monin_obukhov_rev')) then
- 
+
     write(mpas_err_message,'(A,A20)') 'illegal value for surface layer scheme: ', &
           trim(config_sfclayer_scheme)
     call physics_error_fatal(mpas_err_message)
@@ -292,14 +292,15 @@
 !land-surface scheme: note that config_sfclayer_scheme must be defined for the land-surface
 !scheme to be called:
  if(config_lsm_scheme .ne. 'off' .and. config_sfclayer_scheme .eq. 'off') then
- 
+
     call physics_error_fatal('land surface scheme: ' // &
                              'set config_sfclayer_scheme different than off')
-    
+
  elseif(.not. (config_lsm_scheme .eq. 'off '    .or. &
                config_lsm_scheme .eq. 'sf_noah' .or. &
-               config_lsm_scheme .eq. 'sf_noahmp')) then
- 
+               config_lsm_scheme .eq. 'sf_noahmp' .or. &
+               config_lsm_scheme .eq. 'sf_colm2024')) then
+
     write(mpas_err_message,'(A,A20)') 'illegal value for land surface scheme: ', &
           trim(config_lsm_scheme)
     call physics_error_fatal(mpas_err_message)
@@ -308,7 +309,7 @@
 
 !checks if any physics process is called. if not, return:
  moist_physics = .true.
- 
+
  if(config_microp_scheme     .eq. 'off' .and. &
     config_convection_scheme .eq. 'off' .and. &
     config_lsm_scheme        .eq. 'off' .and. &
@@ -379,9 +380,9 @@
           enddo
 
        case default
-    
+
     end select lsm_select
-    
+
  endif
 
 !call mpas_log_write('--- enter subroutine physics_namelist_check.')
@@ -535,4 +536,3 @@
 !=================================================================================================================
  end module mpas_atmphys_control
 !=================================================================================================================
-

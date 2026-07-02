@@ -15,9 +15,10 @@
  use mpas_atmphys_driver_gwdo
  use mpas_atmphys_driver_lsm
  use mpas_atmphys_driver_lsm_noahmp
+ use mpas_atmphys_driver_lsm_colm2024,only: driver_lsm_colm2024
  use mpas_atmphys_driver_pbl
  use mpas_atmphys_driver_radiation_lw
- use mpas_atmphys_driver_radiation_sw 
+ use mpas_atmphys_driver_radiation_sw
  use mpas_atmphys_driver_seaice,only: allocate_seaice,deallocate_seaice,driver_seaice
  use mpas_atmphys_driver_sfclayer
  use mpas_atmphys_driver_oml
@@ -169,12 +170,12 @@
  call mpas_pool_get_config(domain%configs,'config_sfclayer_scheme'  ,config_sfclayer_scheme  )
  call mpas_pool_get_config(domain%configs,'config_bucket_radt'      ,config_bucket_radt      )
  call mpas_pool_get_config(domain%configs,'config_bucket_update'    ,config_bucket_update    )
- call mpas_pool_get_config(domain%configs,'config_frac_seaice'      ,config_frac_seaice      ) 
+ call mpas_pool_get_config(domain%configs,'config_frac_seaice'      ,config_frac_seaice      )
  call mpas_pool_get_config(domain%configs,'config_oml1d'            ,config_oml1d            )
 
  if(config_convection_scheme .ne. 'off' .or. &
     config_lsm_scheme        .ne. 'off' .or. &
-    config_pbl_scheme        .ne. 'off' .or. & 
+    config_pbl_scheme        .ne. 'off' .or. &
     config_radt_lw_scheme    .ne. 'off' .or. &
     config_radt_sw_scheme    .ne. 'off' .or. &
     config_sfclayer_scheme   .ne. 'off') then
@@ -297,6 +298,10 @@
                                     diag_physics_noahmp,output_noahmp,sfc_input,itimestep, &
                                     cellSolveThreadStart(thread),cellSolveThreadEnd(thread))
           enddo
+       elseif(config_lsm_scheme == 'sf_colm2024') then
+          call driver_lsm_colm2024(block%configs,mesh,state,time_lev,diag,diag_physics, &
+                                   sfc_input,itimestep,cellSolveThreadStart(1),         &
+                                   cellSolveThreadEnd(nThreads))
        endif
 
        call allocate_seaice(block%configs)
@@ -372,7 +377,7 @@
     call deallocate_forall_physics(block%configs)
 
     block => block % next
- end do 
+ end do
 
  endif
 
