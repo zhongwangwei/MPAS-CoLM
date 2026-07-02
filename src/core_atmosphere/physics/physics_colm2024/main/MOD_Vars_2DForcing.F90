@@ -51,7 +51,7 @@ CONTAINS
 
    type(grid_type), intent(in) :: grid
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL allocate_block_data (grid, forc_xy_pco2m ) ! CO2 concentration in atmos. (pascals)
          CALL allocate_block_data (grid, forc_xy_po2m  ) ! O2 concentration in atmos. (pascals)

@@ -58,7 +58,7 @@ CONTAINS
    integer :: numwmo
 
       write(cyear,'(i4.4)') lc_year
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making land 2 m wmo patches:'
       ENDIF
 
@@ -66,7 +66,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          numset = numelm
 
@@ -208,9 +208,9 @@ CONTAINS
       IF (allocated (locpth  )) deallocate (locpth  )
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', npatch_glb, ' patches.'
          ENDIF
       ENDIF

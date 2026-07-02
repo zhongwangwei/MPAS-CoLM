@@ -86,18 +86,18 @@ CONTAINS
 
       CALL grid_crop%define_by_center (lat, lon)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_crop, f_xy_crop)
       ENDIF
 
       ! missing value
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_get_attr (file_crop, 'pdrice2', 'missing_value', missing_value)
       ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (missing_value, 1, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (missing_value, 1, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #endif
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_crop, 'pdrice2', grid_crop, f_xy_crop)
       ENDIF
 
@@ -110,7 +110,7 @@ CONTAINS
       IF (allocated(lon)) deallocate(lon)
       IF (allocated(lat)) deallocate(lat)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0)  allocate(pdrice2_tmp    (numpatch))
          IF (numpft   > 0)  allocate(plantdate_tmp    (numpft))
          IF (numpft   > 0)  allocate(fertnitro_tmp    (numpft))
@@ -119,13 +119,13 @@ CONTAINS
 
       ! (1) Read in plant date for rice2.
       file_crop = trim(DEF_dir_runtime) // '/crop/plantdt-colm-64cfts-rice2_fillcoast.nc'
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_crop, 'pdrice2', grid_crop, f_xy_crop)
       ENDIF
 
       CALL mg2patch_crop%grid2pset (f_xy_crop, pdrice2_tmp)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO npatch = 1, numpatch
             IF (pdrice2_tmp(npatch) /= spval) THEN
                pdrice2 (npatch) = int(pdrice2_tmp (npatch))
@@ -140,21 +140,21 @@ CONTAINS
 #endif
 
       ! (2) Read in plant date.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) plantdate_p(:) = -99999999._r8
       ENDIF
 
       file_crop = trim(DEF_dir_runtime) // '/crop/plantdt-colm-64cfts-rice2_fillcoast.nc'
       DO cft = 15, 78
          write(cx, '(i2.2)') cft
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL ncio_read_block_time (file_crop, &
                'PLANTDATE_CFT_'//trim(cx), grid_crop, 1, f_xy_crop)
          ENDIF
 
          CALL mg2pft_crop%grid2pset (f_xy_crop, plantdate_tmp)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO ipft = 1, numpft
                IF(landpft%settyp(ipft) .eq. cft)THEN
                   plantdate_p(ipft) = plantdate_tmp(ipft)
@@ -172,21 +172,21 @@ CONTAINS
 
       ! (3) Read in fertlization
       IF (DEF_FERT_SOURCE == 1) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpft > 0) fertnitro_p(:) = -99999999._r8
          ENDIF
 
          file_fert = trim(DEF_dir_runtime) // '/crop/fertnitro_fillcoast.nc'
          DO cft = 15, 78
             write(cx, '(i2.2)') cft
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL ncio_read_block_time (file_fert, &
                   'CONST_FERTNITRO_CFT_'//trim(cx), grid_crop, 1, f_xy_crop)
             ENDIF
 
             CALL mg2pft_crop%grid2pset (f_xy_crop, fertnitro_tmp)
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                DO ipft = 1, numpft
                   IF(landpft%settyp(ipft) .eq. cft)THEN
                      fertnitro_p(ipft) = fertnitro_tmp(ipft)
@@ -199,7 +199,7 @@ CONTAINS
          ENDDO
 
       ELSEIF (DEF_FERT_SOURCE == 2)THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpft > 0) THEN
                allocate(fertilizer_tmp(numpft))
                allocate(manure_tmp(numpft))
@@ -212,7 +212,7 @@ CONTAINS
          CALL ncio_read_bcast_serial (file_fert, 'lon', lon)
          CALL grid_fert%define_by_center (lat, lon)
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL allocate_block_data (grid_fert, f_xy_fert)
          ENDIF
 
@@ -221,19 +221,19 @@ CONTAINS
          IF (allocated(lon)) deallocate(lon)
          IF (allocated(lat)) deallocate(lat)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             fertnitro_p(:) = -99999999._r8
             manunitro_p(:) = -99999999._r8
          ENDIF
 
          ! read manure
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL ncio_read_block (file_fert, 'manure', grid_fert, f_xy_fert)
          ENDIF
 
          CALL mg2pft_fert%grid2pset (f_xy_fert, manure_tmp)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO ipft = 1, numpft
                IF (landpft%settyp(ipft) .ge. 15) THEN
                   manunitro_p(ipft) = manure_tmp(ipft)
@@ -246,13 +246,13 @@ CONTAINS
 
          ! read fertilizer
          DO cft = 1, 64
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL ncio_read_block_time (file_fert, 'fertilizer', grid_fert, cft, f_xy_fert)
             ENDIF
 
             CALL mg2pft_fert%grid2pset (f_xy_fert, fertilizer_tmp)
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                DO ipft = 1, numpft
                   IF (landpft%settyp(ipft) .eq. cft+14) THEN
                      fertnitro_p(ipft) = fertilizer_tmp(ipft)
@@ -281,7 +281,7 @@ CONTAINS
 
       CALL grid_irrig%define_by_center (lat, lon)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_irrig, f_xy_irrig)
       ENDIF
 
@@ -290,18 +290,18 @@ CONTAINS
       IF (allocated(lon)) deallocate(lon)
       IF (allocated(lat)) deallocate(lat)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) irrig_method_p(:) = -99999999
       ENDIF
 
       DO cft = 1, N_CFT
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL ncio_read_block_time (file_irrig, 'irrigation_method', grid_irrig, cft, f_xy_irrig)
          ENDIF
 
          CALL mg2pft_irrig%grid2pset_dominant (f_xy_irrig, irrig_method_tmp)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO ipft = 1, numpft
 
                IF(landpft%settyp(ipft) .eq. cft + 14)THEN
@@ -332,7 +332,7 @@ CONTAINS
 
          CALL grid_irrigalloc%define_by_center (lat, lon)
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL allocate_block_data (grid_irrigalloc, f_xy_irrigalloc)
          ENDIF
 
@@ -341,11 +341,11 @@ CONTAINS
          IF (allocated(lon)) deallocate(lon)
          IF (allocated(lat)) deallocate(lat)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             irrig_gw_alloc(:) = 0._r8
          ENDIF
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL ncio_read_block (file_irrigalloc, 'irrig_gw_alloc', grid_irrigalloc, f_xy_irrigalloc)
          ENDIF
 
@@ -356,11 +356,11 @@ CONTAINS
 #endif
 
          ! (6) Read in irrigation allocated to surfacewater
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             irrig_sw_alloc(:) = 0._r8
          ENDIF
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL ncio_read_block (file_irrigalloc, 'irrig_sw_alloc', grid_irrigalloc, f_xy_irrigalloc)
          ENDIF
 

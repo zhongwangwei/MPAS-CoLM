@@ -49,7 +49,7 @@ CONTAINS
    USE MOD_Catch_BasinNetwork, only: numbasin, numbsnhru
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
             allocate (xsubs_pch (numpatch)) ; xsubs_pch (:) = spval

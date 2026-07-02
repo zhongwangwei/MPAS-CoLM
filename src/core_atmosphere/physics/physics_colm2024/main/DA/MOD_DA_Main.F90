@@ -47,7 +47,7 @@ CONTAINS
    ENDIF
 
    IF (DEF_DA_SM) THEN
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          print *, '[CoLM-DA] initialize surface soil moisture & temperature data assimilation.'
       ENDIF
       CALL init_DA_SM ()
@@ -89,7 +89,7 @@ CONTAINS
 !#############################################################################
 ! Generate ensemble members
 !#############################################################################
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 
             !  store the non-DA trajectory
             z_sno_noda        = z_sno
@@ -323,7 +323,7 @@ CONTAINS
 
          ! data assimilation
          IF (DEF_DA_SM) THEN
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                 print *, '[CoLM-DA] Start surface soil moisture & temperature data assimilation.'
             ENDIF
             CALL mpi_barrier (p_comm_glb, p_err)
@@ -335,7 +335,7 @@ CONTAINS
 ! Use ensemble mean for important outputs
 !#############################################################################
       IF ((DEF_DA_SM) .and. (DEF_DA_ENS_NUM > 1))THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO np = 1, numpatch
                   ! important state variables

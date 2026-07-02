@@ -39,11 +39,11 @@ CONTAINS
    ! Local Variables
    integer :: ielm, nelm_glb
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making land elements:'
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (landelm%eindex (numelm))
          allocate (landelm%ipxstt (numelm))
@@ -67,9 +67,9 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', nelm_glb, ' elements.'
          ENDIF
       ENDIF

@@ -162,7 +162,7 @@ CONTAINS
 
       CALL metread_latlon (dir_forcing, idate)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (allocated(forcn   )) deallocate(forcn   )
          IF (allocated(forcn_LB)) deallocate(forcn_LB)
@@ -187,7 +187,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             allocate (forcmask_pch(numpatch));  forcmask_pch(:) = .true.
          ENDIF
@@ -200,12 +200,12 @@ CONTAINS
          filename = trim(dir_forcing)//trim(metfilename(year, month, day, 1))
          tstamp_LB(1) = timestamp(-1, -1, -1)
 
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
             CALL ncio_get_attr (filename, vname(1), trim(DEF_forcing%missing_value_name), &
                                 forc_missing_value)
          ENDIF
 #ifdef USEMPI
-         CALL mpi_bcast (forc_missing_value, 1, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+         CALL mpi_bcast (forc_missing_value, 1, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #endif
 
          CALL ncio_read_block_time (filename, vname(1), gforc, time_i, metdata)
@@ -224,21 +224,21 @@ CONTAINS
          CALL mg2p_forc%set_missing_value (metdata, forc_missing_value, forcmask_pch)
       ENDIF
 
-      IF (p_is_worker .and. (numpatch > 0)) THEN
+      IF (p_is_compute .and. (numpatch > 0)) THEN
         forc_topo = elvmean
         WHERE(forc_topo == spval) forc_topo = 0.
       ENDIF
 
       IF ((DEF_USE_Forcing_Downscaling).or.(DEF_USE_Forcing_Downscaling_Simple)) THEN
 
-         IF (p_is_io) CALL allocate_block_data (gforc, topo_grid)
+         IF (p_is_active) CALL allocate_block_data (gforc, topo_grid)
          CALL mg2p_forc%pset2grid (forc_topo, topo_grid, msk = patchmask)
 
-         IF (p_is_io) CALL allocate_block_data (gforc, areagrid)
+         IF (p_is_active) CALL allocate_block_data (gforc, areagrid)
          CALL mg2p_forc%get_sumarea(areagrid, patchmask)
          CALL block_data_division (topo_grid, areagrid)
 
-         IF (p_is_io) CALL allocate_block_data (gforc, maxelv_grid)
+         IF (p_is_active) CALL allocate_block_data (gforc, maxelv_grid)
          CALL mg2p_forc%pset2grid_max (forc_topo, maxelv_grid, msk = patchmask)
 
 
@@ -273,7 +273,7 @@ CONTAINS
          CALL mg2p_forc%grid2part (topo_grid,   forc_topo_grid  )
          CALL mg2p_forc%grid2part (maxelv_grid, forc_maxelv_grid)
 
-         IF (p_is_worker .and. (numpatch > 0)) THEN
+         IF (p_is_compute .and. (numpatch > 0)) THEN
             allocate (glacierss(numpatch))
             glacierss(:) = patchtype(:) == 3
          ENDIF
@@ -334,7 +334,7 @@ CONTAINS
       IF (allocated(tstamp_UB   )) deallocate(tstamp_UB   )
 
       IF ((DEF_USE_Forcing_Downscaling).or.(DEF_USE_Forcing_Downscaling_Simple)) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                CALL mg2p_forc%deallocate_part (forc_topo_grid  )
@@ -429,7 +429,7 @@ CONTAINS
    real(r8), dimension(12, numpatch) :: spaceship !NOTE: 12 is the dimension size of spaceship
    integer target_server, ierr
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          !------------------------------------------------------------
          ! READ in THE ATMOSPHERIC FORCING
          ! read lower and upper boundary forcing data
@@ -686,7 +686,7 @@ CONTAINS
          CALL mg2p_forc%grid2pset (forc_xy_pbot ,  forc_pbot )
          CALL mg2p_forc%grid2pset (forc_xy_frl  ,  forc_frl  )
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 
             DO np = 1, numpatch
 
@@ -751,7 +751,7 @@ CONTAINS
 
          calday = calendarday(idate)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO np = 1, numpatch ! patches
 
                ! calculate albedo of each patches
@@ -874,14 +874,14 @@ CONTAINS
          CALL mg2p_forc%part2pset (forc_us_part,     forc_us    )
          CALL mg2p_forc%part2pset (forc_vs_part,     forc_vs    )
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                forc_psrf = forc_pbot
             ENDIF
          ENDIF
 
          ! wind downscaling
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (DEF_USE_Forcing_Downscaling) THEN
                DO np = 1, numpatch
                   IF ((forc_us(np)==spval).or.(forc_vs(np)==spval)) cycle
@@ -904,7 +904,7 @@ CONTAINS
             ! Sisi Chen, Lu Li, Yongjiu Dai et al., 2024, JGR
             ! Using MPI to pass the forcing variable field to Python to
             ! accomplish precipitation downscaling
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                spaceship(1,1:numpatch) = forc_topo
                spaceship(2,1:numpatch) = forc_t
                spaceship(3,1:numpatch) = forc_pbot
@@ -928,7 +928,7 @@ CONTAINS
          ENDIF
 
          ! mapping forc_prl to forc_prl_part, forc_prc to forc_prc_part
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO np = 1, numpatch ! patches
                DO ipart = 1, mg2p_forc%npart(np) ! part loop of each patch
                   IF (mg2p_forc%areapart(np)%val(ipart) == 0.) CYCLE
@@ -956,7 +956,7 @@ CONTAINS
 #endif
 
          ! divide fractions of downscaled shortwave radiation
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO j = 1, numpatch
                   a = forc_swrad(j)
                   IF (isnan_ud(a)) a = 0
@@ -990,7 +990,7 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      IF (p_is_master) write(*,'(/, A20)') 'Checking forcing ...'
+      IF (p_is_root) write(*,'(/, A20)') 'Checking forcing ...'
 
       CALL check_vector_data ('Forcing us    [m/s]   ', forc_us   )
       CALL check_vector_data ('Forcing vs    [m/s]   ', forc_vs   )

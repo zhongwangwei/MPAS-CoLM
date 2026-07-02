@@ -93,7 +93,7 @@ CONTAINS
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
             allocate (fveg_urb             (numurban))
             allocate (htop_urb             (numurban))
@@ -288,7 +288,7 @@ CONTAINS
 
       ! deallocate (urbclass  )
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
             deallocate (fveg_urb     )
             deallocate (htop_urb     )

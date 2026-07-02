@@ -498,7 +498,7 @@ CONTAINS
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
 
             allocate (a_us        (numpatch))
@@ -978,7 +978,7 @@ CONTAINS
       CALL allocate_LakeAccVars
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
       ENDIF
 
@@ -991,7 +991,7 @@ CONTAINS
    USE MOD_LandUrban, only: numurban
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
 
             deallocate (a_us     )
@@ -1484,7 +1484,7 @@ CONTAINS
       USE MOD_Vars_Global, only: spval
       IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          nac = 0
 
@@ -2029,7 +2029,7 @@ CONTAINS
    real(r8) obu,fh2m,fq2m
    real(r8) um,thvstar,beta,zii,wc,wc2
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
 
             ! count for time steps

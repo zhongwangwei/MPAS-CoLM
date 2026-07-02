@@ -9,7 +9,7 @@ MODULE MOD_Catch_BasinNetwork
 !--------------------------------------------------------------------------------
 
    USE MOD_Pixelset
-   USE MOD_WorkerPushData
+   USE MOD_ComputePushData
    IMPLICIT NONE
 
    ! -- instances --
@@ -30,11 +30,11 @@ MODULE MOD_Catch_BasinNetwork
    integer, allocatable :: bsn2lake (:)
    integer, allocatable :: bsn2resv (:)
 
-   type(worker_pushdata_type) :: push_elm2bsn
-   type(worker_pushdata_type) :: push_bsn2elm
+   type(compute_pushdata_type) :: push_elm2bsn
+   type(compute_pushdata_type) :: push_bsn2elm
 
-   type(worker_pushdata_type) :: push_elmhru2bsnhru
-   type(worker_pushdata_type) :: push_bsnhru2elmhru
+   type(compute_pushdata_type) :: push_elmhru2bsnhru
+   type(compute_pushdata_type) :: push_bsnhru2elmhru
 
 CONTAINS
 
@@ -81,14 +81,14 @@ CONTAINS
       basin_file = DEF_CatchmentMesh_data
 
       ! read in parameters from file.
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial (basin_file, 'basin_downstream', basindown)
          totalnumbasin = size(basindown)
       ENDIF
 
 #ifdef USEMPI
       ! divide basins into groups and assign to workers
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          IF (ncio_var_exist(basin_file, 'weightbasin')) THEN
             CALL ncio_read_serial (basin_file, 'weightbasin', wtbsn)
@@ -165,7 +165,7 @@ CONTAINS
 
          iwrkdsp = -1
          DO i = 1, numrivmth
-            nwrk_rs(i) = floor(wt_rs(i)/sumwt * p_np_worker)
+            nwrk_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
             IF (nwrk_rs(i) > 1) THEN
 
                nave_rs(i) = nb_rs(i) / nwrk_rs(i)
@@ -189,8 +189,8 @@ CONTAINS
 
          allocate (addrbasin (totalnumbasin));  addrbasin(:) = -1
 
-         allocate (wt_wrk (0:p_np_worker-1));  wt_wrk(:) = 0
-         allocate (nb_wrk (0:p_np_worker-1));  nb_wrk(:) = 0
+         allocate (wt_wrk (0:p_np_compute-1));  wt_wrk(:) = 0
+         allocate (nb_wrk (0:p_np_compute-1));  nb_wrk(:) = 0
 
          allocate (orderbsn(totalnumbasin))
          orderbsn(b_up2down) = (/(i, i = 1, totalnumbasin)/)
@@ -219,7 +219,7 @@ CONTAINS
                iworker = iwrk_rs(iriv)
                IF (nups_all(i) <= nave_rs(iriv)-nb_wrk(iworker)) THEN
 
-                  addrbasin(i) = p_address_worker(iworker)
+                  addrbasin(i) = p_address_compute(iworker)
 
                   nb_wrk(iworker) = nb_wrk(iworker) + nups_all(i)
                   IF (nb_wrk(iworker) == nave_rs(iriv)) THEN
@@ -240,9 +240,9 @@ CONTAINS
                   ithis = ithis - 1
                ENDIF
             ELSE
-               iworker = minloc(wt_wrk(iwrkdsp+1:p_np_worker-1), dim=1) + iwrkdsp
+               iworker = minloc(wt_wrk(iwrkdsp+1:p_np_compute-1), dim=1) + iwrkdsp
 
-               addrbasin(i) = p_address_worker(iworker)
+               addrbasin(i) = p_address_compute(iworker)
 
                wt_wrk(iworker) = wt_wrk(iworker) + wt_rs(iriv)
                ithis = ithis - 1
@@ -267,21 +267,21 @@ CONTAINS
 
 
       ! send basin index to workers
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate(basinindex (totalnumbasin))
          basinindex = (/(i, i = 1, totalnumbasin)/)
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
-            nbasin = count(addrbasin == p_address_worker(iworker))
-            CALL mpi_send (nbasin, 1, MPI_INTEGER, p_address_worker(iworker), mpi_tag_mesg, p_comm_glb, p_err)
+            nbasin = count(addrbasin == p_address_compute(iworker))
+            CALL mpi_send (nbasin, 1, MPI_INTEGER, p_address_compute(iworker), mpi_tag_mesg, p_comm_glb, p_err)
 
             IF (nbasin > 0) THEN
                allocate (bindex (nbasin))
 
-               bindex = pack(basinindex, mask = (addrbasin == p_address_worker(iworker)))
-               CALL mpi_send (bindex, nbasin, MPI_INTEGER, p_address_worker(iworker), &
+               bindex = pack(basinindex, mask = (addrbasin == p_address_compute(iworker)))
+               CALL mpi_send (bindex, nbasin, MPI_INTEGER, p_address_compute(iworker), &
                   mpi_tag_data, p_comm_glb, p_err)
 
                deallocate (bindex)
@@ -291,14 +291,14 @@ CONTAINS
 
          deallocate (basinindex)
 
-      ELSEIF (p_is_worker) THEN
+      ELSEIF (p_is_compute) THEN
 
-         CALL mpi_recv (numbasin, 1, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+         CALL mpi_recv (numbasin, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
          IF (numbasin > 0) THEN
 
             allocate (basinindex (numbasin))
-            CALL mpi_recv (basinindex, numbasin, MPI_INTEGER, p_address_master, &
+            CALL mpi_recv (basinindex, numbasin, MPI_INTEGER, p_address_root, &
                mpi_tag_data, p_comm_glb, p_stat, p_err)
 
          ENDIF
@@ -313,20 +313,20 @@ CONTAINS
 #endif
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numelm > 0) THEN
             allocate (elmindex (numelm))
             elmindex = landelm%eindex
          ENDIF
       ENDIF
 
-      CALL build_worker_pushdata (numelm, elmindex, numbasin, basinindex, push_elm2bsn)
-      CALL build_worker_pushdata (numbasin, basinindex, numelm, elmindex, push_bsn2elm)
+      CALL build_compute_pushdata (numelm, elmindex, numbasin, basinindex, push_elm2bsn)
+      CALL build_compute_pushdata (numbasin, basinindex, numelm, elmindex, push_bsn2elm)
 
-      CALL build_worker_pushdata_subset ( &
+      CALL build_compute_pushdata_subset ( &
          numelm, numbasin, push_elm2bsn, elm_hru, push_elmhru2bsnhru, basin_hru, numbsnhru)
 
-      CALL build_worker_pushdata_subset ( &
+      CALL build_compute_pushdata_subset ( &
          numbasin, numelm, push_bsn2elm, basin_hru, push_bsnhru2elmhru)
 
 #ifdef USEMPI
@@ -337,7 +337,7 @@ CONTAINS
       IF (allocated(elmindex )) deallocate(elmindex )
 
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          lake_info_file = DEF_CatchmentMesh_data
          CALL ncio_read_serial (lake_info_file, 'lake_id', all_lake_id)
@@ -372,7 +372,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numbasin > 0) THEN
             allocate (lake_id   (numbasin));   lake_id  (:) = 0
             allocate (lake_type (numbasin));   lake_type(:) = 0
@@ -382,25 +382,25 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          mesg = (/p_iam_glb, numbasin/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, &
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, &
             mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numbasin > 0) THEN
             CALL mpi_send (basinindex, numbasin, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             CALL mpi_recv (lake_id, numbasin, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             CALL mpi_recv (lake_type, numbasin, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
-         DO iworker = 0, p_np_worker-1
+      IF (p_is_root) THEN
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -436,7 +436,7 @@ CONTAINS
       lake_type = all_lake_type(basinindex)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numbasin > 0) THEN
             numlake = count(lake_type /= 0)
             numresv = count(lake_type >= 2)

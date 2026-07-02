@@ -134,7 +134,7 @@ CONTAINS
 	   integer, allocatable :: sbuff(:), rbuff(:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (pixelset%nset))
          ENDIF
@@ -142,7 +142,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -184,7 +184,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -201,7 +201,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -256,7 +256,7 @@ CONTAINS
 	   integer*8, allocatable :: sbuff(:), rbuff(:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (pixelset%nset))
          ENDIF
@@ -264,7 +264,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -306,7 +306,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -323,7 +323,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -378,7 +378,7 @@ CONTAINS
 	   integer(1), allocatable :: sbuff(:), rbuff(:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (pixelset%nset))
          ENDIF
@@ -386,7 +386,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -432,7 +432,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -449,7 +449,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -505,7 +505,7 @@ CONTAINS
 	   real(r8), allocatable :: sbuff(:), rbuff(:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (pixelset%nset))
          ENDIF
@@ -513,7 +513,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -555,7 +555,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -572,7 +572,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -629,7 +629,7 @@ CONTAINS
 	   real(r8), allocatable :: sbuff(:,:), rbuff(:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (ndim1, pixelset%nset))
          ENDIF
@@ -637,7 +637,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -679,7 +679,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -696,7 +696,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -753,7 +753,7 @@ CONTAINS
 	   real(r8), allocatable :: sbuff(:,:,:), rbuff(:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (ndim1,ndim2, pixelset%nset))
          ENDIF
@@ -761,7 +761,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -803,7 +803,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -820,7 +820,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -877,7 +877,7 @@ CONTAINS
 	   real(r8), allocatable :: sbuff(:,:,:,:), rbuff(:,:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (ndim1,ndim2,ndim3, pixelset%nset))
          ENDIF
@@ -885,7 +885,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -927,7 +927,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -944,7 +944,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1002,7 +1002,7 @@ CONTAINS
 	   real(r8), allocatable :: sbuff(:,:,:,:,:), rbuff(:,:,:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF ((pixelset%nset > 0) .and. (.not. allocated(rdata))) THEN
             allocate (rdata (ndim1,ndim2,ndim3,ndim4, pixelset%nset))
          ENDIF
@@ -1010,7 +1010,7 @@ CONTAINS
 
       any_data_exists = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1052,7 +1052,7 @@ CONTAINS
          ENDDO
 
 #ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. any_data_exists) THEN
             IF (ncio_vector_report_missing(.not. present(defval))) THEN
@@ -1069,7 +1069,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1118,7 +1118,7 @@ CONTAINS
    integer :: iblkgrp, iblk, jblk
    character(len=256) :: fileblock
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
             jblk = pixelset%yblkgrp(iblkgrp)
@@ -1150,7 +1150,7 @@ CONTAINS
    character(len=256) :: fileblock
    logical :: fexists
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
             jblk = pixelset%yblkgrp(iblkgrp)
@@ -1196,7 +1196,7 @@ CONTAINS
    character(len=256) :: fileblock
    integer, allocatable :: sbuff(:), rbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1230,7 +1230,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1282,7 +1282,7 @@ CONTAINS
    character(len=256) :: fileblock
    integer(1), allocatable :: sbuff(:), rbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1322,7 +1322,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1382,7 +1382,7 @@ CONTAINS
    character(len=256) :: fileblock
    integer, allocatable :: sbuff(:,:,:), rbuff(:,:,:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1417,7 +1417,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1469,7 +1469,7 @@ CONTAINS
    character(len=256) :: fileblock
    integer*8, allocatable :: sbuff(:), rbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1503,7 +1503,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1556,7 +1556,7 @@ CONTAINS
    character(len=256) :: fileblock
    real(r8), allocatable :: sbuff(:), rbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1589,7 +1589,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1644,7 +1644,7 @@ CONTAINS
    character(len=256) :: fileblock
    real(r8), allocatable :: sbuff(:,:), rbuff(:,:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1679,7 +1679,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1734,7 +1734,7 @@ CONTAINS
    character(len=256) :: fileblock
    real(r8), allocatable :: sbuff(:,:,:), rbuff(:,:,:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1768,7 +1768,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1823,7 +1823,7 @@ CONTAINS
    character(len=256) :: fileblock
    real(r8), allocatable :: sbuff(:,:,:,:), rbuff(:,:,:,:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1857,7 +1857,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1913,7 +1913,7 @@ CONTAINS
    character(len=256) :: fileblock
    real(r8), allocatable :: sbuff(:,:,:,:,:), rbuff(:,:,:,:,:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1947,7 +1947,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iblkgrp = 1, pixelset%nblkgrp
             iblk = pixelset%xblkgrp(iblkgrp)
@@ -1979,15 +1979,15 @@ CONTAINS
 
    LOGICAL FUNCTION ncio_vector_report_missing(mandatory)
 
-   USE MOD_SPMD_Task, only: p_iam_io, p_root
+   USE MOD_SPMD_Task, only: p_iam_active, p_root
    IMPLICIT NONE
 
    logical, intent(in) :: mandatory
 
 #ifdef MPAS_EMBEDDED_COLM
-      ncio_vector_report_missing = mandatory .or. (p_iam_io == p_root)
+      ncio_vector_report_missing = mandatory .or. (p_iam_active == p_root)
 #else
-      ncio_vector_report_missing = (p_iam_io == p_root)
+      ncio_vector_report_missing = (p_iam_active == p_root)
 #endif
 
    END FUNCTION ncio_vector_report_missing

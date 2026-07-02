@@ -38,29 +38,29 @@ CONTAINS
 
       IF (totalvlen <= 0) RETURN
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          allocate (wdata (totalvlen))
       ENDIF
 
 #ifdef COLM_PARALLEL
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_worker .and. (.not. p_is_master)) THEN
+      IF (p_is_compute .and. (.not. p_is_root)) THEN
          mesg = (/p_iam_glb, vlen/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (vlen > 0) THEN
             CALL mpi_send (vector, vlen, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
-         IF (p_is_worker .and. vlen > 0) THEN
-            wdata(data_address(p_iam_worker)%val) = vector
+      IF (p_is_root) THEN
+         IF (p_is_compute .and. vlen > 0) THEN
+            wdata(data_address(p_iam_compute)%val) = vector
          ENDIF
 
-         DO iwork = 0, p_np_worker-1
-            IF (p_address_worker(iwork) == p_iam_glb) CYCLE
+         DO iwork = 0, p_np_compute-1
+            IF (p_address_compute(iwork) == p_iam_glb) CYCLE
 
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -73,7 +73,7 @@ CONTAINS
                CALL mpi_recv (rcache, ndata, MPI_REAL8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
 
-               wdata(data_address(p_itis_worker(isrc))%val) = rcache
+               wdata(data_address(p_itis_compute(isrc))%val) = rcache
 
                deallocate (rcache)
             ENDIF
@@ -120,7 +120,7 @@ CONTAINS
 
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          IF (present(itime_in_file)) THEN
             CALL ncio_write_serial_time (fileout, varname, itime_in_file, wdata, &
@@ -184,7 +184,7 @@ CONTAINS
 
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (wdata2d (nlon,nlat))
          wdata2d(:,:) = spval
@@ -240,29 +240,29 @@ CONTAINS
    integer :: iwork, ndata
    real(r8), allocatable :: rdata(:), rcache(:)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial (filein, varname, rdata)
       ENDIF
 
 #ifdef COLM_PARALLEL
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_master) THEN
-         DO iwork = 0, p_np_worker-1
+      IF (p_is_root) THEN
+         DO iwork = 0, p_np_compute-1
             IF (allocated(data_address(iwork)%val)) THEN
 
                ndata = size(data_address(iwork)%val)
                allocate(rcache (ndata))
                rcache = rdata(data_address(iwork)%val)
 
-               IF (p_address_worker(iwork) == p_iam_glb) THEN
+               IF (p_address_compute(iwork) == p_iam_glb) THEN
                   IF (ndata > 0) THEN
                      IF (.not. allocated(vector)) allocate(vector(ndata))
                      vector = rcache
                   ENDIF
                ELSE
                   CALL mpi_send (rcache, ndata, MPI_REAL8, &
-                     p_address_worker(iwork), mpi_tag_data, p_comm_glb, p_err)
+                     p_address_compute(iwork), mpi_tag_data, p_comm_glb, p_err)
                ENDIF
 
                deallocate (rcache)
@@ -270,10 +270,10 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_worker .and. (.not. p_is_master)) THEN
+      IF (p_is_compute .and. (.not. p_is_root)) THEN
          IF (vlen > 0) THEN
             IF (.not. allocated(vector)) allocate(vector(vlen))
-            CALL mpi_recv (vector, vlen, MPI_REAL8, p_address_master, &
+            CALL mpi_recv (vector, vlen, MPI_REAL8, p_address_root, &
                mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
       ENDIF
@@ -284,7 +284,7 @@ CONTAINS
       vector = rdata(data_address(0)%val)
 #endif
 
-      IF (p_is_master) deallocate(rdata)
+      IF (p_is_root) deallocate(rdata)
 
    END SUBROUTINE vector_read_and_scatter
 

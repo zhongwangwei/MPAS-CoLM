@@ -55,7 +55,7 @@ CONTAINS
    USE MOD_Precision
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
             allocate (pftclass      (numpft))
             allocate (pftfrac       (numpft))
@@ -128,7 +128,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_LandPFT
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
             deallocate (pftclass)
             deallocate (pftfrac )
@@ -314,7 +314,7 @@ CONTAINS
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -506,7 +506,7 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'fc_vgm   ' ,   nl_soil, landpatch, fc_vgm    ) ! a scaling factor by using air entry value in the Mualem model [-]
 #endif
 #ifdef DataAssimilation
-      IF (numpatch > 0 .and. p_is_worker) wf_silt = 1.0_r8 - wf_gravels - wf_sand - wf_clay - wf_om
+      IF (numpatch > 0 .and. p_is_compute) wf_silt = 1.0_r8 - wf_gravels - wf_sand - wf_clay - wf_om
 #endif
 
       CALL ncio_read_vector (file_restart, 'soiltext', landpatch, soiltext, defval = 0    )
@@ -613,7 +613,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading Time Invariants done.'
       ENDIF
 
@@ -647,7 +647,7 @@ CONTAINS
 
       write(cyear,'(i4.4)') lc_year
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL system('mkdir -p ' // trim(dir_restart)//'/const')
       ENDIF
 #ifdef USEMPI
@@ -781,7 +781,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      if (p_is_master) then
+      if (p_is_root) then
 
 #if (!defined(VectorInOneFileS) && !defined(VectorInOneFileP))
          CALL ncio_create_file (file_restart)
@@ -840,7 +840,7 @@ CONTAINS
       ! Deallocates memory for CoLM 1d [numpatch] variables
       ! --------------------------------------------------
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -971,7 +971,7 @@ CONTAINS
 
       real(r8), allocatable :: tmpcheck(:,:)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(/,A29)') 'Checking Time Invariants ...'
       ENDIF
 
@@ -1084,7 +1084,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(/,A)') 'Checking Constants ...'
          write(*,'(A,E20.10)') 'zlnd   [m]    ', zlnd      ! roughness length for soil [m]
          write(*,'(A,E20.10)') 'zsno   [m]    ', zsno      ! roughness length for snow [m]

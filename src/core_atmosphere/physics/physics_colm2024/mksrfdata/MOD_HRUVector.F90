@@ -55,7 +55,7 @@ CONTAINS
 
    integer :: nhru, nelm, hru_dsp_loc
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          CALL elm_hru%build (landelm, landhru,   use_frac = .true.)
 
@@ -68,21 +68,21 @@ CONTAINS
 
 #ifdef USEMPI
          mesg = (/p_iam_glb, numelm/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numelm > 0) THEN
-            CALL mpi_send (nhru_bsn, numelm, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+            CALL mpi_send (nhru_bsn, numelm, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
-         allocate (hru_data_address (0:p_np_worker-1))
+         allocate (hru_data_address (0:p_np_compute-1))
 
          allocate (nhru_bsn_glb (totalnumelm))
 
 #ifdef USEMPI
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -94,10 +94,10 @@ CONTAINS
                CALL mpi_recv (rbuff, ndata, MPI_INTEGER, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
 
-               nhru_bsn_glb(elm_data_address(p_itis_worker(isrc))%val) = rbuff
+               nhru_bsn_glb(elm_data_address(p_itis_compute(isrc))%val) = rbuff
 
                IF (sum(rbuff) > 0) THEN
-                  allocate(hru_data_address(p_itis_worker(isrc))%val (sum(rbuff)))
+                  allocate(hru_data_address(p_itis_compute(isrc))%val (sum(rbuff)))
                ENDIF
 
                deallocate(rbuff)
@@ -115,7 +115,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          totalnumhru = sum(nhru_bsn_glb)
 
@@ -125,7 +125,7 @@ CONTAINS
             hru_dsp_glb(ielm) = hru_dsp_glb(ielm-1) + nhru_bsn_glb(ielm-1)
          ENDDO
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (allocated(elm_data_address(iwork)%val)) THEN
                nelm = size(elm_data_address(iwork)%val)
                hru_dsp_loc = 0
@@ -142,20 +142,20 @@ CONTAINS
          ENDDO
       ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (totalnumhru, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (totalnumhru, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #endif
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          mesg = (/p_iam_glb, numhru/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numhru > 0) THEN
-            CALL mpi_send (landhru%settyp, numhru, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+            CALL mpi_send (landhru%settyp, numhru, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
       ENDIF
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (eindx_hru (totalnumhru))
 
@@ -167,7 +167,7 @@ CONTAINS
          allocate (htype_hru (totalnumhru))
 
 #ifdef USEMPI
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -178,7 +178,7 @@ CONTAINS
 
                CALL mpi_recv (rbuff, ndata, MPI_INTEGER, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
-               htype_hru(hru_data_address(p_itis_worker(isrc))%val) = rbuff
+               htype_hru(hru_data_address(p_itis_compute(isrc))%val) = rbuff
 
                deallocate(rbuff)
             ENDIF
@@ -195,7 +195,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_bcast (totalnumhru, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (totalnumhru, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #endif
 
    END SUBROUTINE hru_vector_init

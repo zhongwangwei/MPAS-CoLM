@@ -60,7 +60,7 @@ CONTAINS
 
    integer :: ip, ie, ipxl
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
             allocate (patcharea (numpatch))
@@ -81,7 +81,7 @@ CONTAINS
          landarea = 0.
          IF (numpatch > 0) landarea = sum(patcharea)
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, landarea, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, landarea, 1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
 #endif
       ENDIF
 
@@ -131,7 +131,7 @@ CONTAINS
    real(r8), allocatable :: wdsrf_bsnhru_p(:), delvol(:)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          ! a) The smallest unit in surface lateral flow (including hillslope flow and river-lake flow)
          !    is HRU and the main prognostic variable is "wdsrf_bsnhru" (surface water depth).
@@ -169,7 +169,7 @@ CONTAINS
             IF (numresv > 0) qresv_out_ta(:) = 0.
          ENDIF
 
-         CALL worker_push_data (push_elmhru2bsnhru, wdsrf_hru, wdsrf_bsnhru, spval)
+         CALL compute_push_data (push_elmhru2bsnhru, wdsrf_hru, wdsrf_bsnhru, spval)
 
 #ifdef CoLMDEBUG
          IF (numbsnhru > 0) THEN
@@ -229,7 +229,7 @@ CONTAINS
          ENDIF
 
          ! update surface water depth on patches
-         CALL worker_push_data (push_bsnhru2elmhru, wdsrf_bsnhru, wdsrf_hru, spval)
+         CALL compute_push_data (push_bsnhru2elmhru, wdsrf_bsnhru, wdsrf_hru, spval)
          DO i = 1, numhru
             wdsrf_hru(i) = max(0., wdsrf_hru(i))
             ps = hru_patch%substt(i)
@@ -369,12 +369,12 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         CALL mpi_allreduce (maxdvol, maxdvol_g, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
+         CALL mpi_allreduce (maxdvol, maxdvol_g, 1, MPI_REAL8, MPI_MAX, p_comm_compute, p_err)
          IF (maxdvol < maxdvol_g) THEN
             bidmax = 0
          ENDIF
-         CALL mpi_allreduce (MPI_IN_PLACE, bidmax,  1, MPI_INTEGER, MPI_MAX, p_comm_worker, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, sumdvol, 1, MPI_REAL8,   MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, bidmax,  1, MPI_INTEGER, MPI_MAX, p_comm_compute, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, sumdvol, 1, MPI_REAL8,   MPI_SUM, p_comm_compute, p_err)
 #else
          maxdvol_g = maxdvol
 #endif
@@ -419,7 +419,7 @@ CONTAINS
       ENDIF
 
 #ifdef RangeCheck
-      IF (p_is_worker .and. (p_iam_worker == 0)) THEN
+      IF (p_is_compute .and. (p_iam_compute == 0)) THEN
          write(*,'(/,A)') 'Checking Lateral Flow Variables ...'
          write(*,'(A,F12.5,A)') 'River Lake Flow minimum average timestep: ', &
                dt_average/nsubstep, ' seconds'
@@ -434,7 +434,7 @@ CONTAINS
       CALL check_vector_data ('Subsurface bt patch [m/s]', xsubs_pch)
 
 #ifdef CoLMDEBUG
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          dtolw  = 0
          toldis = 0
@@ -449,11 +449,11 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, dtolw,  1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, tolwat, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, toldis, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, dtolw,  1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, tolwat, 1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, toldis, 1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
 #endif
-         IF (p_iam_worker == 0) THEN
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,E9.2,A,I0,A,E9.2,A)') 'River system error: max ', maxdvol_g, &
                ' m^3 in river mouth ', bidmax, ', total ', sumdvol, ' m^3'
             write(*,'(A,F12.2,A,ES8.1,A,ES10.3,A)') 'Total surface water error: ', dtolw, &
@@ -463,9 +463,9 @@ CONTAINS
          dtolw = 0
          IF (numpatch > 0) dtolw = sum(patcharea * xwsub) / 1.e3 * deltime
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, dtolw,  1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, dtolw,  1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
 #endif
-         IF (p_iam_worker == 0) THEN
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,F12.2,A,ES8.1,A)') 'Total ground  water error: ', dtolw, &
                ' m^3 in area  ', landarea, ' m^2'
          ENDIF

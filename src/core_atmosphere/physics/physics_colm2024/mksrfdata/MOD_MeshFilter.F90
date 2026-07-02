@@ -26,7 +26,7 @@ CONTAINS
    IMPLICIT NONE
    logical :: fexists
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          inquire (file=trim(DEF_file_mesh_filter), exist=fexists)
 
@@ -38,7 +38,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_bcast (fexists, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (fexists, 1, MPI_LOGICAL, p_address_root, p_comm_glb, p_err)
 #endif
 
       inquire_mesh_filter = fexists
@@ -73,11 +73,11 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(/, A)') 'Filtering pixels ...'
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (gridf, datafilter)
          CALL ncio_read_block (trim(ffilter), trim(fvname), gridf, datafilter)
 
@@ -86,7 +86,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          jelm = 0
          DO ielm = 1, numelm
@@ -134,11 +134,11 @@ CONTAINS
          numelm = jelm
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (allocated(landelm%eindex))   deallocate (landelm%eindex)
          IF (allocated(landelm%ipxstt))   deallocate (landelm%ipxstt)
          IF (allocated(landelm%ipxend))   deallocate (landelm%ipxend)
@@ -149,9 +149,9 @@ CONTAINS
       CALL landelm_build ()
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', nelm_glb, ' elements after mesh filtering.'
          ENDIF
       ENDIF
@@ -161,7 +161,7 @@ CONTAINS
 
       ! Update nelm_blk
       nelm_blk(:,:) = 0
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO ielm = 1, numelm
             nelm_blk(mesh(ielm)%xblk,mesh(ielm)%yblk) = &
                nelm_blk(mesh(ielm)%xblk,mesh(ielm)%yblk) + 1

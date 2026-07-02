@@ -967,7 +967,7 @@ CONTAINS
    ! Local Variables
    integer :: iblk, jblk
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (gblock%nblkme /= 1) THEN
             write(*,*) 'Warning: more than one block is on IO processor: ', p_iam_glb

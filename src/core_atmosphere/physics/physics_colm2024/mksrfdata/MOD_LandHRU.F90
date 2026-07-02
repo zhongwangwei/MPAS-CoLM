@@ -66,36 +66,36 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making land hydro units:'
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial (DEF_CatchmentMesh_data, 'basin_numhru', numhru_all_g)
          CALL ncio_read_serial (DEF_CatchmentMesh_data, 'lake_id', lakeid)
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
-         DO iwork = 0, p_np_worker-1
+      IF (p_is_root) THEN
+         DO iwork = 0, p_np_compute-1
 
-            CALL mpi_recv (ncat, 1, MPI_INTEGER, p_address_worker(iwork), mpi_tag_size, &
+            CALL mpi_recv (ncat, 1, MPI_INTEGER, p_address_compute(iwork), mpi_tag_size, &
                p_comm_glb, p_stat, p_err)
 
             IF (ncat > 0) THEN
                allocate (catnum(ncat))
                allocate (ibuff (ncat))
 
-               CALL mpi_recv (catnum, ncat, MPI_INTEGER8, p_address_worker(iwork), mpi_tag_data, &
+               CALL mpi_recv (catnum, ncat, MPI_INTEGER8, p_address_compute(iwork), mpi_tag_data, &
                   p_comm_glb, p_stat, p_err)
 
                nhru = sum(numhru_all_g(catnum))
                CALL mpi_send (nhru, 1, MPI_INTEGER, &
-                  p_address_worker(iwork), mpi_tag_size, p_comm_glb, p_err)
+                  p_address_compute(iwork), mpi_tag_size, p_comm_glb, p_err)
 
                ibuff = lakeid(catnum)
                CALL mpi_send (ibuff, ncat, MPI_INTEGER, &
-                  p_address_worker(iwork), mpi_tag_data, p_comm_glb, p_err)
+                  p_address_compute(iwork), mpi_tag_data, p_comm_glb, p_err)
 
                deallocate(catnum)
                deallocate(ibuff )
@@ -103,13 +103,13 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_worker) THEN
-         CALL mpi_send (numelm, 1, MPI_INTEGER, p_address_master, mpi_tag_size, p_comm_glb, p_err)
+      IF (p_is_compute) THEN
+         CALL mpi_send (numelm, 1, MPI_INTEGER, p_address_root, mpi_tag_size, p_comm_glb, p_err)
          IF (numelm > 0) THEN
             allocate (lakeid (numelm))
-            CALL mpi_send (landelm%eindex, numelm, MPI_INTEGER8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
-            CALL mpi_recv (numhru, 1,      MPI_INTEGER, p_address_master, mpi_tag_size, p_comm_glb, p_stat, p_err)
-            CALL mpi_recv (lakeid, numelm, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+            CALL mpi_send (landelm%eindex, numelm, MPI_INTEGER8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+            CALL mpi_recv (numhru, 1,      MPI_INTEGER, p_address_root, mpi_tag_size, p_comm_glb, p_stat, p_err)
+            CALL mpi_recv (lakeid, numelm, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ELSE
             numhru = 0
          ENDIF
@@ -118,20 +118,20 @@ CONTAINS
       numhru = sum(numhru_all_g)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          IF (allocated(numhru_all_g)) deallocate(numhru_all_g)
       ENDIF
 
-      IF (p_is_io) CALL allocate_block_data (grid_hru, hrudata)
+      IF (p_is_active) CALL allocate_block_data (grid_hru, hrudata)
       CALL catchment_data_read (DEF_CatchmentMesh_data, 'ihydrounit2d', grid_hru, hrudata)
 
 #ifdef USEMPI
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL aggregation_data_daemon (grid_hru, data_i4_2d_in1 = hrudata)
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numhru > 0) THEN
             allocate (landhru%eindex (numhru))
@@ -194,7 +194,7 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
       ENDIF
 
@@ -202,9 +202,9 @@ CONTAINS
       CALL landhru%set_vecgs
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numhru, nhru_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numhru, nhru_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', nhru_glb, ' hydro units.'
          ENDIF
       ENDIF

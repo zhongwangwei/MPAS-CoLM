@@ -66,7 +66,7 @@ CONTAINS
       CALL ncio_read_vector (lndname, 'TREE_SAI',  landurban, urb_sai)
 #endif
       ! loop for urban patch to assign fraction of green leaf
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO u = 1, numurban
             npatch = urban2patch(u)
             tlai(npatch) = urb_lai(u)

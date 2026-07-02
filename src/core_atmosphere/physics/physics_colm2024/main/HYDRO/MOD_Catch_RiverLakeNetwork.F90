@@ -157,7 +157,7 @@ CONTAINS
       river_file      = DEF_CatchmentMesh_data
 
       ! step 1: read in parameters from file.
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          CALL ncio_read_serial (river_file, 'lake_id', all_lake_id)
 
@@ -189,9 +189,9 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -239,38 +239,38 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          mesg(1:2) = (/p_iam_glb, numbasin/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numbasin > 0) THEN
             CALL mpi_send (basinindex, numbasin, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             allocate (riverdown (numbasin))
             CALL mpi_recv (riverdown, numbasin, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (to_lake (numbasin))
             CALL mpi_recv (to_lake, numbasin, MPI_LOGICAL, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (riverlen (numbasin))
             CALL mpi_recv (riverlen, numbasin, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (riverelv (numbasin))
             CALL mpi_recv (riverelv, numbasin, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (riverdpth (numbasin))
             CALL mpi_recv (riverdpth, numbasin, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (basinelv (numbasin))
             CALL mpi_recv (basinelv, numbasin, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
 
       ENDIF
@@ -291,11 +291,11 @@ CONTAINS
 
 #ifdef USEMPI
       ! get address of basins
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (addrbasin (totalnumbasin)); addrbasin(:) = -1
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -314,20 +314,20 @@ CONTAINS
 
          ENDDO
 
-      ELSEIF (p_is_worker) THEN
+      ELSEIF (p_is_compute) THEN
 
          mesg(1:2) = (/p_iam_glb, numbasin/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numbasin > 0) THEN
-            CALL mpi_send (basinindex, numbasin, MPI_INTEGER, p_address_master, &
+            CALL mpi_send (basinindex, numbasin, MPI_INTEGER, p_address_root, &
                mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 
       ENDIF
 
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (addrdown (totalnumbasin))
          allocate (is_link  (totalnumbasin)); is_link = .false.
@@ -359,16 +359,16 @@ CONTAINS
 
       ENDIF
 
-      CALL mpi_bcast (nblink_all, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (nblink_all, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
       IF (nblink_all > 0) THEN
          IF (.not. allocated(linkbindex_all))  allocate (linkbindex_all (nblink_all))
          IF (.not. allocated(linkrivmth_all))  allocate (linkrivmth_all (nblink_all))
-         CALL mpi_bcast (linkbindex_all, nblink_all, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-         CALL mpi_bcast (linkrivmth_all, nblink_all, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+         CALL mpi_bcast (linkbindex_all, nblink_all, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+         CALL mpi_bcast (linkrivmth_all, nblink_all, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numbasin > 0) THEN
             allocate (basin_sorted (numbasin))
@@ -434,9 +434,9 @@ CONTAINS
          ENDIF
 
          IF (riversystem /= -1) THEN
-            CALL mpi_comm_split (p_comm_worker, riversystem, p_iam_worker, p_comm_rivsys, p_err)
+            CALL mpi_comm_split (p_comm_compute, riversystem, p_iam_compute, p_comm_rivsys, p_err)
          ELSE
-            CALL mpi_comm_split (p_comm_worker, MPI_UNDEFINED, p_iam_worker, p_comm_rivsys, p_err)
+            CALL mpi_comm_split (p_comm_compute, MPI_UNDEFINED, p_iam_compute, p_comm_rivsys, p_err)
          ENDIF
 #endif
 
@@ -505,7 +505,7 @@ CONTAINS
 
       CALL hillslope_network_init (numbasin, basinindex, hillslope_basin)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numelm > 0)    allocate (lake_id_elm     (numelm))
          IF (numhru > 0)    allocate (lakedepth_hru   (numhru))
@@ -533,10 +533,10 @@ CONTAINS
 
       ENDIF
 
-      CALL worker_push_data (push_bsn2elm, lake_id, lake_id_elm, -9999)
-      CALL worker_push_data (push_bsn2elm, lakedown_id_bsn, lakedown_id_elm, -9999)
+      CALL compute_push_data (push_bsn2elm, lake_id, lake_id_elm, -9999)
+      CALL compute_push_data (push_bsn2elm, lakedown_id_bsn, lakedown_id_elm, -9999)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          unitarea_hru   = 0.
          lakedepth_hru  = 0.
@@ -563,10 +563,10 @@ CONTAINS
          ENDDO
       ENDIF
 
-      CALL worker_push_data (push_elm2bsn, lakeoutlet_elm, lakeoutlet_bsn, spval)
+      CALL compute_push_data (push_elm2bsn, lakeoutlet_elm, lakeoutlet_bsn, spval)
 
-      CALL worker_push_data (push_elmhru2bsnhru, unitarea_hru,  unitarea_bsnhru,  spval)
-      CALL worker_push_data (push_elmhru2bsnhru, lakedepth_hru, lakedepth_bsnhru, spval)
+      CALL compute_push_data (push_elmhru2bsnhru, unitarea_hru,  unitarea_bsnhru,  spval)
+      CALL compute_push_data (push_elmhru2bsnhru, lakedepth_hru, lakedepth_bsnhru, spval)
 
       IF (allocated (lake_id_elm    )) deallocate (lake_id_elm    )
       IF (allocated (lakedepth_hru  )) deallocate (lakedepth_hru  )
@@ -575,7 +575,7 @@ CONTAINS
       IF (allocated (lakeoutlet_elm )) deallocate (lakeoutlet_elm )
       IF (allocated (unitarea_hru   )) deallocate (unitarea_hru   )
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numbasin > 0) THEN
 
@@ -730,7 +730,7 @@ CONTAINS
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
-      IF (p_is_master) write(*,'(A)') 'Building river network information done.'
+      IF (p_is_root) write(*,'(A)') 'Building river network information done.'
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
@@ -751,7 +751,7 @@ CONTAINS
       integer :: i, ibasin
       real(r8), allocatable :: datalink(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 #ifdef USEMPI
          IF (riversystem /= -1) THEN
@@ -800,7 +800,7 @@ CONTAINS
       real(r16), allocatable :: datalink(:)
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 #ifdef USEMPI
          IF (numbsnlink > 0) THEN
@@ -885,7 +885,7 @@ CONTAINS
 
       CALL mg2p_rnof%build_arealweighted (grid_rnof, landelm)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (grid_rnof, f_rnof)
          CALL ncio_read_block (file_rnof, 'ro', grid_rnof, f_rnof)
 
@@ -900,13 +900,13 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numelm > 0) allocate (bsnrnof (numelm))
       ENDIF
 
       CALL mg2p_rnof%grid2pset (f_rnof, bsnrnof)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numelm > 0) THEN
             bsnrnof = bsnrnof /24.0/3600.0 ! from m/day to m/s
             DO i = 1, numelm
@@ -922,19 +922,19 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          mesg = (/p_iam_glb, numelm/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numelm > 0) THEN
-            CALL mpi_send (bsnrnof, numelm, MPI_REAL8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+            CALL mpi_send (bsnrnof, numelm, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (bsnrnof (totalnumelm))
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -946,7 +946,7 @@ CONTAINS
                CALL mpi_recv (rcache, ndata, MPI_REAL8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
 
-               bsnrnof(elm_data_address(p_itis_worker(isrc))%val) = rcache
+               bsnrnof(elm_data_address(p_itis_compute(isrc))%val) = rcache
 
                deallocate (rcache)
             ENDIF
@@ -959,7 +959,7 @@ CONTAINS
 #endif
 
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (nups_riv (totalnumelm))
          allocate (iups_riv (totalnumelm))

@@ -46,7 +46,7 @@ CONTAINS
       IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             allocate ( fsena_ens  (DEF_DA_ENS_NUM, numpatch) )  ; fsena_ens  (:,:) = spval
             allocate ( lfevpa_ens (DEF_DA_ENS_NUM, numpatch) )  ; lfevpa_ens (:,:) = spval
@@ -71,7 +71,7 @@ CONTAINS
       USE MOD_LandPatch
 
 !-----------------------------------------------------------------------------
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             deallocate ( fsena_ens  )
             deallocate ( lfevpa_ens )

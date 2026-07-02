@@ -44,7 +44,7 @@ CONTAINS
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
       acctime_rnof = 0.
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          ! Allocate on all workers (zero-length if numucat/numpatch=0)
          ! to avoid passing unallocated arrays to assumed-shape MPI wrappers.
          allocate (acc_rnof_uc (numucat))
@@ -52,7 +52,7 @@ CONTAINS
       ENDIF
 
       ! excluding (patchtype >= 99), virtual patches and those forcing missed
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          allocate (filter_rnof (numpatch))
          IF (numpatch > 0) THEN
             filter_rnof = patchtype < 99
@@ -137,12 +137,12 @@ CONTAINS
 #endif
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (rnof_gd (numinpm))
          allocate (rnof_uc (numucat))
 
-         CALL worker_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
+         CALL compute_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
             fillvalue = 0., filter = filter_rnof)
 
          IF (numinpm > 0) THEN
@@ -151,7 +151,7 @@ CONTAINS
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_inpm2ucat, rnof_gd, rnof_uc, &
+         CALL compute_push_data (push_inpm2ucat, rnof_gd, rnof_uc, &
             fillvalue = 0., mode = 'sum')
 
          IF (numucat > 0) THEN
@@ -182,7 +182,7 @@ CONTAINS
                allocate (prcp_uc (0))
             ENDIF
 
-            CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
+            CALL compute_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
                fillvalue = 0., filter = filter_rnof)
 
             IF (numinpm > 0) THEN
@@ -191,7 +191,7 @@ CONTAINS
                END WHERE
             ENDIF
 
-            CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
+            CALL compute_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
                fillvalue = 0., mode = 'sum')
 
             ! Convert from area-integrated [mm/s * m²] back to flux density [mm/s].
@@ -220,7 +220,7 @@ CONTAINS
          RETURN
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numucat > 0) THEN
 
@@ -310,9 +310,9 @@ CONTAINS
 
             ntimestep = ntimestep + 1
 
-            CALL worker_push_data (push_next2ucat, wdsrf_ucat, wdsrf_next, fillvalue = spval)
+            CALL compute_push_data (push_next2ucat, wdsrf_ucat, wdsrf_next, fillvalue = spval)
             ! velocity in ocean or inland depression is assumed to be 0.
-            CALL worker_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
+            CALL compute_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
 
             dt_all(:) = min(dt_res(:), 60.)
 
@@ -455,9 +455,9 @@ CONTAINS
 
             ENDDO
 
-            CALL worker_push_data (push_ups2ucat, hflux_fc, hflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, mflux_fc, mflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, zgrad_dn, zgrad_sumups, fillvalue = 0., mode = 'sum')
+            CALL compute_push_data (push_ups2ucat, hflux_fc, hflux_sumups, fillvalue = 0., mode = 'sum')
+            CALL compute_push_data (push_ups2ucat, mflux_fc, mflux_sumups, fillvalue = 0., mode = 'sum')
+            CALL compute_push_data (push_ups2ucat, zgrad_dn, zgrad_sumups, fillvalue = 0., mode = 'sum')
 
             IF (numucat > 0) THEN
                WHERE (ucatfilter)
@@ -501,8 +501,8 @@ CONTAINS
 
                ENDDO
 
-               CALL worker_push_data (push_ups2ucat, hflux_resv, hflux_sumups, fillvalue = 0., mode = 'sum')
-               CALL worker_push_data (push_ups2ucat, mflux_resv, mflux_sumups, fillvalue = 0., mode = 'sum')
+               CALL compute_push_data (push_ups2ucat, hflux_resv, hflux_sumups, fillvalue = 0., mode = 'sum')
+               CALL compute_push_data (push_ups2ucat, mflux_resv, mflux_sumups, fillvalue = 0., mode = 'sum')
 
                IF (numucat > 0) THEN
                   WHERE (ucatfilter)
@@ -681,20 +681,20 @@ CONTAINS
 
 #ifdef CoLMDEBUG
 #ifdef COLM_PARALLEL
-      IF (.not. p_is_worker) ntimestep = 0
+      IF (.not. p_is_compute) ntimestep = 0
       CALL mpi_allreduce (MPI_IN_PLACE, ntimestep, 1, MPI_INTEGER, MPI_MAX, p_comm_glb, p_err)
 
-      IF (.not. p_is_worker) totalvol_bef = 0.
-      IF (.not. p_is_worker) totalvol_aft = 0.
-      IF (.not. p_is_worker) totalrnof    = 0.
-      IF (.not. p_is_worker) totaldis     = 0.
+      IF (.not. p_is_compute) totalvol_bef = 0.
+      IF (.not. p_is_compute) totalvol_aft = 0.
+      IF (.not. p_is_compute) totalrnof    = 0.
+      IF (.not. p_is_compute) totaldis     = 0.
 
       CALL mpi_allreduce (MPI_IN_PLACE, totalvol_bef, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
       CALL mpi_allreduce (MPI_IN_PLACE, totalvol_aft, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
       CALL mpi_allreduce (MPI_IN_PLACE, totalrnof,    1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
       CALL mpi_allreduce (MPI_IN_PLACE, totaldis,     1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(/,A)') 'Checking River Routing Flow ...'
          write(*,'(A,F12.5,A)') 'River Lake Flow minimum average timestep: ', acctime_rnof/ntimestep, ' seconds'
          write(*,'(A,ES8.1,A)') 'Total water before :  ', totalvol_bef,  ' m^3'
@@ -706,7 +706,7 @@ CONTAINS
 #endif
 
 #ifdef GridRiverLakeSediment
-      IF (DEF_USE_SEDIMENT .and. p_is_worker) THEN
+      IF (DEF_USE_SEDIMENT .and. p_is_compute) THEN
          ! All workers must participate (MPI point-to-point inside push_data).
          ! fldfrc is now computed inside grid_sediment_calc from per-routing-period
          ! accumulators (sed_acc_floodarea), not from history-period averages.
@@ -716,7 +716,7 @@ CONTAINS
 
       acctime_rnof = 0.
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numucat > 0) THEN
             acc_rnof_uc = 0.
          ENDIF

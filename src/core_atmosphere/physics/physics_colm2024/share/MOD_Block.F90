@@ -144,7 +144,7 @@ CONTAINS
          ENDIF
 
          IF ((mod(360,this%nxblk) /= 0) .or. (mod(180,this%nyblk) /= 0)) THEN
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                write(*,*) 'Number of blocks in longitude should be a factor of 360 '
                write(*,*) ' and Number of blocks in latitude should be a factor of 180.'
                CALL CoLM_stop ()
@@ -173,7 +173,7 @@ CONTAINS
       ENDIF
 
 #ifndef SinglePoint
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write (*,*)
          write (*,'(A)') '----- Block information -----'
          write (*,'(I4,A,I4,A)') this%nxblk, ' blocks in longitude,', &
@@ -204,7 +204,7 @@ CONTAINS
    ! Local variables
    character(len=256) :: filename
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          filename = trim(dir_landdata) // '/block.nc'
 
@@ -245,7 +245,7 @@ CONTAINS
       this%nyblk = size(this%lat_s)
       this%nxblk = size(this%lon_w)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write (*,*) 'Block information:'
          write (*,'(I3,A,I3,A)') this%nxblk, ' blocks in longitude,', &
             this%nyblk, ' blocks in latitude.'
@@ -331,12 +331,12 @@ CONTAINS
    integer :: numblocks, ngrp
    integer :: iblkme
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL this%clip (iblk_south, iblk_north, iblk_west, iblk_east, numblocks)
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_bcast (numblocks, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (numblocks, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 
       IF ((mod(p_np_glb,DEF_PIO_groupsize) == 0) .and. (DEF_PIO_groupsize > 2)) THEN
          ngrp = p_np_glb / DEF_PIO_groupsize
@@ -351,7 +351,7 @@ CONTAINS
       allocate (this%pio (this%nxblk,this%nyblk))
       this%pio(:,:) = -1
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          iproc = -1
          DO jblk = iblk_south, iblk_north
@@ -359,8 +359,8 @@ CONTAINS
             iblk = iblk_west
             DO WHILE (.true.)
 #ifdef USEMPI
-               iproc = mod(iproc+1, p_np_io)
-               this%pio(iblk,jblk) = p_address_io(iproc)
+               iproc = mod(iproc+1, p_np_active)
+               this%pio(iblk,jblk) = p_address_active(iproc)
 #else
                this%pio(iblk,jblk) = p_root
 #endif
@@ -377,11 +377,11 @@ CONTAINS
 
 #ifdef USEMPI
       CALL mpi_bcast (this%pio, this%nxblk * this%nyblk, MPI_INTEGER, &
-         p_address_master, p_comm_glb, p_err)
+         p_address_root, p_comm_glb, p_err)
 #endif
 
       this%nblkme = 0
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          this%nblkme = count(this%pio == p_iam_glb)
          IF (this%nblkme > 0) THEN
             iblkme = 0
@@ -419,7 +419,7 @@ CONTAINS
    integer  :: numblocks, ngrp, iblk, jblk, iproc, jproc
    integer  :: iblkme
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          ! Whether it varies by year???
          write(cyear,'(i4.4)') DEF_LC_YEAR
          filename = trim(dir_landdata) // '/mesh/' // trim(cyear) // '/mesh.nc'
@@ -431,7 +431,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          IF ((mod(p_np_glb,DEF_PIO_groupsize) == 0) .and. (DEF_PIO_groupsize > 2)) THEN
             ngrp = p_np_glb / DEF_PIO_groupsize
@@ -481,18 +481,18 @@ CONTAINS
       ENDIF
 
 
-      CALL mpi_bcast (numblocks, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      CALL mpi_bcast (ngrp,      1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (numblocks, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      CALL mpi_bcast (ngrp,      1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
       CALL divide_processes_into_groups (ngrp)
 #endif
 
       allocate (this%pio (this%nxblk,this%nyblk))
       this%pio(:,:) = -1
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
 #ifdef USEMPI
-         allocate (nelm_io (0:p_np_io-1))
+         allocate (nelm_io (0:p_np_active-1))
          nelm_io(:) = 0
          jproc = -1
 #endif
@@ -503,11 +503,11 @@ CONTAINS
 #ifdef USEMPI
                IF (nelmblk(iblk,jblk) > 0) THEN
                   iproc = minloc(nelm_io, dim=1) - 1
-                  this%pio(iblk,jblk) = p_address_io(iproc)
+                  this%pio(iblk,jblk) = p_address_active(iproc)
                   nelm_io(iproc) = nelm_io(iproc) + nelmblk(iblk,jblk)
                ELSEIF (nelmblk(iblk,jblk) == 0) THEN
-                  jproc = mod(jproc+1, p_np_io)
-                  this%pio(iblk,jblk) = p_address_io(jproc)
+                  jproc = mod(jproc+1, p_np_active)
+                  this%pio(iblk,jblk) = p_address_active(jproc)
                ENDIF
 #else
                this%pio(iblk,jblk) = p_root
@@ -528,11 +528,11 @@ CONTAINS
 
 #ifdef USEMPI
       CALL mpi_bcast (this%pio, this%nxblk * this%nyblk, MPI_INTEGER, &
-         p_address_master, p_comm_glb, p_err)
+         p_address_root, p_comm_glb, p_err)
 #endif
 
       this%nblkme = 0
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          this%nblkme = count(this%pio == p_iam_glb)
          IF (this%nblkme > 0) THEN
             iblkme = 0

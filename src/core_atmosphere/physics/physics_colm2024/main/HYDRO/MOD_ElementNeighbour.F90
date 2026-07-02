@@ -117,7 +117,7 @@ CONTAINS
 
       neighbour_file = DEF_ElementNeighbour_file
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial (neighbour_file, 'num_neighbour', nnball  )
          CALL ncio_read_serial (neighbour_file, 'idx_neighbour', idxnball)
          CALL ncio_read_serial (neighbour_file, 'len_border'   , lenbdall)
@@ -129,14 +129,14 @@ CONTAINS
 
 #ifdef USEMPI
 
-      CALL mpi_bcast (maxnnb, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (maxnnb, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (addrelement (size(nnball)))
          addrelement(:) = -1
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -183,7 +183,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numelm > 0) THEN
             allocate (eindex (numelm))
@@ -192,23 +192,23 @@ CONTAINS
 
 #ifdef USEMPI
          mesg(1:2) = (/p_iam_glb, numelm/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numelm > 0) THEN
             CALL mpi_send (eindex, numelm, MPI_INTEGER8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             allocate (nnball (numelm))
             CALL mpi_recv (nnball, numelm, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (idxnball (maxnnb,numelm))
             CALL mpi_recv (idxnball, maxnnb*numelm, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (lenbdall (maxnnb,numelm))
             CALL mpi_recv (lenbdall, maxnnb*numelm, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
 #else
          allocate (icache1 (numelm))
@@ -255,8 +255,8 @@ CONTAINS
 #endif
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
-         DO iwork = 0, p_np_worker-1
+      IF (p_is_root) THEN
+         DO iwork = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -282,7 +282,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numelm > 0) THEN
             allocate (elm_sorted (numelm))
@@ -320,25 +320,25 @@ CONTAINS
 
 #ifdef USEMPI
          mesg(1:2) = (/p_iam_glb, nnbinq/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (nnbinq > 0) THEN
 
             CALL mpi_send (idxinq(1:nnbinq), nnbinq, MPI_INTEGER8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             allocate (addrinq (nnbinq))
             CALL mpi_recv (addrinq, nnbinq, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
          ENDIF
 
          IF (nnbinq > 0) allocate(mask (nnbinq))
 
-         allocate (recvaddr (0:p_np_worker-1))
-         DO iwork = 0, p_np_worker-1
+         allocate (recvaddr (0:p_np_compute-1))
+         DO iwork = 0, p_np_compute-1
             IF (nnbinq > 0) THEN
-               mask = (addrinq == p_address_worker(iwork))
+               mask = (addrinq == p_address_compute(iwork))
                ndata = count(mask)
             ELSE
                ndata = 0
@@ -361,7 +361,7 @@ CONTAINS
                   iloc = find_in_sorted_list1 (elementneighbour(ielm)%glbindex(inb), &
                      nnbinq, idxinq(1:nnbinq))
 
-                  iwork = p_itis_worker(addrinq(iloc))
+                  iwork = p_itis_compute(addrinq(iloc))
                   iloc1 = find_in_sorted_list1 (elementneighbour(ielm)%glbindex(inb), &
                      recvaddr(iwork)%ndata, recvaddr(iwork)%glbindex)
 
@@ -371,8 +371,8 @@ CONTAINS
             ENDDO
          ENDDO
 
-         allocate (sendaddr (0:p_np_worker-1))
-         DO iwork = 0, p_np_worker-1
+         allocate (sendaddr (0:p_np_compute-1))
+         DO iwork = 0, p_np_compute-1
             sendaddr(iwork)%ndata = 0
          ENDDO
 
@@ -385,7 +385,7 @@ CONTAINS
             ENDDO
          ENDDO
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (sendaddr(iwork)%ndata > 0) THEN
                allocate (sendaddr(iwork)%glbindex (sendaddr(iwork)%ndata))
                sendaddr(iwork)%ndata = 0
@@ -402,7 +402,7 @@ CONTAINS
             ENDDO
          ENDDO
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (sendaddr(iwork)%ndata > 0) THEN
                IF (sendaddr(iwork)%ndata < size(sendaddr(iwork)%glbindex)) THEN
                   allocate (icache1 (sendaddr(iwork)%ndata))
@@ -417,7 +417,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (sendaddr(iwork)%ndata > 0) THEN
                allocate (sendaddr(iwork)%ielement (sendaddr(iwork)%ndata))
 
@@ -452,7 +452,7 @@ CONTAINS
       lndname = trim(DEF_dir_landdata) // '/topography/'//trim(cyear)//'/elevation_patches.nc'
       CALL ncio_read_vector (lndname, 'elevation_patches', landpatch, elv_patches)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO ielm = 1, numelm
             nnb = elementneighbour(ielm)%nnb
@@ -548,7 +548,7 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: sbuff(:), rbuff(:)
    integer :: iwork, ielm, inb, iloc
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO ielm = 1, numelm
             DO inb = 1, elementneighbour(ielm)%nnb
@@ -560,14 +560,14 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL mpi_barrier (p_comm_worker, p_err)
+         CALL mpi_barrier (p_comm_compute, p_err)
 
-         allocate (smask    (0:p_np_worker-1))
-         allocate (req_send (0:p_np_worker-1))
-         allocate (sbuff    (0:p_np_worker-1))
+         allocate (smask    (0:p_np_compute-1))
+         allocate (req_send (0:p_np_compute-1))
+         allocate (sbuff    (0:p_np_compute-1))
          smask(:) = .false.
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (sendaddr(iwork)%ndata > 0) THEN
                smask(iwork) = .true.
 
@@ -575,23 +575,23 @@ CONTAINS
                sbuff(iwork)%val = vec_in(sendaddr(iwork)%ielement)
 
                CALL mpi_isend(sbuff(iwork)%val, sendaddr(iwork)%ndata, MPI_REAL8, &
-                  p_address_worker(iwork), 101, p_comm_glb, req_send(iwork), p_err)
+                  p_address_compute(iwork), 101, p_comm_glb, req_send(iwork), p_err)
             ENDIF
          ENDDO
 
-         allocate (rmask    (0:p_np_worker-1))
-         allocate (req_recv (0:p_np_worker-1))
-         allocate (rbuff    (0:p_np_worker-1))
+         allocate (rmask    (0:p_np_compute-1))
+         allocate (req_recv (0:p_np_compute-1))
+         allocate (rbuff    (0:p_np_compute-1))
          rmask(:) = .false.
 
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             IF (recvaddr(iwork)%ndata > 0) THEN
                rmask(iwork) = .true.
 
                allocate (rbuff(iwork)%val (recvaddr(iwork)%ndata))
 
                CALL mpi_irecv(rbuff(iwork)%val, recvaddr(iwork)%ndata, MPI_REAL8, &
-                  p_address_worker(iwork), 101, p_comm_glb, req_recv(iwork), p_err)
+                  p_address_compute(iwork), 101, p_comm_glb, req_recv(iwork), p_err)
             ENDIF
          ENDDO
 
@@ -623,7 +623,7 @@ CONTAINS
          IF (allocated(sbuff)) deallocate(sbuff)
          IF (allocated(rbuff)) deallocate(rbuff)
 
-         CALL mpi_barrier (p_comm_worker, p_err)
+         CALL mpi_barrier (p_comm_compute, p_err)
 #endif
 
       ENDIF

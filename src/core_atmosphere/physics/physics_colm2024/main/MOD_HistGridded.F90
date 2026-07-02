@@ -78,7 +78,7 @@ CONTAINS
       CALL mp2g_hist_urb%build_arealweighted (ghist, landurban)
 #endif
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (ghist, landfraction)
          CALL allocate_block_data (ghist, gridarea)
 
@@ -136,7 +136,7 @@ CONTAINS
    integer :: iblkme, xblk, yblk, xloc, yloc
    integer :: compress
 
-      IF (p_is_io)      CALL allocate_block_data (ghist, flux_xy_2d)
+      IF (p_is_active)      CALL allocate_block_data (ghist, flux_xy_2d)
 
       IF (present(input_mode)) THEN
          CALL mp2g_hist%pset2grid (acc_vec, flux_xy_2d, spv = spval, msk = filter, input_mode = input_mode)
@@ -144,7 +144,7 @@ CONTAINS
          CALL mp2g_hist%pset2grid (acc_vec, flux_xy_2d, spv = spval, msk = filter)
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
             yblk = gblock%yblkme(iblkme)
@@ -199,12 +199,12 @@ CONTAINS
    integer :: iblkme, xblk, yblk, xloc, yloc
    integer :: compress
 
-      IF (p_is_worker)  WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
-      IF (p_is_io)      CALL allocate_block_data (ghist, flux_xy_2d)
+      IF (p_is_compute)  WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
+      IF (p_is_active)      CALL allocate_block_data (ghist, flux_xy_2d)
 
       CALL mp2g_hist_urb%pset2grid (acc_vec, flux_xy_2d, spv = spval, msk = filter)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
             yblk = gblock%yblkme(iblkme)
@@ -261,16 +261,16 @@ CONTAINS
    integer :: iblkme, xblk, yblk, xloc, yloc, i1
    integer :: compress
 
-      IF (p_is_worker)  THEN
+      IF (p_is_compute)  THEN
          WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
       ENDIF
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (ghist, flux_xy_3d, ndim1, lb1)
       ENDIF
 
       CALL mp2g_hist%pset2grid (acc_vec, flux_xy_3d, spv = spval, msk = filter)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
             yblk = gblock%yblkme(iblkme)
@@ -329,13 +329,13 @@ CONTAINS
    integer :: iblkme, xblk, yblk, xloc, yloc, i1, i2
    integer :: compress
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (ghist, flux_xy_4d, ndim1, ndim2, lb1 = lb1, lb2 = lb2)
       ENDIF
 
       CALL mp2g_hist%pset2grid (acc_vec, flux_xy_4d, spv = spval, msk = filter)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
             yblk = gblock%yblkme(iblkme)
@@ -389,7 +389,7 @@ CONTAINS
    logical :: fexists
 
       IF (trim(DEF_HIST_mode) == 'one') THEN
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
 #ifdef USEMPI
             IF (DEF_HIST_WriteBack) THEN
                CALL hist_writeback_latlon_time (filename, filelast, dataname, time, hist_concat)
@@ -431,12 +431,12 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         CALL mpi_bcast (itime, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+         CALL mpi_bcast (itime, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #endif
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iblkme = 1, gblock%nblkme
                iblk = gblock%xblkme(iblkme)
@@ -459,7 +459,7 @@ CONTAINS
 
          ENDIF
 #ifdef USEMPI
-         IF (.not. p_is_master) CALL mpi_bcast (itime, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
+         IF (.not. p_is_root) CALL mpi_bcast (itime, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
 #endif
 
       ENDIF
@@ -494,7 +494,7 @@ CONTAINS
 
       IF (trim(DEF_HIST_mode) == 'one') THEN
 
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
 
 #ifdef USEMPI
             IF (.not. DEF_HIST_WriteBack) THEN
@@ -583,7 +583,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             DO iyseg = 1, hist_concat%nyseg
                DO ixseg = 1, hist_concat%nxseg
 
@@ -603,9 +603,9 @@ CONTAINS
                      IF (.not. DEF_HIST_WriteBack) THEN
                         smesg = (/p_iam_glb, ixseg, iyseg/)
                         CALL mpi_send (smesg, 3, MPI_INTEGER, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                         CALL mpi_send (sbuf, xcnt*ycnt, MPI_REAL8, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                      ELSE
                         CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata2d = sbuf)
                      ENDIF
@@ -622,7 +622,7 @@ CONTAINS
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iblkme = 1, gblock%nblkme
                iblk = gblock%xblkme(iblkme)
@@ -678,7 +678,7 @@ CONTAINS
 
       IF (trim(DEF_HIST_mode) == 'one') THEN
 
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
 
 #ifdef USEMPI
             IF (.not. DEF_HIST_WriteBack) THEN
@@ -767,7 +767,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iyseg = 1, hist_concat%nyseg
                DO ixseg = 1, hist_concat%nxseg
@@ -789,9 +789,9 @@ CONTAINS
                      IF (.not. DEF_HIST_WriteBack) THEN
                         smesg = (/p_iam_glb, ixseg, iyseg, ndim1/)
                         CALL mpi_send (smesg, 4, MPI_INTEGER, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                         CALL mpi_send (sbuf, ndim1*xcnt*ycnt, MPI_REAL8, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                      ELSE
                         CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata3d = sbuf)
                      ENDIF
@@ -807,7 +807,7 @@ CONTAINS
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iblkme = 1, gblock%nblkme
                iblk = gblock%xblkme(iblkme)
@@ -858,7 +858,7 @@ CONTAINS
 
       IF (trim(DEF_HIST_mode) == 'one') THEN
 
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
 
 #ifdef USEMPI
             IF (.not. DEF_HIST_WriteBack) THEN
@@ -954,7 +954,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iyseg = 1, hist_concat%nyseg
                DO ixseg = 1, hist_concat%nxseg
@@ -977,9 +977,9 @@ CONTAINS
                      IF (.not. DEF_HIST_WriteBack) THEN
                         smesg = (/p_iam_glb, ixseg, iyseg, ndim1, ndim2/)
                         CALL mpi_send (smesg, 5, MPI_INTEGER, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                         CALL mpi_send (sbuf, ndim1*ndim2*xcnt*ycnt, MPI_REAL8, &
-                           p_address_master, hist_data_id, p_comm_glb, p_err)
+                           p_address_root, hist_data_id, p_comm_glb, p_err)
                      ELSE
                         CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata4d = sbuf)
                      ENDIF
@@ -994,7 +994,7 @@ CONTAINS
          hist_data_id = mod(hist_data_id-10000,10000) + 100001
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
             DO iblkme = 1, gblock%nblkme
                iblk = gblock%xblkme(iblkme)

@@ -280,7 +280,7 @@ CONTAINS
 
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                allocate (filter    (numpatch))
                allocate (filter_dt (numpatch))
@@ -300,7 +300,7 @@ CONTAINS
          ENDIF
 
          IF (HistForm == 'Gridded') THEN
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL allocate_block_data (ghist, sumarea)
                CALL allocate_block_data (ghist, sumarea_dt)
 #ifdef URBAN_MODEL
@@ -316,7 +316,7 @@ CONTAINS
          ! ---------------------------------------------------
          ! Meteorological forcing and patch mask filter applying.
          ! ---------------------------------------------------
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype < 99
@@ -346,7 +346,7 @@ CONTAINS
          ENDIF
 
 #ifdef CROP
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                filter_crop(:) = patchtype < 99
                filter_crop(:) = patchclass == 12
@@ -371,7 +371,7 @@ CONTAINS
          ENDIF
 
          IF (DEF_USE_IRRIGATION) THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -479,7 +479,7 @@ CONTAINS
          ! ------------------------------------------------------------------------------------------
          ! Mapping the fluxes and state variables at patch [numpatch] to grid
          ! ------------------------------------------------------------------
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype < 99
@@ -616,7 +616,7 @@ CONTAINS
 #ifdef DataAssimilation
          IF (DEF_DA_TWS_GRACE) THEN
             ! slope factors for runoff [-]
-            IF (p_is_worker .and. (numpatch > 0)) THEN
+            IF (p_is_compute .and. (numpatch > 0)) THEN
                vecacc = fslp_k_mon(month, :)
                WHERE (vecacc /= spval) vecacc = vecacc*nac
             ENDIF
@@ -664,7 +664,7 @@ CONTAINS
             'total water storage','mm')
 
          ! instantaneous total water storage [mm]
-         IF (p_is_worker .and. (numpatch > 0)) THEN
+         IF (p_is_compute .and. (numpatch > 0)) THEN
             vecacc = wat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -791,7 +791,7 @@ ENDIF
             a_qref, file_hist, 'f_qref', itime_in_file, sumarea, filter, &
             '2 m height air specific humidity','kg/kg')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype == 2
@@ -817,7 +817,7 @@ ENDIF
 
          ! wetland water storage [mm]
          IF (DEF_USE_Dynamic_Wetland) THEN
-            IF (p_is_worker .and. (numpatch > 0)) THEN
+            IF (p_is_compute .and. (numpatch > 0)) THEN
                vecacc = a_wdsrf
             ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
@@ -830,7 +830,7 @@ ENDIF
          ENDIF
 
          ! instantaneous wetland water storage [mm]
-         IF (p_is_worker .and. (numpatch > 0)) THEN
+         IF (p_is_compute .and. (numpatch > 0)) THEN
             vecacc = wetwat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -838,7 +838,7 @@ ENDIF
             vecacc, file_hist, 'f_wetwat_inst', itime_in_file, sumarea, filter, &
             'instantaneous wetland water storage','mm')
 
-         IF (p_is_worker .and. (numpatch > 0)) THEN
+         IF (p_is_compute .and. (numpatch > 0)) THEN
             vecacc = a_zwt
          ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%wetzwt, &
@@ -850,7 +850,7 @@ ENDIF
          ! ------------------------------------------------------------------
 
 #ifdef URBAN_MODEL
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i = 1, numpatch
                   IF (patchtype(i) == 1) THEN
@@ -974,7 +974,7 @@ ENDIF
          ! ------------------------------------------------------------------
          ! Mapping the fluxes and state variables at patch [numpatch] to grid
          ! ------------------------------------------------------------------
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                filter(:) = patchtype < 99
                IF (DEF_forcing%has_missing_value) THEN
@@ -1345,7 +1345,7 @@ ENDIF
              'crop phase','unitless')
 
         ! heat unit index
-        IF (p_is_worker) THEN
+        IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_hui (:)
             ENDIF
@@ -1386,7 +1386,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'crop seed deficit','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -1406,7 +1406,7 @@ ENDIF
              'fertilization','gN/m2/s')
 
          IF (DEF_USE_IRRIGATION) THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -1431,7 +1431,7 @@ ENDIF
             ENDIF
 
             !  total irrigation amounts at growing season
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_sum_irrig (:)
                ENDIF
@@ -1441,7 +1441,7 @@ ENDIF
                'total irrigation amounts at growing season','kg/m2')
 
             !  total irrigation amounts demand at growing season
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_sum_deficit_irrig (:)
                ENDIF
@@ -1456,7 +1456,7 @@ ENDIF
                'total irrigation times at growing season','-')
 
             ! irrigation waterstorage [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_waterstorage (:)
                ENDIF
@@ -1466,7 +1466,7 @@ ENDIF
                'irrigation waterstorage','kg/m2')
 
             ! irrigation demand for ground water [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_groundwater_demand (:)
                ENDIF
@@ -1476,7 +1476,7 @@ ENDIF
                'irrigation demand for ground water','kg/m2')
 
             ! irrigation supply from ground water [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_groundwater_supply (:)
                ENDIF
@@ -1486,7 +1486,7 @@ ENDIF
                'irrigation supply from ground water','kg/m2')
 
             ! irrigation demand for reservoir or river [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_reservoirriver_demand (:)
                ENDIF
@@ -1496,7 +1496,7 @@ ENDIF
                'irrigation demand for reservoir or river','kg/m2')
 
             ! irrigation supply from reservoir or river [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_reservoirriver_supply (:)
                ENDIF
@@ -1506,7 +1506,7 @@ ENDIF
                'irrigation supply from reservoir or river','kg/m2')
 
             ! irrigation supply from reservoir [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_reservoir_supply (:)
                ENDIF
@@ -1516,7 +1516,7 @@ ENDIF
                'irrigation supply from reservoir','kg/m2')
 
             ! irrigation supply from river [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_river_supply (:)
                ENDIF
@@ -1526,7 +1526,7 @@ ENDIF
                'irrigation supply from river','kg/m2')
 
             ! irrigation supply from runoff [kg/m2]
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   vecacc (:) = a_runoff_supply (:)
                ENDIF
@@ -1969,7 +1969,7 @@ ENDIF
 
 
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) .ne. 12 .and. patchtype(i) .eq. 0)THEN
@@ -2337,7 +2337,7 @@ ENDIF
 
 #ifdef CROP
 !*****************************************
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2353,7 +2353,7 @@ ENDIF
             CALL mp2g_hist%get_sumarea (sumarea, filter)
          ENDIF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_manunitro (:)
             ENDIF
@@ -2364,7 +2364,7 @@ ENDIF
              'nitrogen in manure','gN/m2/yr')
 
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2384,7 +2384,7 @@ ENDIF
             CALL mp2g_hist%get_sumarea (sumarea, filter)
          ENDIF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_hui (:)
             ENDIF
@@ -2394,7 +2394,7 @@ ENDIF
              'heat unit index  (rainfed spring wheat)','unitless')
 
 !************************************************************
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2419,7 +2419,7 @@ ENDIF
 !            a_pdcorn, file_hist, 'f_pdcorn', &
 !            itime_in_file, sumarea, filter, 'planting date of corn', 'day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2443,7 +2443,7 @@ ENDIF
 !            a_pdswheat, file_hist, 'f_pdswheat', &
 !            itime_in_file, sumarea, filter,'planting date of spring wheat','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2467,7 +2467,7 @@ ENDIF
 !            a_pdwwheat, file_hist, 'f_pdwwheat', &
 !            itime_in_file, sumarea, filter,'planting date of winter wheat','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2492,7 +2492,7 @@ ENDIF
 !            a_pdsoybean, file_hist, 'f_pdsoybean', &
 !            itime_in_file, sumarea, filter,'planting date of soybean','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2516,7 +2516,7 @@ ENDIF
 !            a_pdcotton, file_hist, 'f_pdcotton', &
 !            itime_in_file, sumarea, filter,'planting date of cotton','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2540,7 +2540,7 @@ ENDIF
 !            a_pdrice1, file_hist, 'f_pdrice1', &
 !            itime_in_file, sumarea, filter,'planting date of rice1','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2564,7 +2564,7 @@ ENDIF
 !            a_pdrice2, file_hist, 'f_pdrice2', &
 !            itime_in_file, sumarea, filter,'planting date of rice2','day')
 !
-!         IF (p_is_worker) THEN
+!         IF (p_is_compute) THEN
 !            IF (numpatch > 0) THEN
 !               DO i=1,numpatch
 !                  IF(patchclass(i) == 12)THEN
@@ -2588,7 +2588,7 @@ ENDIF
 !            a_pdsugarcane, file_hist, 'f_pdsugarcane', &
 !            itime_in_file, sumarea, filter,'planting date of sugarcane','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2613,7 +2613,7 @@ ENDIF
             a_fertnitro_corn, file_hist, 'f_fertnitro_corn', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for corn','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2637,7 +2637,7 @@ ENDIF
             a_fertnitro_swheat, file_hist, 'f_fertnitro_swheat', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for spring wheat','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2661,7 +2661,7 @@ ENDIF
             a_fertnitro_wwheat, file_hist, 'f_fertnitro_wwheat', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for winter wheat','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2686,7 +2686,7 @@ ENDIF
             a_fertnitro_soybean, file_hist, 'f_fertnitro_soybean', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for soybean','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2710,7 +2710,7 @@ ENDIF
             a_fertnitro_cotton, file_hist, 'f_fertnitro_cotton', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for cotton','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2734,7 +2734,7 @@ ENDIF
             a_fertnitro_rice1, file_hist, 'f_fertnitro_rice1', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for rice1','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2758,7 +2758,7 @@ ENDIF
             a_fertnitro_rice2, file_hist, 'f_fertnitro_rice2', &
             itime_in_file, sumarea, filter,'nitrogen fertilizer for rice2','gN/m2/yr')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2783,7 +2783,7 @@ ENDIF
             itime_in_file, sumarea, filter,'nitrogen fertilizer for sugarcane','gN/m2/yr')
 
          IF(DEF_USE_IRRIGATION)THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2807,7 +2807,7 @@ ENDIF
                a_irrig_method_corn, file_hist, 'f_irrig_method_corn', &
                itime_in_file, sumarea, filter,'irrigation method for corn','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2831,7 +2831,7 @@ ENDIF
                a_irrig_method_swheat, file_hist, 'f_irrig_method_swheat', &
                itime_in_file, sumarea, filter,'irrigation method for spring wheat','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2855,7 +2855,7 @@ ENDIF
                a_irrig_method_wwheat, file_hist, 'f_irrig_method_wwheat', &
                itime_in_file, sumarea, filter,'irrigation method for winter wheat','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2880,7 +2880,7 @@ ENDIF
                a_irrig_method_soybean, file_hist, 'f_irrig_method_soybean', &
                itime_in_file, sumarea, filter,'irrigation method for soybean','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2904,7 +2904,7 @@ ENDIF
                a_irrig_method_cotton, file_hist, 'f_irrig_method_cotton', &
                itime_in_file, sumarea, filter,'irrigation method for cotton','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2928,7 +2928,7 @@ ENDIF
                a_irrig_method_rice1, file_hist, 'f_irrig_method_rice1', &
                itime_in_file, sumarea, filter,'irrigation method for rice1','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2952,7 +2952,7 @@ ENDIF
                a_irrig_method_rice2, file_hist, 'f_irrig_method_rice2', &
                itime_in_file, sumarea, filter,'irrigation method for rice2','-')
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
@@ -2978,7 +2978,7 @@ ENDIF
 
          ENDIF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -2999,7 +2999,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed temperate corn
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3008,7 +3008,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_temp_corn', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed temperate corn)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3029,7 +3029,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated temperate corn
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3038,7 +3038,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_temp_corn', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated temperate corn)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3060,7 +3060,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed spring wheat
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3069,7 +3069,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_spwheat', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed spring wheat)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3091,7 +3091,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated spring wheat
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3100,7 +3100,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_spwheat', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated spring wheat)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3121,7 +3121,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed winter wheat
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3130,7 +3130,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_wtwheat', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed winter wheat)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3151,7 +3151,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated winter wheat
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3160,7 +3160,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_wtwheat', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated winter wheat)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3181,7 +3181,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed temperate soybean
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3191,7 +3191,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed temperate soybean)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3212,7 +3212,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated temperate soybean
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3222,7 +3222,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated temperate soybean)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3243,7 +3243,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed cotton
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3252,7 +3252,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_cotton', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed cotton)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3273,7 +3273,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated cotton
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3282,7 +3282,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_cotton', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated cotton)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3303,7 +3303,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed rice
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3312,7 +3312,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_rice', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed rice)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3333,7 +3333,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated rice
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3342,7 +3342,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_rice', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated rice)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3363,7 +3363,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed sugarcane
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3372,7 +3372,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_sugarcane', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed sugarcane)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3393,7 +3393,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated sugarcane
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3402,7 +3402,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_sugarcane', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated sugarcane)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3423,7 +3423,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed trop corn
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3432,7 +3432,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_rainfed_trop_corn', itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed trop corn)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3453,7 +3453,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated trop corn
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3462,7 +3462,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_irrigated_trop_corn', itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated trop corn)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3483,7 +3483,7 @@ ENDIF
          ENDIF
 
          ! planting date of rainfed trop soybean
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3493,7 +3493,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop planting date (rainfed trop soybean)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3514,7 +3514,7 @@ ENDIF
          ENDIF
 
          ! planting date of irrigated trop soybean
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3524,7 +3524,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop planting date (irrigated trop soybean)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3546,7 +3546,7 @@ ENDIF
          ENDIF
 
          ! planting date of unmanaged crop production
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_plantdate (:)
             ENDIF
@@ -3555,7 +3555,7 @@ ENDIF
              vecacc, file_hist, 'f_plantdate_unmanagedcrop', itime_in_file, sumarea, filter, &
              'Crop planting date (unmanaged crop production)','day')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3576,7 +3576,7 @@ ENDIF
          ENDIF
 
          ! grain to corn production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3585,7 +3585,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_temp_corn', itime_in_file, sumarea, filter, &
              'Crop production (rainfed temperate corn)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3606,7 +3606,7 @@ ENDIF
          ENDIF
 
          ! grain to corn production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3615,7 +3615,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_temp_corn', itime_in_file, sumarea, filter, &
              'Crop production (irrigated temperate corn)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3636,7 +3636,7 @@ ENDIF
          ENDIF
 
          ! grain to spring wheat production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3645,7 +3645,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_spwheat', itime_in_file, sumarea, filter, &
              'Crop production (rainfed spring wheat)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3666,7 +3666,7 @@ ENDIF
          ENDIF
 
          ! grain to spring wheat production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3675,7 +3675,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_spwheat', itime_in_file, sumarea, filter, &
              'Crop production (irrigated spring wheat)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3696,7 +3696,7 @@ ENDIF
          ENDIF
 
          ! grain to winter wheat production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3705,7 +3705,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_wtwheat', itime_in_file, sumarea, filter, &
              'Crop production (rainfed winter wheat)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3726,7 +3726,7 @@ ENDIF
          ENDIF
 
          ! grain to winter wheat production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3735,7 +3735,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_wtwheat', itime_in_file, sumarea, filter, &
              'Crop production (irrigated winter wheat)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3756,7 +3756,7 @@ ENDIF
          ENDIF
 
          ! grain to soybean production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3766,7 +3766,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop production (rainfed temperate soybean)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3787,7 +3787,7 @@ ENDIF
          ENDIF
 
          ! grain to soybean production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3797,7 +3797,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop production (irrigated temperate soybean)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3818,7 +3818,7 @@ ENDIF
          ENDIF
 
          ! grain to cotton production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3827,7 +3827,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_cotton', itime_in_file, sumarea, filter, &
              'Crop production (rainfed cotton)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3848,7 +3848,7 @@ ENDIF
          ENDIF
 
          ! grain to cotton production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3857,7 +3857,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_cotton', itime_in_file, sumarea, filter, &
              'Crop production (irrigated cotton)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3878,7 +3878,7 @@ ENDIF
          ENDIF
 
          ! grain to rice production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3887,7 +3887,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_rice', itime_in_file, sumarea, filter, &
              'Crop production (rainfed rice)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3908,7 +3908,7 @@ ENDIF
          ENDIF
 
          ! grain to rice production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3917,7 +3917,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_rice', itime_in_file, sumarea, filter, &
              'Crop production (irrigated rice)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3938,7 +3938,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3947,7 +3947,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_sugarcane', itime_in_file, sumarea, filter, &
              'Crop production (rainfed sugarcane)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3968,7 +3968,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -3977,7 +3977,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_sugarcane', itime_in_file, sumarea, filter, &
              'Crop production (irrigated sugarcane)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -3998,7 +3998,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -4007,7 +4007,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_rainfed_trop_corn', itime_in_file, sumarea, filter, &
              'Crop production (rainfed_trop_corn)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -4028,7 +4028,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -4037,7 +4037,7 @@ ENDIF
              vecacc, file_hist, 'f_cropprodc_irrigated_trop_corn', itime_in_file, sumarea, filter, &
              'Crop production (irrigated_trop_corn)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -4058,7 +4058,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -4068,7 +4068,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop production (rainfed trop soybean)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -4089,7 +4089,7 @@ ENDIF
          ENDIF
 
          ! grain to sugarcane production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -4099,7 +4099,7 @@ ENDIF
              itime_in_file, sumarea, filter, &
              'Crop production (irrigated trop soybean)','gC/m2/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                DO i=1,numpatch
                   IF(patchclass(i) == 12)THEN
@@ -4120,7 +4120,7 @@ ENDIF
          ENDIF
 
          ! grain to unmanaged crop production carbon
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                vecacc (:) = a_grainc_to_cropprodc (:)
             ENDIF
@@ -4136,7 +4136,7 @@ ENDIF
          !  land water bodies => 4; ocean => 99]
          ! --------------------------------------------------------------------
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype <= 3
@@ -4173,7 +4173,7 @@ ENDIF
 
 
 #ifdef DataAssimilation
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             allocate (a_wliq_h2osoi_5cm     (numpatch                 )); a_wliq_h2osoi_5cm         = spval
             allocate (a_t_soisno_5cm        (numpatch                 )); a_t_soisno_5cm            = spval
 
@@ -4194,7 +4194,7 @@ ENDIF
             allocate (a_t_brt_fy3d_ens_std     (2,numpatch            )); a_t_brt_fy3d_ens_std      = spval
          END IF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 !#############################################################################
 ! States before DA
 !#############################################################################
@@ -4293,12 +4293,12 @@ ENDIF
          ! --------------------------------------------------------------------
 
          IF (HistForm == 'Gridded') THEN
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL allocate_block_data(ghist, sumarea)
             END IF
          END IF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype <= 2
@@ -4350,7 +4350,7 @@ ENDIF
                sumarea, filter, 'Standard deviation of H- & V- polarized brightness temperature for FY satellite (X-band, 10.65GHz)', 'K')
          ENDIF
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             deallocate (a_wliq_h2osoi_5cm)
             deallocate (a_t_soisno_5cm)
             deallocate (a_wliq_soisno_ens_mean)
@@ -4375,7 +4375,7 @@ ENDIF
          !  land water bodies => 4; ocean => 99]
          ! --------------------------------------------------------------------
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype <= 2
@@ -4427,7 +4427,7 @@ ENDIF
          ! --------------------------------------------------------------------
          ! depth of surface water (including land ice and ocean patches)
          ! --------------------------------------------------------------------
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = (patchtype <= 4)
@@ -4450,7 +4450,7 @@ ENDIF
             'water storage in aquifer','mm')
 
          ! instantaneous water storage in aquifer [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             vecacc = wa
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4464,7 +4464,7 @@ ENDIF
             'depth of surface water','mm')
 
          ! instantaneous depth of surface water [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             vecacc = wdsrf
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4476,7 +4476,7 @@ ENDIF
          ! Land water bodies' ice fraction and temperature
          ! -----------------------------------------------
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                filter(:) = patchtype == 4
                IF (DEF_forcing%has_missing_value) THEN
@@ -4525,7 +4525,7 @@ ENDIF
          ! --------------------------------
          ! Retrieve through averaged fluxes
          ! --------------------------------
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                filter(:) = patchtype < 99
@@ -4648,7 +4648,7 @@ ENDIF
             'reflected diffuse beam nir solar radiation (W/m2)','W/m2')
 
          ! local noon fluxes
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                filter(:) = nac_ln > 0
                IF (DEF_forcing%has_missing_value) THEN
@@ -4702,7 +4702,7 @@ ENDIF
             'reflected diffuse beam nir solar radiation at local noon(W/m2)','W/m2',nac_ln)
 
 
-         IF ((p_is_worker) .and. (numpatch > 0)) THEN
+         IF ((p_is_compute) .and. (numpatch > 0)) THEN
             filter = (patchtype == 0) .and. patchmask
             IF (DEF_forcing%has_missing_value) filter = filter .and. forcmask_pch
          ENDIF
@@ -4718,7 +4718,7 @@ ENDIF
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
             CALL hist_out_cama (file_hist_cama, itime_in_file_cama)
          ENDIF
 #endif
@@ -4731,7 +4731,7 @@ ENDIF
          CALL hist_grid_riverlake_out (file_hist, HistForm, idate, &
             itime_in_file, trim(file_hist)/=trim(file_last))
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                allocate (nac_one (numpatch))
                nac_one = 1.
@@ -4739,8 +4739,8 @@ ENDIF
          ENDIF
 
          IF (HistForm == 'Gridded') THEN
-            IF (p_is_io) CALL allocate_block_data (ghist, sumarea_one)
-            IF (p_is_io) CALL flush_block_data (sumarea_one, 1.)
+            IF (p_is_active) CALL allocate_block_data (ghist, sumarea_one)
+            IF (p_is_active) CALL flush_block_data (sumarea_one, 1.)
          ENDIF
 
          CALL write_history_variable_2d ( DEF_hist_vars%riv_height, a_wdsrf_ucat_pch,   &
@@ -4822,10 +4822,10 @@ ENDIF
 
 #ifndef SinglePoint
       IF ( .not. present(acc_num) ) THEN
-         IF (p_is_worker) &
+         IF (p_is_compute) &
             WHERE (acc_vec /= spval) acc_vec = acc_vec / nac
       ELSE
-         IF (p_is_worker)  &
+         IF (p_is_compute)  &
             WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
       ENDIF
 #else
@@ -4983,10 +4983,10 @@ ENDIF
 
 #ifndef SinglePoint
       IF ( .not. present(acc_num) ) THEN
-         IF (p_is_worker) &
+         IF (p_is_compute) &
             WHERE (acc_vec /= spval) acc_vec = acc_vec / nac
       ELSE
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO i1 = lbound(acc_vec,1), ubound(acc_vec,1)
                DO i2 = lbound(acc_vec,2), ubound(acc_vec,2)
                   WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0) &

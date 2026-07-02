@@ -70,11 +70,11 @@ CONTAINS
    USE MOD_Namelist
    IMPLICIT NONE
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          inquire (file=trim(DEF_file_mesh), exist=read_mesh_from_file)
       ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (read_mesh_from_file, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (read_mesh_from_file, 1, MPI_LOGICAL, p_address_root, p_comm_glb, p_err)
 #endif
       IF (read_mesh_from_file) THEN
          CALL gridmesh%define_from_file (DEF_file_mesh)
@@ -153,7 +153,7 @@ CONTAINS
    type(irregular_elm_type), allocatable :: meshtmp (:)
 
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (gridmesh, datamesh)
       ENDIF
 
@@ -174,15 +174,15 @@ CONTAINS
 #endif
 
       ! Step 1: How many elms in each block?
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          nelm = 0
 
-         allocate (nelm_worker (0:p_np_worker-1))
+         allocate (nelm_worker (0:p_np_compute-1))
          nelm_worker(:) = 0
 
-         allocate (elist_worker (0:p_np_worker-1))
-         DO iworker = 0, p_np_worker-1
+         allocate (elist_worker (0:p_np_compute-1))
+         DO iworker = 0, p_np_compute-1
             allocate (elist_worker(iworker)%val (1000))
          ENDDO
 
@@ -214,7 +214,7 @@ CONTAINS
 
                   IF (elmid > 0) THEN
 
-                     iworker = mod(elmid, p_np_worker)
+                     iworker = mod(elmid, p_np_compute)
                      CALL insert_into_sorted_list1 ( &
                         elmid, nelm_worker(iworker), elist_worker(iworker)%val, iloc)
 
@@ -228,9 +228,9 @@ CONTAINS
             ENDDO
 
 #ifdef USEMPI
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (nelm_worker(iworker) > 0) THEN
-                  idest = p_address_worker(iworker)
+                  idest = p_address_compute(iworker)
                   smesg(1:2) = (/p_iam_glb, nelm_worker(iworker)/)
                   ! send(01)
                   CALL mpi_send (smesg(1:2), 2, MPI_INTEGER, &
@@ -244,8 +244,8 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iworker = 0, p_np_worker-1
-            idest = p_address_worker(iworker)
+         DO iworker = 0, p_np_compute-1
+            idest = p_address_compute(iworker)
             ! send(02)
             smesg(1:2) = (/p_iam_glb, 0/)
             CALL mpi_send (smesg(1:2), 2, MPI_INTEGER, &
@@ -254,7 +254,7 @@ CONTAINS
 #endif
 
          deallocate (nelm_worker)
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
             deallocate (elist_worker(iworker)%val)
          ENDDO
          deallocate (elist_worker)
@@ -262,9 +262,9 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          nelm = 0
-         allocate(work_done(0:p_np_io-1))
+         allocate(work_done(0:p_np_active-1))
          work_done(:) = .false.
          DO WHILE (.not. all(work_done))
             ! recv(01,02)
@@ -277,7 +277,7 @@ CONTAINS
             IF (nrecv > 0) THEN
                nelm = nelm + nrecv
             ELSE
-               work_done(p_itis_io(isrc)) = .true.
+               work_done(p_itis_active(isrc)) = .true.
             ENDIF
          ENDDO
 
@@ -288,7 +288,7 @@ CONTAINS
 #endif
 
       ! Step 2: Build pixel list for each elm.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (nelm > 0) THEN
             allocate (meshtmp (nelm))
             allocate (elist (nelm))
@@ -297,7 +297,7 @@ CONTAINS
          nelm = 0
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -395,13 +395,13 @@ CONTAINS
             allocate (sbuf64 (nxp*nyp))
 
             blktag = iblkme
-            ipt2 = mod(elist2, p_np_worker)
-            DO iproc = 0, p_np_worker-1
+            ipt2 = mod(elist2, p_np_compute)
+            DO iproc = 0, p_np_compute-1
                msk2  = (ipt2 == iproc) .and. (elist2 > 0)
                nsend = count(msk2)
                IF (nsend > 0) THEN
 
-                  idest = p_address_worker(iproc)
+                  idest = p_address_compute(iproc)
 
                   smesg(1:3) = (/p_iam_glb, nsend, blktag/)
                   ! send(03)
@@ -480,8 +480,8 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iworker = 0, p_np_worker-1
-            idest = p_address_worker(iworker)
+         DO iworker = 0, p_np_compute-1
+            idest = p_address_compute(iworker)
             ! send(07)
             smesg(1:3) = (/p_iam_glb, 0, 0/)
             CALL mpi_send (smesg(1:3), 3, MPI_INTEGER, &
@@ -492,9 +492,9 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate(work_done(0:p_np_io-1))
+         allocate(work_done(0:p_np_active-1))
          work_done(:) = .false.
          DO WHILE (.not. all(work_done))
             ! recv(03,07)
@@ -566,7 +566,7 @@ CONTAINS
                deallocate (xlist_recv)
                deallocate (ylist_recv)
             ELSE
-               work_done(p_itis_io(isrc)) = .true.
+               work_done(p_itis_active(isrc)) = .true.
             ENDIF
          ENDDO
 
@@ -579,7 +579,7 @@ CONTAINS
       IF (allocated(iaddr)) deallocate (iaddr)
 
       ! Step 3: Which block each elm locates at.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (npxl_blk (gblock%nxblk,gblock%nyblk))
          allocate (nelm_blk (gblock%nxblk,gblock%nyblk))
@@ -616,7 +616,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (.not. p_is_worker) THEN
+      IF (.not. p_is_compute) THEN
          allocate (nelm_blk (gblock%nxblk,gblock%nyblk))
          nelm_blk(:,:) = 0
       ENDIF
@@ -627,7 +627,7 @@ CONTAINS
 
       ! Step 4: IF MPI is used, sending elms from worker to their IO processes.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          allocate (blkdsp (gblock%nxblk, gblock%nyblk))
          blkdsp(1,1) = 0
@@ -654,7 +654,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO iblk = 1, gblock%nxblk
             DO jblk = 1, gblock%nyblk
 
@@ -717,7 +717,7 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          numelm = sum(nelm_blk, mask = gblock%pio == p_iam_glb)
 
@@ -810,7 +810,7 @@ CONTAINS
 #endif
 
       ! Step 4-2: sort elms.
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          IF (allocated (meshtmp)) THEN
             DO ie = 1, size(meshtmp)
                IF (allocated(meshtmp(ie)%ilon))  deallocate (meshtmp(ie)%ilon)
@@ -870,23 +870,23 @@ CONTAINS
       CALL scatter_mesh_from_io_to_worker ()
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making mesh elements:'
       ENDIF
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_io, p_err)
-         IF (p_iam_io == p_root) THEN
+         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_active, p_err)
+         IF (p_iam_active == p_root) THEN
             write(*,'(A,I12,A)') 'Total   : ', nelm_glb, ' elements.'
          ENDIF
 
          nelm_max_blk = maxval(nelm_blk, mask = gblock%pio == p_iam_glb)
-         CALL mpi_allreduce (MPI_IN_PLACE, nelm_max_blk, 1, MPI_INTEGER, MPI_MAX, p_comm_io, p_err)
-         IF (p_iam_io == p_root) THEN
+         CALL mpi_allreduce (MPI_IN_PLACE, nelm_max_blk, 1, MPI_INTEGER, MPI_MAX, p_comm_active, p_err)
+         IF (p_iam_active == p_root) THEN
             write(*,'(A,I12,A)') 'Maximum : ', nelm_max_blk, &
                ' elements in one block (More than 3600 is recommended).'
             write(*,'(/,A)') '   -----------------------------------------------------------------'
@@ -927,7 +927,7 @@ CONTAINS
 
       CALL mpi_barrier (p_comm_glb, p_err)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          allocate (nelm_worker (1:p_np_group-1))
          nelm_worker(:) = 0
@@ -986,7 +986,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          CALL mpi_recv (numelm, 1, MPI_INTEGER, &
             p_root, mpi_tag_size, p_comm_group, p_stat, p_err)

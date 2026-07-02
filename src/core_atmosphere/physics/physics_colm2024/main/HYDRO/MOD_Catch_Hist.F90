@@ -61,7 +61,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numbsnhru > 0) THEN
             allocate (a_wdsrf_bsnhru (numbsnhru))
             allocate (a_veloc_bsnhru (numbsnhru))
@@ -130,7 +130,7 @@ CONTAINS
    real(r8), allocatable :: varhist(:)
    integer :: i
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          i = len_trim (file_hist)
          DO WHILE (file_hist(i:i) /= '_')
@@ -171,7 +171,7 @@ CONTAINS
       ENDIF
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numhru > 0) THEN
             allocate (a_wdsrf_hru (numhru))
             allocate (a_veloc_hru (numhru))
@@ -187,13 +187,13 @@ CONTAINS
 
       ! ----- water depth in basin -----
       IF (DEF_hist_vars%riv_height) THEN
-         IF ((p_is_worker) .and. allocated(a_wdsrf_bsn)) THEN
+         IF ((p_is_compute) .and. allocated(a_wdsrf_bsn)) THEN
             WHERE(a_wdsrf_bsn /= spval)
                a_wdsrf_bsn = a_wdsrf_bsn / nac_basin
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_bsn2elm, a_wdsrf_bsn, a_wdsrf_elm, spval)
+         CALL compute_push_data (push_bsn2elm, a_wdsrf_bsn, a_wdsrf_elm, spval)
 
          CALL vector_gather_and_write (&
             a_wdsrf_elm, numelm, totalnumelm, elm_data_address, file_hist_basin, 'v_wdsrf_bsn', 'basin', &
@@ -202,13 +202,13 @@ CONTAINS
 
       ! ----- water velocity in river -----
       IF (DEF_hist_vars%riv_veloct) THEN
-         IF ((p_is_worker) .and. allocated(a_veloc_riv)) THEN
+         IF ((p_is_compute) .and. allocated(a_veloc_riv)) THEN
             WHERE(a_veloc_riv /= spval)
                a_veloc_riv = a_veloc_riv / nac_basin
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_bsn2elm, a_veloc_riv, a_veloc_elm, spval)
+         CALL compute_push_data (push_bsn2elm, a_veloc_riv, a_veloc_elm, spval)
 
          CALL vector_gather_and_write (&
             a_veloc_elm, numelm, totalnumelm, elm_data_address, file_hist_basin, 'v_veloc_riv', 'basin', &
@@ -217,13 +217,13 @@ CONTAINS
 
       ! ----- discharge in river -----
       IF (DEF_hist_vars%discharge) THEN
-         IF ((p_is_worker) .and. allocated(a_discharge)) THEN
+         IF ((p_is_compute) .and. allocated(a_discharge)) THEN
             WHERE(a_discharge /= spval)
                a_discharge = a_discharge / nac_basin
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_bsn2elm, a_discharge, a_dschg_elm, spval)
+         CALL compute_push_data (push_bsn2elm, a_discharge, a_dschg_elm, spval)
 
          CALL vector_gather_and_write (&
             a_dschg_elm, numelm, totalnumelm, elm_data_address, file_hist_basin, 'v_discharge', 'basin', &
@@ -231,23 +231,23 @@ CONTAINS
       ENDIF
 
       ! ----- number of time steps for each basin -----
-      CALL worker_push_data (push_bsn2elm, ntacc_bsn, ntacc_elm, spval)
+      CALL compute_push_data (push_bsn2elm, ntacc_bsn, ntacc_elm, spval)
 
       CALL vector_gather_and_write (&
          ntacc_elm, numelm, totalnumelm, elm_data_address, file_hist_basin, 'timesteps', 'basin', &
          itime_in_file, 'Number of accumulated timesteps for each basin', '-')
 
-      IF (p_is_worker .and. (numbasin > 0)) ntacc_bsn(:) = 0.
+      IF (p_is_compute .and. (numbasin > 0)) ntacc_bsn(:) = 0.
 
       ! ----- water depth in hydro unit -----
       IF (DEF_hist_vars%wdsrf_hru) THEN
-         IF ((p_is_worker) .and. allocated(a_wdsrf_bsnhru)) THEN
+         IF ((p_is_compute) .and. allocated(a_wdsrf_bsnhru)) THEN
             WHERE(a_wdsrf_bsnhru /= spval)
                a_wdsrf_bsnhru = a_wdsrf_bsnhru / nac_basin
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_bsnhru2elmhru, a_wdsrf_bsnhru, a_wdsrf_hru, spval)
+         CALL compute_push_data (push_bsnhru2elmhru, a_wdsrf_bsnhru, a_wdsrf_hru, spval)
 
          CALL vector_gather_and_write (&
             a_wdsrf_hru, numhru, totalnumhru, hru_data_address, file_hist_basin, 'v_wdsrf_hru', 'hydrounit', &
@@ -256,13 +256,13 @@ CONTAINS
 
       ! ----- water velocity in hydro unit -----
       IF (DEF_hist_vars%veloc_hru) THEN
-         IF ((p_is_worker) .and. allocated(a_veloc_bsnhru)) THEN
+         IF ((p_is_compute) .and. allocated(a_veloc_bsnhru)) THEN
             WHERE(a_veloc_bsnhru /= spval)
                a_veloc_bsnhru = a_veloc_bsnhru / nac_basin
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_bsnhru2elmhru, a_veloc_bsnhru, a_veloc_hru, spval)
+         CALL compute_push_data (push_bsnhru2elmhru, a_veloc_bsnhru, a_veloc_hru, spval)
 
          CALL vector_gather_and_write (&
             a_veloc_hru, numhru, totalnumhru, hru_data_address, file_hist_basin, 'v_veloc_hru', 'hydrounit', &
@@ -271,7 +271,7 @@ CONTAINS
 
       ! ----- subsurface water flow between elements -----
       IF (DEF_hist_vars%xsubs_bsn) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             WHERE(a_xsubs_elm /= spval)
                a_xsubs_elm = a_xsubs_elm / nac_basin
             END WHERE
@@ -284,7 +284,7 @@ CONTAINS
 
       ! ----- subsurface water flow between hydro units -----
       IF (DEF_hist_vars%xsubs_hru) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             WHERE(a_xsubs_hru /= spval)
                a_xsubs_hru = a_xsubs_hru / nac_basin
             END WHERE
@@ -303,7 +303,7 @@ CONTAINS
 
             IF (DEF_hist_vars%volresv) THEN
 
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (a_volresv /= spval)
                         a_volresv = a_volresv / nac_basin
@@ -313,7 +313,7 @@ CONTAINS
 
                CALL reservoir_gather_var (a_volresv, varhist)
 
-               IF (p_is_master) THEN
+               IF (p_is_root) THEN
                   CALL ncio_write_serial_time (file_hist_basin, 'volresv', &
                      itime_in_file, varhist, 'reservoir', 'time', DEF_HIST_CompressLevel)
                   IF (itime_in_file == 1) THEN
@@ -326,7 +326,7 @@ CONTAINS
 
             IF (DEF_hist_vars%qresv_in) THEN
 
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (a_qresv_in /= spval)
                         a_qresv_in = a_qresv_in / nac_basin
@@ -336,7 +336,7 @@ CONTAINS
 
                CALL reservoir_gather_var (a_qresv_in, varhist)
 
-               IF (p_is_master) THEN
+               IF (p_is_root) THEN
                   CALL ncio_write_serial_time (file_hist_basin, 'qresv_in', &
                      itime_in_file, varhist, 'reservoir', 'time', DEF_HIST_CompressLevel)
                   IF (itime_in_file == 1) THEN
@@ -349,7 +349,7 @@ CONTAINS
 
             IF (DEF_hist_vars%qresv_out) THEN
 
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (a_qresv_out /= spval)
                         a_qresv_out = a_qresv_out / nac_basin
@@ -359,7 +359,7 @@ CONTAINS
 
                CALL reservoir_gather_var (a_qresv_out, varhist)
 
-               IF (p_is_master) THEN
+               IF (p_is_root) THEN
                   CALL ncio_write_serial_time (file_hist_basin, 'qresv_out', &
                      itime_in_file, varhist, 'reservoir', 'time', DEF_HIST_CompressLevel)
                   IF (itime_in_file == 1) THEN
@@ -398,7 +398,7 @@ CONTAINS
    USE MOD_Vars_Global,  only: spval
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          nac_basin = 0
 
@@ -432,7 +432,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          nac_basin = nac_basin + 1
 

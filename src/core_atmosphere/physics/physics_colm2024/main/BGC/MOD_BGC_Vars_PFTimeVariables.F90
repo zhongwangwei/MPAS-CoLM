@@ -414,7 +414,7 @@ CONTAINS
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
   ! bgc variables
             allocate (leafc_p                  (numpft)); leafc_p                  (:) = spval
@@ -1949,7 +1949,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_LandPFT
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
 ! bgc variables
             deallocate (leafc_p                  )

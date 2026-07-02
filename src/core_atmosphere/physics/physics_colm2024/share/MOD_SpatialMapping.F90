@@ -124,7 +124,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          write(*,"(A, I0, A, I0, A)") &
             'Making areal weighted mapping between pixel set and grid: ', &
@@ -196,7 +196,7 @@ CONTAINS
 #endif
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          this%npset = pixelset%nset
 
@@ -367,10 +367,10 @@ CONTAINS
          ENDDO
 #endif
 
-         allocate (this%glist (0:p_np_io-1))
-         DO iproc = 0, p_np_io-1
+         allocate (this%glist (0:p_np_active-1))
+         DO iproc = 0, p_np_active-1
 #ifdef USEMPI
-            msk = (ipt == p_address_io(iproc))
+            msk = (ipt == p_address_active(iproc))
             ng  = count(msk)
 #else
             ng  = ng_all
@@ -424,7 +424,7 @@ CONTAINS
                yblk = fgrid%yblk(ilat)
 
 #ifdef USEMPI
-               iproc = p_itis_io(gblock%pio(xblk,yblk))
+               iproc = p_itis_active(gblock%pio(xblk,yblk))
 #else
                iproc = 0
 #endif
@@ -450,10 +450,10 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         DO iproc = 0, p_np_io-1
-            idest = p_address_io(iproc)
+         DO iproc = 0, p_np_active-1
+            idest = p_address_active(iproc)
             smesg = (/p_iam_glb, this%glist(iproc)%ng/)
 
             CALL mpi_send (smesg, 2, MPI_INTEGER, &
@@ -469,18 +469,18 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         allocate (this%glist (0:p_np_worker-1))
+         allocate (this%glist (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
             isrc  = rmesg(1)
             nrecv = rmesg(2)
-            iproc = p_itis_worker(isrc)
+            iproc = p_itis_compute(isrc)
 
             this%glist(iproc)%ng = nrecv
 
@@ -498,7 +498,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (this%npset > 0) THEN
             allocate (this%areapset (this%npset))
             this%areapset(:) = 0.
@@ -510,8 +510,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_io) CALL allocate_block_data (fgrid, this%areagrid)
-      IF (p_is_worker) THEN
+      IF (p_is_active) CALL allocate_block_data (fgrid, this%areagrid)
+      IF (p_is_compute) THEN
          IF (this%npset > 0) THEN
             allocate (msk (this%npset))
             msk = pixelset%ipxstt > 0 .and. pixelset%ipxend > 0
@@ -572,7 +572,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          write(*,*)
          write(*,"(A, I0, A, I0, A)") &
@@ -609,7 +609,7 @@ CONTAINS
       allocate (this%grid%xcnt (size(fgrid%xcnt)));  this%grid%xcnt = fgrid%xcnt
       allocate (this%grid%ycnt (size(fgrid%ycnt)));  this%grid%ycnt = fgrid%ycnt
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (this%grid%lat_s(this%grid%nlat));  this%grid%lat_s = fgrid%lat_s
          allocate (this%grid%lat_n(this%grid%nlat));  this%grid%lat_n = fgrid%lat_n
@@ -749,10 +749,10 @@ CONTAINS
          ENDDO
 #endif
 
-         allocate (this%glist (0:p_np_io-1))
-         DO iproc = 0, p_np_io-1
+         allocate (this%glist (0:p_np_active-1))
+         DO iproc = 0, p_np_active-1
 #ifdef USEMPI
-            msk = (ipt == p_address_io(iproc))
+            msk = (ipt == p_address_active(iproc))
             ng  = count(msk)
 #else
             ng  = nglist
@@ -785,9 +785,9 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
-            idest = p_address_io(iproc)
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
+            idest = p_address_active(iproc)
             smesg = (/p_iam_glb, this%glist(iproc)%ng/)
 
             CALL mpi_send (smesg, 2, MPI_INTEGER, &
@@ -802,18 +802,18 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         allocate (this%glist (0:p_np_worker-1))
+         allocate (this%glist (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
             isrc  = rmesg(1)
             nrecv = rmesg(2)
-            iproc = p_itis_worker(isrc)
+            iproc = p_itis_compute(isrc)
 
             this%glist(iproc)%ng = nrecv
 
@@ -834,7 +834,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (this%address (this%npset))
          allocate (this%npart   (this%npset))
@@ -875,7 +875,7 @@ CONTAINS
 #ifdef USEMPI
             xblk = this%grid%xblk(ix)
             yblk = this%grid%yblk(iy)
-            iproc = p_itis_io(gblock%pio(xblk,yblk))
+            iproc = p_itis_active(gblock%pio(xblk,yblk))
 #else
             iproc = 0
 #endif
@@ -890,7 +890,7 @@ CONTAINS
 #ifdef USEMPI
             xblk = this%grid%xblk(ix)
             yblk = this%grid%yblk(iy)
-            iproc = p_itis_io(gblock%pio(xblk,yblk))
+            iproc = p_itis_active(gblock%pio(xblk,yblk))
 #else
             iproc = 0
 #endif
@@ -905,7 +905,7 @@ CONTAINS
 #ifdef USEMPI
             xblk = this%grid%xblk(ix)
             yblk = this%grid%yblk(iy)
-            iproc = p_itis_io(gblock%pio(xblk,yblk))
+            iproc = p_itis_active(gblock%pio(xblk,yblk))
 #else
             iproc = 0
 #endif
@@ -920,7 +920,7 @@ CONTAINS
 #ifdef USEMPI
             xblk = this%grid%xblk(ix)
             yblk = this%grid%yblk(iy)
-            iproc = p_itis_io(gblock%pio(xblk,yblk))
+            iproc = p_itis_active(gblock%pio(xblk,yblk))
 #else
             iproc = 0
 #endif
@@ -934,7 +934,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (this%npset > 0) THEN
             allocate (this%areapset (this%npset))
          ENDIF
@@ -943,8 +943,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_io)  CALL allocate_block_data (fgrid, this%areagrid)
-      IF (p_is_worker) THEN
+      IF (p_is_active)  CALL allocate_block_data (fgrid, this%areagrid)
+      IF (p_is_compute) THEN
          IF (this%npset > 0) THEN
             allocate (msk (this%npset))
             msk = pixelset%ipxstt > 0 .and. pixelset%ipxend > 0
@@ -1008,9 +1008,9 @@ CONTAINS
       this%has_missing_value = .true.
       this%missing_value = missing_value
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -1028,7 +1028,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -1048,17 +1048,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1090,7 +1090,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1129,14 +1129,14 @@ CONTAINS
    character(len=256) :: inmode
    real(r8) :: sumwt
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          inmode = 'average'
          IF (present(input_mode)) inmode = trim(input_mode)
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
@@ -1184,9 +1184,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
@@ -1195,7 +1195,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (present(spv)) THEN
             CALL flush_block_data (gdata, spv)
@@ -1203,13 +1203,13 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1252,8 +1252,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1291,14 +1291,14 @@ CONTAINS
    type(pointer_real8_2d), allocatable :: pbuff(:)
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
          lb1 = lbound(pdata,1)
          ub1 = ubound(pdata,1)
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (lb1:ub1, this%glist(iproc)%ng))
 
@@ -1339,9 +1339,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, &
                   (ub1-lb1+1) * this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
@@ -1352,7 +1352,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          lb1 = gdata%lb1
          ub1 = gdata%ub1
@@ -1363,13 +1363,13 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (lb1:ub1, this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, &
                   (ub1-lb1+1) * this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
@@ -1409,8 +1409,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1446,9 +1446,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:,:,:)
    type(pointer_real8_3d), allocatable :: pbuff(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
          lb1 = lbound(pdata,1)
          ub1 = ubound(pdata,1)
@@ -1458,7 +1458,7 @@ CONTAINS
          ub2 = ubound(pdata,2)
          ndim2 = ub2 - lb2 + 1
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (lb1:ub1, lb2:ub2, this%glist(iproc)%ng))
 
@@ -1501,9 +1501,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, ndim1 * ndim2 * this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
@@ -1512,7 +1512,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          lb1 = gdata%lb1
          ub1 = gdata%ub1
@@ -1528,13 +1528,13 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (lb1:ub1, lb2:ub2, this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, ndim1 * ndim2 * this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1573,8 +1573,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1609,11 +1609,11 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = spval
@@ -1643,9 +1643,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
@@ -1654,17 +1654,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL flush_block_data (gdata, spval)
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1695,8 +1695,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1732,16 +1732,16 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff (:)
 
-      IF (p_is_worker) THEN
-         allocate (pbuff (0:p_np_io-1))
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         allocate (pbuff (0:p_np_active-1))
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val  (this%glist(iproc)%ng))
             ENDIF
          ENDDO
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL flush_block_data (gdata, spv)
       ENDIF
 
@@ -1749,9 +1749,9 @@ CONTAINS
 
       DO ityp = 1, ntyps
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 
-            DO iproc = 0, p_np_io-1
+            DO iproc = 0, p_np_active-1
                IF (this%glist(iproc)%ng > 0) THEN
                   pbuff(iproc)%val(:) = spv
                ENDIF
@@ -1775,9 +1775,9 @@ CONTAINS
             ENDDO
 
 #ifdef USEMPI
-            DO iproc = 0, p_np_io-1
+            DO iproc = 0, p_np_active-1
                IF (this%glist(iproc)%ng > 0) THEN
-                  idest = p_address_io(iproc)
+                  idest = p_address_active(iproc)
                   CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                      idest, mpi_tag_data, p_comm_glb, p_err)
                ENDIF
@@ -1786,15 +1786,15 @@ CONTAINS
 
          ENDIF
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
 
-            DO iproc = 0, p_np_worker-1
+            DO iproc = 0, p_np_compute-1
                IF (this%glist(iproc)%ng > 0) THEN
 
                   allocate (gbuff (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-                  isrc = p_address_worker(iproc)
+                  isrc = p_address_compute(iproc)
                   CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                      isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1831,8 +1831,8 @@ CONTAINS
 #endif
       ENDDO
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1863,11 +1863,11 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = 0.0
@@ -1888,9 +1888,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
@@ -1899,17 +1899,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL flush_block_data (sumarea, 0.0_r8)
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -1934,8 +1934,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1968,9 +1968,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -1988,7 +1988,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -1999,17 +1999,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2043,7 +2043,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2079,9 +2079,9 @@ CONTAINS
    type(pointer_real8_2d), allocatable :: pbuff(:)
 
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (ndim1, this%glist(iproc)%ng))
@@ -2098,7 +2098,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, ndim1 * this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -2109,17 +2109,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (ndim1, this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, ndim1 * this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2154,7 +2154,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2188,9 +2188,9 @@ CONTAINS
    integer, allocatable :: gbuff(:)
    type(pointer_int32_1d), allocatable :: pbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2208,7 +2208,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_INTEGER, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -2219,17 +2219,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_INTEGER, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2250,7 +2250,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2286,9 +2286,9 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: pbuff(:)
    real(r8), allocatable :: pdata_tem(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2306,7 +2306,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -2317,18 +2317,18 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
          allocate (pdata_tem (size(pdata)))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2362,7 +2362,7 @@ CONTAINS
 
          pdata = pdata_tem
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2397,9 +2397,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2417,7 +2417,7 @@ CONTAINS
                ENDDO
 
 #ifdef USEMPI
-               idest = p_address_worker(iproc)
+               idest = p_address_compute(iproc)
                CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
@@ -2428,17 +2428,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_io(iproc)
+               isrc = p_address_active(iproc)
                CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2457,7 +2457,7 @@ CONTAINS
             ENDDO
          ENDDO
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2491,11 +2491,11 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
-         allocate (pbuff (0:p_np_io-1))
+         allocate (pbuff (0:p_np_active-1))
 
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = 0.0
@@ -2513,9 +2513,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_io(iproc)
+               idest = p_address_active(iproc)
                CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
@@ -2524,17 +2524,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL flush_block_data (gdata, 0.0_r8)
 
-         DO iproc = 0, p_np_worker-1
+         DO iproc = 0, p_np_compute-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
 #ifdef USEMPI
-               isrc = p_address_worker(iproc)
+               isrc = p_address_compute(iproc)
                CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
@@ -2571,8 +2571,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2606,12 +2606,12 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: scaldata(:)
 
 
-      IF (p_is_io)     CALL allocate_block_data (this%grid, sumdata)
-      IF (p_is_worker) CALL this%allocate_part  (scaldata)
+      IF (p_is_active)     CALL allocate_block_data (this%grid, sumdata)
+      IF (p_is_compute) CALL this%allocate_part  (scaldata)
 
       CALL this%part2grid (sdata, sumdata)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
@@ -2626,7 +2626,7 @@ CONTAINS
 
       CALL this%grid2part (sumdata, scaldata)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iset = 1, this%npset
             DO ipart = 1, this%npart(iset)
@@ -2640,7 +2640,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) deallocate(scaldata)
+      IF (p_is_compute) deallocate(scaldata)
 
    END SUBROUTINE spatial_mapping_normalize
 
@@ -2662,7 +2662,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          pdata(:) = spval
 
@@ -2690,7 +2690,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (this%npset > 0) THEN
             allocate (datapart (this%npset))
@@ -2720,7 +2720,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO iset = 1, this%npset
             IF (this%npart(iset) > 0) THEN
@@ -2765,7 +2765,7 @@ CONTAINS
          deallocate (this%glist)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (allocated(this%npart)) deallocate(this%npart)
 
@@ -2823,7 +2823,7 @@ CONTAINS
          deallocate (this%glist)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (allocated(this%npart)) deallocate(this%npart)
 

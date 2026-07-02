@@ -72,7 +72,7 @@ CONTAINS
    integer  :: wmo_src, ipft_grass
    real(r8) :: sumarea, maxgrass
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making land plant function type tiles:'
       ENDIF
 
@@ -82,7 +82,7 @@ CONTAINS
 
       landpft%has_shared = .true.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL allocate_block_data (grid_patch, pctpft, N_PFT_modis, lb1 = 0)
          CALL flush_block_data (pctpft, 1.0)
@@ -99,7 +99,7 @@ CONTAINS
       ENDIF
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
             allocate (pctpft_patch (0:N_PFT-1,numpatch))
@@ -149,7 +149,7 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
 
          IF (numpatch > 0) THEN
@@ -241,9 +241,9 @@ CONTAINS
       CALL landpft%set_vecgs
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numpft, npft_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numpft, npft_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', npft_glb, ' plant function type tiles.'
          ENDIF
       ENDIF
@@ -270,7 +270,7 @@ CONTAINS
 
    integer :: ipatch, ipft
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF ((numpatch <= 0) .or. (numpft <= 0)) RETURN
 

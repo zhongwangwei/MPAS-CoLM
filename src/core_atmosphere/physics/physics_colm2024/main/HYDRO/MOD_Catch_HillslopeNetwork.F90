@@ -74,7 +74,7 @@ CONTAINS
 
       hillslope_network_file = DEF_CatchmentMesh_data
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          CALL ncio_read_serial (hillslope_network_file, 'basin_numhru',        nhru_all)
          CALL ncio_read_serial (hillslope_network_file, 'hydrounit_index',      indxhru)
@@ -87,18 +87,18 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_master) maxnumhru = size(indxhru,1)
-      IF (p_is_master) nfldstep  = size(fldstep,1)
+      IF (p_is_root) maxnumhru = size(indxhru,1)
+      IF (p_is_root) nfldstep  = size(fldstep,1)
 #ifdef USEMPI
-      CALL mpi_bcast (maxnumhru, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      CALL mpi_bcast (nfldstep,  1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (maxnumhru, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      CALL mpi_bcast (nfldstep,  1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #endif
 
       hillslope_network => null()
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         DO iworker = 1, p_np_worker
+         DO iworker = 1, p_np_compute
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
             nrecv = mesg(2)
@@ -218,48 +218,48 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 #ifdef USEMPI
          mesg(1:2) = (/p_iam_glb, ne/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (ne > 0) THEN
 
             CALL mpi_send (elmindex, ne, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             allocate (nhru_in_bsn (ne))
             CALL mpi_recv (nhru_in_bsn, ne, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (indxhru (maxnumhru,ne))
             CALL mpi_recv (indxhru, maxnumhru*ne, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (handhru (maxnumhru,ne))
             CALL mpi_recv (handhru, maxnumhru*ne, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (elvahru (maxnumhru,ne))
             CALL mpi_recv (elvahru, maxnumhru*ne, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (plenhru (maxnumhru,ne))
             CALL mpi_recv (plenhru, maxnumhru*ne, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (lfachru (maxnumhru,ne))
             CALL mpi_recv (lfachru, maxnumhru*ne, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (nexthru (maxnumhru,ne))
             CALL mpi_recv (nexthru, maxnumhru*ne, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             allocate (fldstep (nfldstep,maxnumhru,ne))
             CALL mpi_recv (fldstep, nfldstep*maxnumhru*ne, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
 #endif
 
@@ -352,7 +352,7 @@ CONTAINS
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
-      IF (p_is_master) write(*,'(A)') 'Read hillslope network information done.'
+      IF (p_is_root) write(*,'(A)') 'Read hillslope network information done.'
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 

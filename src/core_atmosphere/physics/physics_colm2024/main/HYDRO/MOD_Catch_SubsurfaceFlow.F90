@@ -59,7 +59,7 @@ CONTAINS
    USE MOD_LandElm
    USE MOD_LandPatch
    USE MOD_ElementNeighbour
-   USE MOD_WorkerPushData,         only: worker_push_data
+   USE MOD_ComputePushData,         only: compute_push_data
    USE MOD_Catch_BasinNetwork,     only: push_bsn2elm
    USE MOD_Catch_RiverLakeNetwork, only: lake_id, riverdpth
    USE MOD_Vars_TimeInvariants,    only: patchtype, lakedepth
@@ -79,7 +79,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numelm > 0) THEN
             allocate (eindex (numelm))
             eindex = landelm%eindex
@@ -90,15 +90,15 @@ CONTAINS
 
       IF (allocated(eindex)) deallocate (eindex)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numelm > 0) allocate (lake_id_elm  (numelm))
          IF (numelm > 0) allocate (riverdpth_elm(numelm))
          IF (numelm > 0) allocate (lakedepth_elm(numelm))
          IF (numelm > 0) allocate (wdsrf_elm    (numelm))
 
-         CALL worker_push_data (push_bsn2elm, lake_id,   lake_id_elm,   -9999)
-         CALL worker_push_data (push_bsn2elm, riverdpth, riverdpth_elm, spval)
+         CALL compute_push_data (push_bsn2elm, lake_id,   lake_id_elm,   -9999)
+         CALL compute_push_data (push_bsn2elm, riverdpth, riverdpth_elm, spval)
 
          DO ielm = 1, numelm
             IF (lake_id_elm(ielm) <= 0) THEN
@@ -246,7 +246,7 @@ CONTAINS
    real(r8) :: w_sum_before, w_sum_after, errblc
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          xsubs_elm(:) = 0.  ! subsurface lateral flow between element basins
          xsubs_hru(:) = 0.  ! subsurface lateral flow between hydrological response units
@@ -644,7 +644,7 @@ CONTAINS
       ENDIF
 
       ! Exchange between soil water and aquifer.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          sp_zi(0) = 0.
          sp_zi(1:nl_soil) = zi_soi(1:nl_soil) * 1000.0   ! from meter to mm

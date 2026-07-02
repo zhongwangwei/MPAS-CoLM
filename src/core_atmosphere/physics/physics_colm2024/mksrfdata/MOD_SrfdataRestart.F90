@@ -49,7 +49,7 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Saving land elements ...'
          CALL system('mkdir -p ' // trim(dir_landdata) // '/mesh/' // trim(cyear))
       ENDIF
@@ -63,8 +63,8 @@ CONTAINS
          DO iblk = 1, gblock%nxblk
 
 #ifdef USEMPI
-            IF (p_is_worker) THEN
-               IF (gblock%pio(iblk,jblk) == p_address_io(p_my_group)) THEN
+            IF (p_is_compute) THEN
+               IF (gblock%pio(iblk,jblk) == p_address_active(p_my_group)) THEN
 #endif
                   nelm = 0
                   totlen = 0
@@ -123,7 +123,7 @@ CONTAINS
 #endif
 
 #ifdef USEMPI
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
 
                   allocate (nelm_worker (0:p_np_group-1))
@@ -172,7 +172,7 @@ CONTAINS
             ENDIF
 #endif
 
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
                   IF (nelm > 0) THEN
                      CALL get_filename_block (filename, iblk, jblk, fileblock)
@@ -203,7 +203,7 @@ CONTAINS
          ENDDO
       ENDDO
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          CALL ncio_create_file (filename)
 
@@ -247,7 +247,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) write(*,*) 'SAVE land elements done.'
+      IF (p_is_root) write(*,*) 'SAVE land elements done.'
 
    END SUBROUTINE mesh_save_to_file
 
@@ -339,7 +339,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading land elements ...'
       ENDIF
 
@@ -350,7 +350,7 @@ CONTAINS
       use_subset = present(subset_eindex)
       IF (use_subset) CALL prepare_subset_eindex(subset_eindex, subset_sorted)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          numelm = sum(nelm_blk, mask = gblock%pio == p_iam_glb)
 
@@ -443,7 +443,7 @@ CONTAINS
       ENDIF
 
 #ifdef CoLMDEBUG
-      IF (p_is_io) write(*,'(I10,A,I4)') numelm, ' elements on group ', p_iam_io
+      IF (p_is_active) write(*,'(I10,A,I4)') numelm, ' elements on group ', p_iam_active
 #endif
 
 #ifdef USEMPI
@@ -451,7 +451,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading land elements done.'
       ENDIF
 
@@ -479,7 +479,7 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Saving Pixel Sets ' // trim(psetname) // ' ...'
          CALL system('mkdir -p ' // trim(dir_landdata) // '/' // trim(psetname) // '/' // trim(cyear))
       ENDIF
@@ -505,7 +505,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) write(*,*) 'SAVE Pixel Sets ' // trim(psetname) // ' done.'
+      IF (p_is_root) write(*,*) 'SAVE Pixel Sets ' // trim(psetname) // ' done.'
 
    END SUBROUTINE pixelset_save_to_file
 
@@ -548,13 +548,13 @@ CONTAINS
       use_subset = present(subset_eindex)
       IF (use_subset) CALL prepare_subset_eindex(subset_eindex, subset_sorted)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading Pixel Sets ' // trim(psetname) // ' ...'
       ENDIF
 
       filename = trim(dir_landdata) // '/' // trim(psetname) // '/' // trim(cyear) // '/' // trim(psetname) // '.nc'
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          pixelset%nset = 0
 
@@ -599,7 +599,7 @@ CONTAINS
 #endif
 
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, fexists_any, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, fexists_any, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 #endif
          IF (.not. fexists_any) THEN
             write(*,*) 'Warning : restart file ' //trim(filename)// ' not found.'
@@ -695,7 +695,7 @@ CONTAINS
 
 
 #ifdef USEMPI
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          IF (pixelset%nset > 0) THEN
             allocate (iworker (pixelset%nset))
             allocate (msk     (pixelset%nset))
@@ -746,7 +746,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          CALL mpi_recv (nrecv, 1, MPI_INTEGER, p_root, mpi_tag_size, p_comm_group, p_stat, p_err)
 
@@ -766,7 +766,7 @@ CONTAINS
       CALL ncio_read_vector (filename, 'ipxend', pixelset, pixelset%ipxend)
       CALL ncio_read_vector (filename, 'settyp', pixelset, pixelset%settyp)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (pixelset%nset > 0) THEN
 
             allocate (pixelset%ielm (pixelset%nset))
@@ -786,7 +786,7 @@ CONTAINS
       numset = pixelset%nset
 
       pixelset%has_shared = .false.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO iset = 1, pixelset%nset-1
             IF ((pixelset%ielm(iset) == pixelset%ielm(iset+1)) &
                .and. (pixelset%ipxstt(iset) == pixelset%ipxstt(iset+1))) THEN
@@ -806,7 +806,7 @@ CONTAINS
       ENDIF
 
 #ifdef CoLMDEBUG
-      IF (p_is_io)  write(*,*) numset, trim(psetname), ' on group', p_iam_io
+      IF (p_is_active)  write(*,*) numset, trim(psetname), ' on group', p_iam_active
 #endif
 
       IF (allocated(subset_sorted)) deallocate(subset_sorted)

@@ -46,7 +46,7 @@ CONTAINS
    ! Local Variables
    logical :: fexists
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          inquire (file=filename, exist=fexists)
          IF ((.not. fexists) .or. (trim(filename) /= trim(filelast))) THEN
@@ -115,7 +115,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 #ifdef CATCHMENT
          numset = numhru
 #else
@@ -165,15 +165,15 @@ CONTAINS
 
 #ifdef USEMPI
          mesg = (/p_iam_glb, numset/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numset > 0) THEN
             CALL mpi_send (acc_vec, numset, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
 #ifdef CATCHMENT
          totalnumset = totalnumhru
@@ -186,7 +186,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -198,9 +198,9 @@ CONTAINS
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
 
 #ifdef CATCHMENT
-               acc_vec(hru_data_address(p_itis_worker(isrc))%val) = rcache
+               acc_vec(hru_data_address(p_itis_compute(isrc))%val) = rcache
 #else
-               acc_vec(elm_data_address(p_itis_worker(isrc))%val) = rcache
+               acc_vec(elm_data_address(p_itis_compute(isrc))%val) = rcache
 #endif
 
                deallocate (rcache)
@@ -215,7 +215,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          compress = DEF_HIST_CompressLevel
 
@@ -290,7 +290,7 @@ CONTAINS
 
       ub1 = lb1 + ndim1 - 1
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 #ifdef CATCHMENT
          numset = numhru
 #else
@@ -336,15 +336,15 @@ CONTAINS
 
 #ifdef USEMPI
          mesg = (/p_iam_glb, numset/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numset > 0) THEN
             CALL mpi_send (acc_vec, ndim1 * numset, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
 #ifdef CATCHMENT
          totalnumset = totalnumhru
@@ -357,7 +357,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -370,9 +370,9 @@ CONTAINS
 
                DO i1 = 1, ndim1
 #ifdef CATCHMENT
-                  acc_vec(i1,hru_data_address(p_itis_worker(isrc))%val) = rcache(i1,:)
+                  acc_vec(i1,hru_data_address(p_itis_compute(isrc))%val) = rcache(i1,:)
 #else
-                  acc_vec(i1,elm_data_address(p_itis_worker(isrc))%val) = rcache(i1,:)
+                  acc_vec(i1,elm_data_address(p_itis_compute(isrc))%val) = rcache(i1,:)
 #endif
 
                ENDDO
@@ -391,7 +391,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          CALL ncio_define_dimension (file_hist, dim1name, ndim1)
 
@@ -471,7 +471,7 @@ CONTAINS
       ub1 = lb1 + ndim1 - 1
       ub2 = lb2 + ndim2 - 1
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 #ifdef CATCHMENT
          numset = numhru
 #else
@@ -519,15 +519,15 @@ CONTAINS
 
 #ifdef USEMPI
          mesg = (/p_iam_glb, numset/)
-         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
          IF (numset > 0) THEN
             CALL mpi_send (acc_vec, ndim1 * ndim2 * numset, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
 #ifdef CATCHMENT
          totalnumset = totalnumhru
@@ -540,7 +540,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         DO iwork = 0, p_np_worker-1
+         DO iwork = 0, p_np_compute-1
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
@@ -554,9 +554,9 @@ CONTAINS
                DO i1 = 1, ndim1
                   DO i2 = 1, ndim2
 #ifdef CATCHMENT
-                     acc_vec(i1,i2,hru_data_address(p_itis_worker(isrc))%val) = rcache(i1,i2,:)
+                     acc_vec(i1,i2,hru_data_address(p_itis_compute(isrc))%val) = rcache(i1,i2,:)
 #else
-                     acc_vec(i1,i2,elm_data_address(p_itis_worker(isrc))%val) = rcache(i1,i2,:)
+                     acc_vec(i1,i2,elm_data_address(p_itis_compute(isrc))%val) = rcache(i1,i2,:)
 #endif
                   ENDDO
                ENDDO
@@ -577,7 +577,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          CALL ncio_define_dimension (file_hist, dim1name, ndim1)
          CALL ncio_define_dimension (file_hist, dim2name, ndim2)

@@ -63,12 +63,12 @@ CONTAINS
 #endif
 
 #ifdef USEMPI
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL aggregation_data_daemon (gshared, data_r8_3d_in1 = datashared, n1_r8_3d_in1 = nmaxshared)
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          nsetshared = 0
 
@@ -115,11 +115,11 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (pixelset%nset > 0) THEN
 

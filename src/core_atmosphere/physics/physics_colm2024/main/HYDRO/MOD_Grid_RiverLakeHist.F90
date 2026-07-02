@@ -68,7 +68,7 @@ CONTAINS
    SUBROUTINE hist_grid_riverlake_init (histform)
 
 	   USE MOD_Block
-	   USE MOD_WorkerPushData
+	   USE MOD_ComputePushData
 	   USE MOD_HistGridded
 	   USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_Reservoir,      only: numresv
@@ -87,7 +87,7 @@ CONTAINS
 
 
       ! ----- allocate memory for accumulative variables -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 	         allocate (acctime_ucat (numucat))
 	         allocate (a_wdsrf_ucat (numucat))
@@ -111,7 +111,7 @@ CONTAINS
       CALL flush_acc_fluxes_riverlake ()
 
       ! ----- get longitude and latitude -----
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          allocate (lon_ucat (griducat%nlon))
          allocate (lat_ucat (griducat%nlat))
 
@@ -128,7 +128,7 @@ CONTAINS
       ENDIF
 
       ! ----- for auxiliary data -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 	         allocate (vec_ucat  (numucat ))
 	         allocate (vec_grid  (numinpm ))
 	         allocate (vec_inpm  (numinpm ))
@@ -146,12 +146,12 @@ CONTAINS
       ENDIF
 
       ! ----- 1) area and filter covered by unit catchments -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numucat > 0) vec_ucat = 1.
 
-         CALL worker_push_data (push_ucat2grid, vec_ucat, vec_grid, fillvalue = spval)
-         CALL worker_remap_data_grid2pset ( &
+         CALL compute_push_data (push_ucat2grid, vec_ucat, vec_grid, fillvalue = spval)
+         CALL compute_remap_data_grid2pset ( &
             remap_patch2inpm, vec_grid, vec_patch, fillvalue = spval, mode = 'average')
 
 	         allocate (filter_ucat (numpatch))
@@ -166,20 +166,20 @@ CONTAINS
          ENDIF
 
 	         allocate (sum_grid_area (numinpm))
-         CALL worker_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
+         CALL compute_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
             fillvalue = spval, filter = filter_ucat)
-         CALL worker_push_data (allreduce_inpm, vec_grid, sum_grid_area, fillvalue = spval)
+         CALL compute_push_data (allreduce_inpm, vec_grid, sum_grid_area, fillvalue = spval)
       ENDIF
 
 #ifndef MPAS_EMBEDDED_COLM
 	      IF (trim(histform) == 'Gridded') THEN
-	         IF (p_is_io)  CALL allocate_block_data (ghist, sumarea_ucat)
+	         IF (p_is_active)  CALL allocate_block_data (ghist, sumarea_ucat)
 	         CALL mp2g_hist%get_sumarea (sumarea_ucat, filter_ucat)
 	      ENDIF
 #endif
 
       ! ----- 2) area and filter covered by river mouth -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numucat > 0) THEN
             WHERE (ucat_next == -9)
                vec_ucat = 1.
@@ -188,8 +188,8 @@ CONTAINS
             END WHERE
          ENDIF
 
-         CALL worker_push_data (push_ucat2grid, vec_ucat, vec_grid, fillvalue = spval)
-         CALL worker_remap_data_grid2pset (remap_patch2inpm, vec_grid, vec_patch, &
+         CALL compute_push_data (push_ucat2grid, vec_ucat, vec_grid, fillvalue = spval)
+         CALL compute_remap_data_grid2pset (remap_patch2inpm, vec_grid, vec_patch, &
             fillvalue = spval, mode = 'average')
 
 	         allocate (filter_rivmth (numpatch))
@@ -205,17 +205,17 @@ CONTAINS
 
 	         allocate (sum_rmth_area (numinpm))
 
-         CALL worker_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
+         CALL compute_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
             fillvalue = spval, filter = filter_rivmth)
-         CALL worker_push_data (allreduce_inpm, vec_grid, sum_rmth_area, fillvalue = spval)
+         CALL compute_push_data (allreduce_inpm, vec_grid, sum_rmth_area, fillvalue = spval)
       ENDIF
 
       ! ----- 3) area covered by input matrix -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numucat > 0) vec_ucat = 1.
-         CALL worker_push_data (push_ucat2inpm, vec_ucat, vec_inpm, &
+         CALL compute_push_data (push_ucat2inpm, vec_ucat, vec_inpm, &
             fillvalue = spval, mode = 'average')
-         CALL worker_remap_data_grid2pset (remap_patch2inpm, vec_inpm, vec_patch, &
+         CALL compute_remap_data_grid2pset (remap_patch2inpm, vec_inpm, vec_patch, &
             fillvalue = spval, mode = 'average')
 
 	         allocate (filter_inpm (numpatch))
@@ -226,32 +226,32 @@ CONTAINS
 
 #ifndef MPAS_EMBEDDED_COLM
 	      IF (trim(histform) == 'Gridded') THEN
-	         IF (p_is_io)  CALL allocate_block_data (ghist, sumarea_inpm)
+	         IF (p_is_active)  CALL allocate_block_data (ghist, sumarea_inpm)
 	         CALL mp2g_hist%get_sumarea (sumarea_inpm, filter_inpm)
 	      ENDIF
 #endif
 
       ! ----- 4) mask of unit catchments with all upstreams in simulation region -----
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             allocate (allups_mask_pch (numpatch))
          ENDIF
       ENDIF
 
-      IF (p_is_worker) THEN
-         CALL worker_push_data (push_ucat2grid, allups_mask_ucat, vec_grid, fillvalue = spval)
-         CALL worker_remap_data_grid2pset ( &
+      IF (p_is_compute) THEN
+         CALL compute_push_data (push_ucat2grid, allups_mask_ucat, vec_grid, fillvalue = spval)
+         CALL compute_remap_data_grid2pset ( &
             remap_patch2inpm, vec_grid, allups_mask_pch, fillvalue = spval, mode = 'average')
       ENDIF
 
 #ifndef MPAS_EMBEDDED_COLM
 	      IF (trim(histform) == 'Gridded') THEN
 
-	         IF (p_is_io) CALL allocate_block_data (ghist, allups_mask_grid)
+	         IF (p_is_active) CALL allocate_block_data (ghist, allups_mask_grid)
 
          CALL mp2g_hist%pset2grid (allups_mask_pch, allups_mask_grid, spv = spval, msk = filter_ucat)
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             DO iblkme = 1, gblock%nblkme
                iblk = gblock%xblkme(iblkme)
                jblk = gblock%yblkme(iblkme)
@@ -281,7 +281,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist
    USE MOD_NetCDFSerial
-   USE MOD_WorkerPushData
+   USE MOD_ComputePushData
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_Reservoir
    USE MOD_Vector_ReadWrite
@@ -309,7 +309,7 @@ CONTAINS
    real(r8), allocatable :: a_floodfrc_inpm (:)  ! flooded area fraction
 
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          i = len_trim (file_hist)
          DO WHILE (file_hist(i:i) /= '_')
             i = i - 1
@@ -352,15 +352,15 @@ CONTAINS
             longname = 'Mask of grids with all upstream located in simulation region', units = '100%')
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 	         allocate (acc_vec_grid (numinpm ))
       ENDIF
 
       IF (DEF_hist_vars%riv_height) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numucat > 0)  a_wdsrf_ucat = a_wdsrf_ucat / acctime_ucat
-            CALL worker_push_data (push_ucat2grid, a_wdsrf_ucat, acc_vec_grid, fillvalue = spval)
-            CALL worker_remap_data_grid2pset ( remap_patch2inpm, acc_vec_grid, a_wdsrf_ucat_pch, &
+            CALL compute_push_data (push_ucat2grid, a_wdsrf_ucat, acc_vec_grid, fillvalue = spval)
+            CALL compute_remap_data_grid2pset ( remap_patch2inpm, acc_vec_grid, a_wdsrf_ucat_pch, &
                fillvalue = spval, mode = 'average')
          ENDIF
 
@@ -371,10 +371,10 @@ CONTAINS
       ENDIF
 
       IF (DEF_hist_vars%riv_veloct) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numucat > 0)  a_veloc_riv = a_veloc_riv  / acctime_ucat
-            CALL worker_push_data (push_ucat2grid, a_veloc_riv, acc_vec_grid, fillvalue = spval)
-            CALL worker_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_veloc_riv_pch, &
+            CALL compute_push_data (push_ucat2grid, a_veloc_riv, acc_vec_grid, fillvalue = spval)
+            CALL compute_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_veloc_riv_pch, &
                fillvalue = spval, mode = 'average')
          ENDIF
 
@@ -385,9 +385,9 @@ CONTAINS
       ENDIF
 
       IF (DEF_hist_vars%discharge) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numucat > 0)  a_discharge = a_discharge  / acctime_ucat
-            CALL worker_push_data (push_ucat2grid, a_discharge, acc_vec_grid, fillvalue = spval)
+            CALL compute_push_data (push_ucat2grid, a_discharge, acc_vec_grid, fillvalue = spval)
 
             IF (numinpm > 0)  THEN
                WHERE ((sum_grid_area /= spval) .and. (acc_vec_grid /= spval))
@@ -397,7 +397,7 @@ CONTAINS
                END WHERE
             ENDIF
 
-            CALL worker_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_discharge_pch, &
+            CALL compute_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_discharge_pch, &
                fillvalue = spval, mode = 'sum')
          ENDIF
 
@@ -406,11 +406,11 @@ CONTAINS
             file_hist_ucat, 'f_discharge', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
             'discharge in river and flood plain', 'm^3/s')
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numucat > 0)  THEN
                WHERE (ucat_next /= -9) a_discharge = spval
             ENDIF
-            CALL worker_push_data (push_ucat2grid, a_discharge, acc_vec_grid, fillvalue = spval)
+            CALL compute_push_data (push_ucat2grid, a_discharge, acc_vec_grid, fillvalue = spval)
 
             IF (numinpm > 0)  THEN
                WHERE ((sum_rmth_area /= spval) .and. (acc_vec_grid /= spval))
@@ -420,7 +420,7 @@ CONTAINS
                END WHERE
             ENDIF
 
-            CALL worker_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_dis_rmth_pch, &
+            CALL compute_remap_data_grid2pset (remap_patch2inpm, acc_vec_grid, a_dis_rmth_pch, &
                fillvalue = spval, mode = 'sum')
          ENDIF
 
@@ -432,7 +432,7 @@ CONTAINS
 
       IF (DEF_hist_vars%floodfrc) THEN
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 
             IF (numucat > 0) a_floodarea = a_floodarea / acctime_ucat
 
@@ -447,10 +447,10 @@ CONTAINS
 
 	            allocate (a_floodfrc_inpm (numinpm))
 
-            CALL worker_push_data (push_ucat2inpm, a_floodfrc_ucat, a_floodfrc_inpm, &
+            CALL compute_push_data (push_ucat2inpm, a_floodfrc_ucat, a_floodfrc_inpm, &
                fillvalue = spval, mode = 'average')
 
-            CALL worker_remap_data_grid2pset (remap_patch2inpm, a_floodfrc_inpm, a_floodfrc_pch, &
+            CALL compute_remap_data_grid2pset (remap_patch2inpm, a_floodfrc_inpm, a_floodfrc_pch, &
                fillvalue = spval, mode = 'average')
          ENDIF
 
@@ -469,7 +469,7 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (totalnumresv > 0) THEN
 
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                IF (.not. fexists) THEN
                   CALL ncio_define_dimension(file_hist_ucat, 'reservoir', totalnumresv)
                   CALL ncio_write_serial (file_hist_ucat, 'resv_GRAND_ID' , dam_GRAND_ID, 'reservoir')
@@ -478,7 +478,7 @@ CONTAINS
             ENDIF
 
             IF (DEF_hist_vars%volresv) THEN
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (acctime_resv > 0)
                         a_volresv = a_volresv / acctime_resv
@@ -493,7 +493,7 @@ CONTAINS
             ENDIF
 
             IF (DEF_hist_vars%qresv_in) THEN
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (acctime_resv > 0)
                         a_qresv_in = a_qresv_in / acctime_resv
@@ -508,7 +508,7 @@ CONTAINS
             ENDIF
 
             IF (DEF_hist_vars%qresv_out) THEN
-               IF (p_is_worker) THEN
+               IF (p_is_compute) THEN
                   IF (numresv > 0) THEN
                      WHERE (acctime_resv > 0)
                         a_qresv_out = a_qresv_out / acctime_resv
@@ -538,7 +538,7 @@ CONTAINS
    USE MOD_Grid_Reservoir,        only: numresv
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numucat > 0) THEN
             acctime_ucat (:) = 0.
@@ -635,7 +635,7 @@ CONTAINS
 
       ! Allocate on ALL processes (zero-size on non-workers) to avoid
       ! passing unallocated arrays to vector_gather_map2grid_and_write
-      IF (p_is_worker .and. numucat > 0) THEN
+      IF (p_is_compute .and. numucat > 0) THEN
          allocate (a_sedcon_avg  (nsed, numucat))
          allocate (a_sedout_avg  (nsed, numucat))
          allocate (a_bedout_avg  (nsed, numucat))

@@ -41,7 +41,7 @@ CONTAINS
    USE MOD_Grid_Reservoir,        only: numresv
    IMPLICIT NONE
 
-	      IF (p_is_worker) THEN
+	      IF (p_is_compute) THEN
 
 	         allocate (wdsrf_ucat (numucat))
 	         allocate (veloc_riv  (numucat))
@@ -73,7 +73,7 @@ CONTAINS
       gridriver_restart_file = trim(file_restart)
 
 #ifdef MPAS_EMBEDDED_COLM
-      IF (p_is_worker .and. numucat > 0) THEN
+      IF (p_is_compute .and. numucat > 0) THEN
          CALL ncio_read_indexed_serial (file_restart, 'wdsrf_ucat', ucat_ucid, wdsrf_ucat)
          CALL ncio_read_indexed_serial (file_restart, 'veloc_riv',  ucat_ucid, veloc_riv )
       ENDIF
@@ -85,7 +85,7 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (totalnumresv > 0) THEN
 #ifdef MPAS_EMBEDDED_COLM
-            IF (p_is_worker .and. numresv > 0) THEN
+            IF (p_is_compute .and. numresv > 0) THEN
                CALL ncio_read_indexed_serial (file_restart, 'volresv', resv_global_index, volresv)
             ENDIF
 #else
@@ -117,7 +117,7 @@ CONTAINS
 #ifdef MPAS_EMBEDDED_COLM
       CALL write_gridriver_restart_mpas_embedded (file_restart)
 #else
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_create_file (trim(file_restart))
          CALL ncio_define_dimension(file_restart, 'ucatch', totalnumucat)
       ENDIF
@@ -131,7 +131,7 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (totalnumresv > 0) THEN
 
-            IF (p_is_master) CALL ncio_define_dimension(file_restart, 'reservoir', totalnumresv)
+            IF (p_is_root) CALL ncio_define_dimension(file_restart, 'reservoir', totalnumresv)
 
             CALL vector_gather_and_write (&
                volresv, numresv, totalnumresv, resv_data_address, file_restart, 'volresv', 'reservoir')
@@ -152,7 +152,7 @@ CONTAINS
 
    USE mpi, only: MPI_INFO_NULL, MPI_OFFSET_KIND
    USE pnetcdf
-   USE MOD_SPMD_Task, only: p_comm_worker
+   USE MOD_SPMD_Task, only: p_comm_compute
    USE MOD_Namelist, only: DEF_Reservoir_Method
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_ucid
    USE MOD_Grid_Reservoir,        only: numresv, totalnumresv, resv_global_index
@@ -171,7 +171,7 @@ CONTAINS
 
       write_reservoir = DEF_Reservoir_Method > 0 .and. totalnumresv > 0
 
-      ierr = nf90mpi_create(p_comm_worker, trim(file_restart), &
+      ierr = nf90mpi_create(p_comm_compute, trim(file_restart), &
          IOR(NF90_CLOBBER, NF90_64BIT_OFFSET), MPI_INFO_NULL, ncid)
       CALL pnetcdf_check(ierr, 'create', file_restart)
 

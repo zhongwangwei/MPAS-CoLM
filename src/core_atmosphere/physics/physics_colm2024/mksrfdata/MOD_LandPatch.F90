@@ -80,7 +80,7 @@ CONTAINS
    integer, allocatable :: npxl_types (:)
 
       write(cyear,'(i4.4)') lc_year
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making land patches:'
       ENDIF
 
@@ -88,7 +88,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL allocate_block_data (grid_patch, patchdata)
 
@@ -106,7 +106,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 #ifdef CATCHMENT
          numset = numhru
@@ -252,7 +252,7 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
 
       ENDIF
@@ -264,9 +264,9 @@ CONTAINS
 
 #if (!defined(URBAN_MODEL) && !defined(CROP))
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', npatch_glb, ' patches.'
          ENDIF
       ENDIF

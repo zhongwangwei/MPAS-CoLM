@@ -60,7 +60,7 @@ CONTAINS
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
            !allocate (sabroof        (numurban))
            !allocate (sabwsun        (numurban))
@@ -90,7 +90,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_LandUrban
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
 
            !deallocate (sabroof      )
@@ -127,7 +127,7 @@ CONTAINS
    real(r8),intent(in) :: Values
    real(r8),intent(in) :: Nan
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
            !sabroof        (:) = Values
            !sabwsun        (:) = Values

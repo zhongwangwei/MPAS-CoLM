@@ -347,7 +347,7 @@ CONTAINS
          this%vecgs%vlen(:,:) = 0
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (.not. allocated (this%vecgs%vstt)) THEN
             allocate (this%vecgs%vstt (gblock%nxblk, gblock%nyblk))
@@ -379,7 +379,7 @@ CONTAINS
 #ifdef COLM_VECTOR_MPI_IO
          DO jblk = 1, gblock%nyblk
             DO iblk = 1, gblock%nxblk
-               IF (gblock%pio(iblk,jblk) == p_address_io(p_my_group)) THEN
+               IF (gblock%pio(iblk,jblk) == p_address_active(p_my_group)) THEN
 
                   scnt = this%vecgs%vlen(iblk,jblk)
                   CALL mpi_gather (scnt, 1, MPI_INTEGER, &
@@ -392,7 +392,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (.not. allocated(this%vecgs%vcnt)) THEN
             allocate (this%vecgs%vcnt (0:p_np_group-1,gblock%nxblk,gblock%nyblk))
@@ -423,7 +423,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_io .or. p_is_worker) THEN
+      IF (p_is_active .or. p_is_compute) THEN
          allocate (nonzero (gblock%nxblk,gblock%nyblk))
 
          nonzero = this%vecgs%vlen > 0
@@ -473,7 +473,7 @@ CONTAINS
    real(r8),  allocatable :: pctshared_(:)
    integer :: s, e
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (this%nset > 0) THEN
             IF (count(mask) < this%nset) THEN

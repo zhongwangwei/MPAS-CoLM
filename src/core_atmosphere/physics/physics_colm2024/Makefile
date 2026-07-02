@@ -49,7 +49,7 @@ OBJS_SHARED =    \
 				  MOD_NetCDFVector.o           \
 				  MOD_RangeCheck.o             \
 				  MOD_SpatialMapping.o         \
-				  MOD_WorkerPushData.o         \
+				  MOD_ComputePushData.o         \
 				  MOD_AggregationRequestData.o \
 				  MOD_PixelsetShared.o         \
 				  MOD_LandElm.o                \

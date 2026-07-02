@@ -77,7 +77,7 @@ CONTAINS
    logical,   allocatable :: hmask(:), bsnfilter(:)
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          ! update water depth in basin by aggregating water depths in patches
          DO i = 1, numbasin
@@ -572,7 +572,7 @@ CONTAINS
          IF (numbasin > 0) wdsrf_bsn_prev(:) = wdsrf_bsn(:)
 
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, ntimestep_riverlake, 1, MPI_INTEGER, MPI_MAX, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, ntimestep_riverlake, 1, MPI_INTEGER, MPI_MAX, p_comm_compute, p_err)
 #endif
 
          IF (allocated(wdsrf_bsn_ds )) deallocate(wdsrf_bsn_ds )

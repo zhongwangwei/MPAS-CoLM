@@ -110,7 +110,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
 
             DO npatch = 1, numpatch
@@ -189,7 +189,7 @@ CONTAINS
 
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             DO npatch = 1, numpatch
                m = patchclass(npatch)

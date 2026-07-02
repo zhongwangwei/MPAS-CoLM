@@ -148,7 +148,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -233,7 +233,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -319,7 +319,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -408,7 +408,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -496,7 +496,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)

@@ -21,7 +21,7 @@ MODULE MOD_AggregationRequestData
 
 #ifdef USEMPI
    PUBLIC :: aggregation_data_daemon
-   PUBLIC :: aggregation_worker_done
+   PUBLIC :: aggregation_compute_done
 #endif
 
 ! ---- subroutines ----
@@ -70,14 +70,14 @@ CONTAINS
    real(r8), allocatable :: sbuf_r8_1d(:), sbuf_r8_2d(:,:)
    integer , allocatable :: sbuf_i4_1d(:)
 
-   logical,  allocatable :: worker_done (:)
+   logical,  allocatable :: compute_done (:)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         allocate (worker_done (0:p_np_worker-1))
+         allocate (compute_done (0:p_np_compute-1))
 
-         worker_done(:) = .false.
-         DO WHILE (any(.not. worker_done))
+         compute_done(:) = .false.
+         DO WHILE (any(.not. compute_done))
 
             CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -258,12 +258,12 @@ CONTAINS
                deallocate (xlist)
 
             ELSE
-               worker_done(p_itis_worker(isrc)) = .true.
+               compute_done(p_itis_compute(isrc)) = .true.
             ENDIF
 
          ENDDO
 
-         deallocate (worker_done)
+         deallocate (compute_done)
 
       ENDIF
 
@@ -484,14 +484,14 @@ CONTAINS
          ipt(ireq) = gblock%pio(xblk,yblk)
       ENDDO
 
-      DO iproc = 0, p_np_io-1
-         msk = (ipt == p_address_io(iproc))
+      DO iproc = 0, p_np_active-1
+         msk = (ipt == p_address_active(iproc))
          nreq = count(msk)
 
          IF (nreq > 0) THEN
 
             smesg = (/p_iam_glb, nreq/)
-            idest = p_address_io(iproc)
+            idest = p_address_active(iproc)
             CALL mpi_send (smesg, 2, MPI_INTEGER, idest, mpi_tag_mesg, p_comm_glb, p_err)
 
             allocate (ibuf (nreq))
@@ -641,7 +641,7 @@ CONTAINS
 
 #ifdef USEMPI
 
-   SUBROUTINE aggregation_worker_done ()
+   SUBROUTINE aggregation_compute_done ()
 
    USE MOD_SPMD_Task
 
@@ -649,15 +649,15 @@ CONTAINS
 
    integer :: smesg(2), iproc, idest
 
-      IF (p_is_worker) THEN
-         DO iproc = 0, p_np_io-1
+      IF (p_is_compute) THEN
+         DO iproc = 0, p_np_active-1
             smesg = (/p_iam_glb, -1/)
-            idest = p_address_io(iproc)
+            idest = p_address_active(iproc)
             CALL mpi_send (smesg, 2, MPI_INTEGER, idest, mpi_tag_mesg, p_comm_glb, p_err)
          ENDDO
       ENDIF
 
-   END SUBROUTINE aggregation_worker_done
+   END SUBROUTINE aggregation_compute_done
 
 #endif
 

@@ -100,7 +100,7 @@ CONTAINS
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
             allocate (tleaf_p      (numpft)) ; tleaf_p      (:) = spval !leaf temperature [K]
             allocate (ldew_p       (numpft)) ; ldew_p       (:) = spval !depth of water on foliage [mm]
@@ -298,7 +298,7 @@ ENDIF
    USE MOD_SPMD_Task
    USE MOD_LandPFT
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
             deallocate (tleaf_p        )  ! leaf temperature [K]
             deallocate (ldew_p         )  ! depth of water on foliage [mm]
@@ -635,7 +635,7 @@ CONTAINS
    IMPLICIT NONE
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -843,7 +843,7 @@ CONTAINS
    ! Deallocates memory for CoLM 1d [numpatch] variables
    !--------------------------------------------------------------------
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -1107,7 +1107,7 @@ CONTAINS
       write(cyear,'(i4.4)') lc_year
       write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL system('mkdir -p ' // trim(dir_restart)//'/'//trim(cdate))
       ENDIF
 #ifdef COLM_PARALLEL
@@ -1324,7 +1324,7 @@ ENDIF
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading Time Variables ...'
       ENDIF
 
@@ -1492,7 +1492,7 @@ ENDIF
       CALL check_TimeVariables
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Loading Time Variables done.'
       ENDIF
 
@@ -1513,7 +1513,7 @@ ENDIF
 #ifdef COLM_PARALLEL
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(/,A27)') 'Checking Time Variables ...'
       ENDIF
 

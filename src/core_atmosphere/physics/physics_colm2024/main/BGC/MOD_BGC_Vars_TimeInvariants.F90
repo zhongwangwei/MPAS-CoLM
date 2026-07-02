@@ -147,7 +147,7 @@ CONTAINS
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
     ! bgc variables
@@ -346,7 +346,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
 #if (!defined(VectorInOneFileS) && !defined(VectorInOneFileP))
          CALL ncio_create_file (file_restart)
@@ -464,7 +464,7 @@ CONTAINS
      ! Deallocates memory for CoLM 1d [numpatch] variables
      ! --------------------------------------------------
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 

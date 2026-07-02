@@ -80,7 +80,7 @@ CONTAINS
    integer :: nbasin, ibasin, irsv, nrecv, nrsv, iloc
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numresv > 0) THEN
 
@@ -112,7 +112,7 @@ CONTAINS
       ENDIF
 
       ! read in parameters from file.
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          basin_info_file = DEF_CatchmentMesh_data
          CALL ncio_read_serial (basin_info_file, 'lake_id',     lake_id_basin    )
@@ -174,7 +174,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numresv > 0) THEN
             allocate (resv_bsn_id (numresv))
             resv_bsn_id = pack(basinindex, lake_type >= 2)
@@ -182,8 +182,8 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
-         DO iworker = 0, p_np_worker-1
+      IF (p_is_root) THEN
+         DO iworker = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -223,29 +223,29 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          mesg(1:2) = (/p_iam_glb, numresv/)
-         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (mesg(1:2), 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numresv > 0) THEN
             CALL mpi_send (resv_bsn_id, numresv, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
             CALL mpi_recv (volresv_total, numresv, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             CALL mpi_recv (qresv_mean, numresv, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             CALL mpi_recv (qresv_flood, numresv, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             CALL mpi_recv (dam_build_year, numresv, MPI_INTEGER, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
             CALL mpi_recv (dam_height, numresv, MPI_REAL8, &
-               p_address_master, mpi_tag_data, p_comm_glb, p_stat, p_err)
+               p_address_root, mpi_tag_data, p_comm_glb, p_stat, p_err)
          ENDIF
       ENDIF
 #else
@@ -258,7 +258,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO ibasin = 1, numbasin
             IF (lake_type(ibasin) >= 2) THEN
 
@@ -282,7 +282,7 @@ CONTAINS
       ENDIF
 
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          nrsv = count(lake_id2typ(lake_id_basin) >= 2)
 
@@ -310,15 +310,15 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_bcast (numresv_uniq, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (numresv_uniq, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 
       IF (numresv_uniq > 0) THEN
-         IF (.not. p_is_master)  allocate (resv_hylak_id (numresv_uniq))
-         CALL mpi_bcast (resv_hylak_id, numresv_uniq, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+         IF (.not. p_is_root)  allocate (resv_hylak_id (numresv_uniq))
+         CALL mpi_bcast (resv_hylak_id, numresv_uniq, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
       ENDIF
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numresv > 0) THEN
             allocate (resv_loc2glb (numresv))
             DO ibasin = 1, numbasin
@@ -408,7 +408,7 @@ CONTAINS
 
       IF (numresv_uniq == 0) RETURN
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          varout(:) = spval
          DO irsv = 1, numresv
             IF (varin(irsv) /= spval) THEN
@@ -420,17 +420,17 @@ CONTAINS
             ENDIF
          ENDDO
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (varall (numresv_uniq,0:p_np_worker-1))
+         IF (p_iam_compute == p_root) THEN
+            allocate (varall (numresv_uniq,0:p_np_compute-1))
          ENDIF
 
          CALL mpi_gather (varout, numresv_uniq, MPI_REAL8, &
-            varall, numresv_uniq, MPI_REAL8, p_root, p_comm_worker, p_err)
+            varall, numresv_uniq, MPI_REAL8, p_root, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             DO irsv = 1, numresv_uniq
-               DO iworker = 0, p_np_worker-1
+               DO iworker = 0, p_np_compute-1
                   IF (iworker /= p_root) THEN
                      IF (varall(irsv,iworker) /= spval) THEN
                         IF (varout(irsv) /= spval) THEN
@@ -449,12 +449,12 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_iam_worker == p_root) THEN
-         CALL mpi_send (varout, numresv_uniq, MPI_REAL8, p_address_master, &
+      IF (p_iam_compute == p_root) THEN
+         CALL mpi_send (varout, numresv_uniq, MPI_REAL8, p_address_root, &
             mpi_tag_data, p_comm_glb, p_err)
       ENDIF
-      IF (p_is_master) THEN
-         CALL mpi_recv (varout, numresv_uniq, MPI_REAL8, p_address_worker(p_root), &
+      IF (p_is_root) THEN
+         CALL mpi_recv (varout, numresv_uniq, MPI_REAL8, p_address_compute(p_root), &
             mpi_tag_data, p_comm_glb, p_stat, p_err)
       ENDIF
 #endif

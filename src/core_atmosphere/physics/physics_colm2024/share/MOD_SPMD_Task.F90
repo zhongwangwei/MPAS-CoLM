@@ -7,11 +7,8 @@ MODULE MOD_SPMD_Task
 !
 !    SPMD refers to "Single PROGRAM/Multiple Data" parallelization.
 !
-!    In MPAS-embedded CoLM the standalone CoLM MPI master/IO/worker split is not
-!    used. MPAS owns MPI initialization and decomposition; every MPAS rank stays
-!    active as a CoLM compute rank, with rank 0 used only for legacy logging/error
-!    compatibility. The io/worker communicator names below are compatibility
-!    aliases for older CoLM helper APIs, not separate process pools.
+!    MPAS owns MPI initialization and decomposition. Every MPAS rank stays active
+!    as a CoLM compute rank, with rank 0 used only for logging/error aggregation.
 !
 !    CoLM element ownership is supplied by MPAS cell ownership. Patch/PFT state
 !    remains internal to CoLM and is mapped back to the owning element/cell by CoLM.
@@ -26,10 +23,10 @@ MODULE MOD_SPMD_Task
 
    integer, parameter :: p_root = 0
 
-   logical :: p_is_master = .false.
-   logical :: p_is_io = .false.
-   logical :: p_is_worker = .false.
-   logical :: p_is_writeback = .false.
+   logical :: p_is_root = .false.
+   logical :: p_is_active = .false.
+   logical :: p_is_compute = .false.
+   logical :: p_is_history_task = .false.
 
    integer :: p_comm_glb_plus = MPI_COMM_NULL
    integer :: p_iam_glb_plus = -1
@@ -44,23 +41,23 @@ MODULE MOD_SPMD_Task
    integer :: p_np_group = 0
 
    integer :: p_my_group = 0
-   integer :: p_address_master = p_root
+   integer :: p_address_root = p_root
 
-   integer :: p_comm_io = MPI_COMM_NULL
-   integer :: p_iam_io = -1
-   integer :: p_np_io = 0
+   integer :: p_comm_active = MPI_COMM_NULL
+   integer :: p_iam_active = -1
+   integer :: p_np_active = 0
 
-   integer, allocatable :: p_itis_io (:)
-   integer, allocatable :: p_address_io (:)
+   integer, allocatable :: p_itis_active (:)
+   integer, allocatable :: p_address_active (:)
 
-   integer :: p_comm_worker = MPI_COMM_NULL
-   integer :: p_iam_worker = -1
-   integer :: p_np_worker = 0
+   integer :: p_comm_compute = MPI_COMM_NULL
+   integer :: p_iam_compute = -1
+   integer :: p_np_compute = 0
 
-   integer, allocatable :: p_itis_worker (:)
-   integer, allocatable :: p_address_worker (:)
+   integer, allocatable :: p_itis_compute (:)
+   integer, allocatable :: p_address_compute (:)
 
-   integer :: p_address_writeback = -1
+   integer :: p_address_history_task = -1
 
    integer :: p_stat (MPI_STATUS_SIZE)
    integer :: p_err = 0
@@ -78,7 +75,7 @@ MODULE MOD_SPMD_Task
    PUBLIC :: spmd_init
    PUBLIC :: spmd_exit
    PUBLIC :: divide_processes_into_groups
-   PUBLIC :: spmd_assign_writeback
+   PUBLIC :: spmd_assign_history_task
 
 CONTAINS
 
@@ -105,44 +102,44 @@ CONTAINS
       CALL mpi_comm_rank (p_comm_glb, p_iam_glb, p_err)
       CALL mpi_comm_size (p_comm_glb, p_np_glb,  p_err)
 
-      p_address_master = p_root
-      p_is_master = (p_iam_glb == p_address_master)
-      p_is_io = .true.
-      p_is_worker = .true.
-      p_is_writeback = .false.
+      p_address_root = p_root
+      p_is_root = (p_iam_glb == p_address_root)
+      p_is_active = .true.
+      p_is_compute = .true.
+      p_is_history_task = .false.
 
       p_comm_group = p_comm_glb
       p_iam_group = p_iam_glb
       p_np_group = p_np_glb
       p_my_group = 0
 
-      p_comm_io = p_comm_glb
-      p_iam_io = p_iam_glb
-      p_np_io = p_np_glb
+      p_comm_active = p_comm_glb
+      p_iam_active = p_iam_glb
+      p_np_active = p_np_glb
 
-      p_comm_worker = p_comm_glb
-      p_iam_worker = p_iam_glb
-      p_np_worker = p_np_glb
+      p_comm_compute = p_comm_glb
+      p_iam_compute = p_iam_glb
+      p_np_compute = p_np_glb
 
       p_comm_glb_plus = MPI_COMM_NULL
       p_iam_glb_plus = -1
-      p_address_writeback = -1
+      p_address_history_task = -1
 
-      IF (allocated(p_itis_io       )) deallocate (p_itis_io       )
-      IF (allocated(p_address_io    )) deallocate (p_address_io    )
-      IF (allocated(p_itis_worker   )) deallocate (p_itis_worker   )
-      IF (allocated(p_address_worker)) deallocate (p_address_worker)
+      IF (allocated(p_itis_active       )) deallocate (p_itis_active       )
+      IF (allocated(p_address_active    )) deallocate (p_address_active    )
+      IF (allocated(p_itis_compute   )) deallocate (p_itis_compute   )
+      IF (allocated(p_address_compute)) deallocate (p_address_compute)
 
-      allocate (p_itis_io        (0:p_np_glb-1))
-      allocate (p_address_io     (0:p_np_glb-1))
-      allocate (p_itis_worker    (0:p_np_glb-1))
-      allocate (p_address_worker (0:p_np_glb-1))
+      allocate (p_itis_active        (0:p_np_glb-1))
+      allocate (p_address_active     (0:p_np_glb-1))
+      allocate (p_itis_compute    (0:p_np_glb-1))
+      allocate (p_address_compute (0:p_np_glb-1))
 
       DO iproc = 0, p_np_glb-1
-         p_itis_io(iproc) = iproc
-         p_address_io(iproc) = iproc
-         p_itis_worker(iproc) = iproc
-         p_address_worker(iproc) = iproc
+         p_itis_active(iproc) = iproc
+         p_address_active(iproc) = iproc
+         p_itis_compute(iproc) = iproc
+         p_address_compute(iproc) = iproc
       ENDDO
 
    END SUBROUTINE spmd_init
@@ -168,10 +165,10 @@ CONTAINS
    !-----------------------------------------
    SUBROUTINE spmd_exit
 
-      IF (allocated(p_itis_io       )) deallocate (p_itis_io       )
-      IF (allocated(p_address_io    )) deallocate (p_address_io    )
-      IF (allocated(p_itis_worker   )) deallocate (p_itis_worker   )
-      IF (allocated(p_address_worker)) deallocate (p_address_worker)
+      IF (allocated(p_itis_active       )) deallocate (p_itis_active       )
+      IF (allocated(p_address_active    )) deallocate (p_address_active    )
+      IF (allocated(p_itis_compute   )) deallocate (p_itis_compute   )
+      IF (allocated(p_address_compute)) deallocate (p_address_compute)
 
       IF (p_comm_glb /= MPI_COMM_NULL) THEN
          CALL mpi_barrier (p_comm_glb, p_err)
@@ -180,19 +177,19 @@ CONTAINS
 
       p_comm_glb = MPI_COMM_NULL
       p_comm_group = MPI_COMM_NULL
-      p_comm_io = MPI_COMM_NULL
-      p_comm_worker = MPI_COMM_NULL
+      p_comm_active = MPI_COMM_NULL
+      p_comm_compute = MPI_COMM_NULL
 
    END SUBROUTINE spmd_exit
 
    ! ----- -----
-   SUBROUTINE spmd_assign_writeback ()
+   SUBROUTINE spmd_assign_history_task ()
 
    IMPLICIT NONE
 
-      CALL CoLM_stop('MPAS embedded CoLM does not support a standalone writeback MPI task.')
+      CALL CoLM_stop('MPAS embedded CoLM does not support a standalone history MPI task.')
 
-   END SUBROUTINE spmd_assign_writeback
+   END SUBROUTINE spmd_assign_history_task
 
    ! -- STOP all processes --
    SUBROUTINE CoLM_stop (mesg)

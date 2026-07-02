@@ -75,7 +75,7 @@ CONTAINS
 
       IF (.not. DEF_CheckEquilibrium) RETURN
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
 
             allocate (tws_last  (numpatch));   tws_last (:) = spval;
@@ -122,7 +122,7 @@ CONTAINS
       CALL map_check%build_arealweighted (gridcheck, landpatch)
 #endif
 
-      IF ((p_is_worker) .and. (numpatch > 0)) THEN
+      IF ((p_is_compute) .and. (numpatch > 0)) THEN
          tws_last = wdsrf                                 ! 1. surface water
          CALL add_spv (ldew, tws_last)                    ! 2. water on foliage
          CALL add_spv (scv , tws_last)                    ! 3. snow cover water equivalent
@@ -136,7 +136,7 @@ CONTAINS
          CALL add_spv (wa, tws_last)                      ! 7. water in aquifer
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
             allocate (patcharea (numpatch))
@@ -218,7 +218,7 @@ CONTAINS
 
       IF (.not. DEF_CheckEquilibrium) RETURN
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             CALL add_spv (forc_prc, prcp_year, deltim)
             CALL add_spv (forc_prl, prcp_year, deltim)
@@ -241,7 +241,7 @@ CONTAINS
 
       IF (docheck) THEN
 
-         IF ((p_is_worker) .and. (numpatch > 0)) THEN
+         IF ((p_is_compute) .and. (numpatch > 0)) THEN
             tws_this = wdsrf                                 ! 1. surface water
             CALL add_spv (ldew, tws_this)                    ! 2. water on foliage
             CALL add_spv (scv , tws_this)                    ! 3. snow cover water equivalent
@@ -259,7 +259,7 @@ CONTAINS
 
          IF (nyearcheck >= 1) THEN
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
 
                totaldtws = 0.
                totalprcp = 0.
@@ -295,8 +295,8 @@ CONTAINS
                ENDIF
 
 #ifdef USEMPI
-               CALL mpi_allreduce (MPI_IN_PLACE, totaldtws, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
-               CALL mpi_allreduce (MPI_IN_PLACE, totalprcp, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+               CALL mpi_allreduce (MPI_IN_PLACE, totaldtws, 1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
+               CALL mpi_allreduce (MPI_IN_PLACE, totalprcp, 1, MPI_REAL8, MPI_SUM, p_comm_compute, p_err)
 
                IF (totalprcp > 0.) THEN
                   pct_dtws_prcp = totaldtws/totalprcp
@@ -304,13 +304,13 @@ CONTAINS
                   pct_dtws_prcp = spval
                ENDIF
 
-               IF (p_iam_worker == p_root) THEN
-                  CALL mpi_send (pct_dtws_prcp, 1, MPI_REAL8, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+               IF (p_iam_compute == p_root) THEN
+                  CALL mpi_send (pct_dtws_prcp, 1, MPI_REAL8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
                ENDIF
 #endif
             ENDIF
 
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
 
                IF (is_spinup) THEN
                   write(timestr,timeform) i_spinupcycle, idate(1)
@@ -319,7 +319,7 @@ CONTAINS
                ENDIF
 
 #ifdef USEMPI
-               CALL mpi_recv (pct_dtws_prcp, 1, MPI_REAL8, p_address_worker(p_root), &
+               CALL mpi_recv (pct_dtws_prcp, 1, MPI_REAL8, p_address_compute(p_root), &
                   mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
                IF (pct_dtws_prcp /= spval) THEN
@@ -373,7 +373,7 @@ CONTAINS
             ENDIF
 
 #ifndef SinglePoint
-            IF (p_is_io) CALL allocate_block_data (gridcheck, sumarea)
+            IF (p_is_active) CALL allocate_block_data (gridcheck, sumarea)
 
             CALL map_check%get_sumarea (sumarea, filter)
 
@@ -458,7 +458,7 @@ CONTAINS
 #endif
          ENDIF
 
-         IF ((p_is_worker) .and. (numpatch > 0)) THEN
+         IF ((p_is_compute) .and. (numpatch > 0)) THEN
             prcp_year(:) = spval
             et_year  (:) = spval
             rnof_year(:) = spval
@@ -504,14 +504,14 @@ CONTAINS
    real(r8), allocatable :: rbuf(:,:), sbuf(:,:), vdata(:,:)
    logical :: amount
 
-      IF (p_is_io) CALL allocate_block_data (gridcheck, data_xy_2d)
+      IF (p_is_active) CALL allocate_block_data (gridcheck, data_xy_2d)
       CALL map_check%pset2grid (vector, data_xy_2d, spv = spval, msk = filter)
 
       amount = .false.
       IF (present(amount_in_grid)) amount = amount_in_grid
 
       IF (.not. amount) THEN
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             DO iblkme = 1, gblock%nblkme
                xblk = gblock%xblkme(iblkme)
                yblk = gblock%yblkme(iblkme)
@@ -541,7 +541,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          allocate (vdata (gcheck_concat%ginfo%nlon, gcheck_concat%ginfo%nlat))
          vdata(:,:) = spval
@@ -607,7 +607,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          DO iyseg = 1, gcheck_concat%nyseg
             DO ixseg = 1, gcheck_concat%nxseg
 
@@ -626,9 +626,9 @@ CONTAINS
 
                   smesg = (/p_iam_glb, ixseg, iyseg/)
                   CALL mpi_send (smesg, 3, MPI_INTEGER, &
-                     p_address_master, check_data_id, p_comm_glb, p_err)
+                     p_address_root, check_data_id, p_comm_glb, p_err)
                   CALL mpi_send (sbuf, xcnt*ycnt, MPI_REAL8, &
-                     p_address_master, check_data_id, p_comm_glb, p_err)
+                     p_address_root, check_data_id, p_comm_glb, p_err)
 
                   deallocate (sbuf)
 

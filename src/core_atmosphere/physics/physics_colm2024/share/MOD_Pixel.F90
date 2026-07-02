@@ -95,7 +95,7 @@ CONTAINS
       this%lon_w(1) = this%edgew
       this%lon_e(1) = this%edgee
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') '----- Region information -----'
          write(*,'(A,F10.4,A,F10.4,A,F10.4,A,F10.4,A)') ' (south,north,west,east) = (', &
             this%edges, ',', this%edgen, ',', this%edgew, ',', this%edgee, ')'
@@ -350,7 +350,7 @@ CONTAINS
    ! Local variables
    character(len=256) :: filename
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
          filename = trim(dir_landdata) // '/pixel.nc'
 

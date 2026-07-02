@@ -1,6 +1,6 @@
 #include <define.h>
 
-MODULE MOD_WorkerPushData
+MODULE MOD_ComputePushData
 !--------------------------------------------------------------------------------
 ! DESCRIPTION:
 !--------------------------------------------------------------------------------
@@ -12,7 +12,7 @@ MODULE MOD_WorkerPushData
    IMPLICIT NONE
 
    ! -- Data Type : push data between workers --
-   type :: worker_pushdata_type
+   type :: compute_pushdata_type
 
       integer :: num_req_uniq
 
@@ -34,12 +34,12 @@ MODULE MOD_WorkerPushData
       type(pointer_int32_1d), allocatable :: other_to (:)
 #endif
    CONTAINS
-      final :: worker_pushdata_free_mem
-   END type worker_pushdata_type
+      final :: compute_pushdata_free_mem
+   END type compute_pushdata_type
 
 
    ! -- Data Type : remap data on workers --
-   type :: worker_remapdata_type
+   type :: compute_remapdata_type
 
       integer :: num_grid
       integer, allocatable :: ilon_me (:)
@@ -53,43 +53,43 @@ MODULE MOD_WorkerPushData
       type(pointer_real8_1d), allocatable :: areapart (:) ! intersection area
 
    CONTAINS
-      final :: worker_remapdata_free_mem
-   END type worker_remapdata_type
+      final :: compute_remapdata_free_mem
+   END type compute_remapdata_type
 
    ! -- public subroutines --
-   INTERFACE build_worker_pushdata
-      MODULE procedure build_worker_pushdata_single
-      MODULE procedure build_worker_pushdata_multi
-   END INTERFACE build_worker_pushdata
+   INTERFACE build_compute_pushdata
+      MODULE procedure build_compute_pushdata_single
+      MODULE procedure build_compute_pushdata_multi
+   END INTERFACE build_compute_pushdata
 
-   PUBLIC :: build_worker_pushdata_subset
+   PUBLIC :: build_compute_pushdata_subset
 
-   PUBLIC :: build_worker_remapdata
+   PUBLIC :: build_compute_remapdata
 
-   INTERFACE worker_push_data
-      MODULE procedure worker_push_data_single_real8
-      MODULE procedure worker_push_data_single_int32
-      MODULE procedure worker_push_data_multi_real8
-   END INTERFACE worker_push_data
+   INTERFACE compute_push_data
+      MODULE procedure compute_push_data_single_real8
+      MODULE procedure compute_push_data_single_int32
+      MODULE procedure compute_push_data_multi_real8
+   END INTERFACE compute_push_data
 
-   INTERFACE worker_remap_data_pset2grid
-      MODULE procedure worker_remap_data_pset2grid_real8
-   END INTERFACE worker_remap_data_pset2grid
+   INTERFACE compute_remap_data_pset2grid
+      MODULE procedure compute_remap_data_pset2grid_real8
+   END INTERFACE compute_remap_data_pset2grid
 
-   INTERFACE worker_remap_data_grid2pset
-      MODULE procedure worker_remap_data_grid2pset_real8
-   END INTERFACE worker_remap_data_grid2pset
+   INTERFACE compute_remap_data_grid2pset
+      MODULE procedure compute_remap_data_grid2pset_real8
+   END INTERFACE compute_remap_data_grid2pset
 
 CONTAINS
 
    ! ----------
-   SUBROUTINE build_worker_pushdata_uniq (num_me, ids_me, n_req_uniq, ids_req_uniq, pushdata)
+   SUBROUTINE build_compute_pushdata_uniq (num_me, ids_me, n_req_uniq, ids_req_uniq, pushdata)
 
    IMPLICIT NONE
 
    integer, intent(in) :: num_me,     ids_me       (:)
    integer, intent(in) :: n_req_uniq, ids_req_uniq (:)
-   type(worker_pushdata_type), intent(inout) :: pushdata
+   type(compute_pushdata_type), intent(inout) :: pushdata
 
    ! Local Variables
    integer, allocatable :: ids_me_sorted(:), order_ids(:), self_from(:)
@@ -100,7 +100,7 @@ CONTAINS
    integer :: i, iloc, iworker, jworker, n_req_other
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
 	         allocate (ids_me_sorted (num_me))
 	         allocate (order_ids     (num_me))
@@ -133,39 +133,39 @@ CONTAINS
          ENDIF
 
 #ifdef COLM_PARALLEL
-         CALL mpi_barrier (p_comm_worker, p_err)
+         CALL mpi_barrier (p_comm_compute, p_err)
 
-         allocate (pushdata%n_to_other   (0:p_np_worker-1))
-         allocate (pushdata%to_other     (0:p_np_worker-1))
+         allocate (pushdata%n_to_other   (0:p_np_compute-1))
+         allocate (pushdata%to_other     (0:p_np_compute-1))
 
-         allocate (pushdata%n_from_other (0:p_np_worker-1))
-         allocate (pushdata%other_to     (0:p_np_worker-1))
+         allocate (pushdata%n_from_other (0:p_np_compute-1))
+         allocate (pushdata%other_to     (0:p_np_compute-1))
 
          pushdata%n_to_other  (:) = 0
          pushdata%n_from_other(:) = 0
 
          IF (n_req_uniq > 0) allocate (loc_from_other (n_req_uniq))
 
-         iworker = modulo(p_iam_worker+1, p_np_worker)
-         jworker = modulo(p_iam_worker-1, p_np_worker)
-         DO WHILE (iworker /= p_iam_worker)
+         iworker = modulo(p_iam_compute+1, p_np_compute)
+         jworker = modulo(p_iam_compute-1, p_np_compute)
+         DO WHILE (iworker /= p_iam_compute)
 
             CALL mpi_isend (n_req_uniq, 1, MPI_INTEGER, jworker, 10, &
-               p_comm_worker, request(1), p_err)
+               p_comm_compute, request(1), p_err)
 
             IF (n_req_uniq > 0) THEN
                CALL mpi_isend(ids_req_uniq, n_req_uniq, MPI_INTEGER, jworker, 11, &
-                  p_comm_worker, request(2), p_err)
+                  p_comm_compute, request(2), p_err)
             ENDIF
 
             CALL mpi_recv (n_req_other, 1, MPI_INTEGER, iworker, 10, &
-               p_comm_worker, p_stat, p_err)
+               p_comm_compute, p_stat, p_err)
 
             IF (n_req_other > 0) THEN
 
                allocate (ids (n_req_other))
                CALL mpi_recv (ids, n_req_other, MPI_INTEGER, iworker, 11, &
-                  p_comm_worker, p_stat, p_err)
+                  p_comm_compute, p_stat, p_err)
 
                allocate (loc_from_me (n_req_other))
                loc_from_me(:) = -1
@@ -186,14 +186,14 @@ CONTAINS
                ENDIF
 
                CALL mpi_isend (loc_from_me, n_req_other, MPI_INTEGER, iworker, 12, &
-                  p_comm_worker, request(3), p_err)
+                  p_comm_compute, request(3), p_err)
 
             ENDIF
 
             IF (n_req_uniq > 0) THEN
 
                CALL mpi_recv (loc_from_other, n_req_uniq, MPI_INTEGER, &
-                  jworker, 12, p_comm_worker, p_stat, p_err)
+                  jworker, 12, p_comm_compute, p_stat, p_err)
 
                pushdata%n_from_other(jworker) = count(loc_from_other > 0)
                IF (pushdata%n_from_other(jworker) > 0) THEN
@@ -210,13 +210,13 @@ CONTAINS
             IF (allocated(ids        )) deallocate(ids        )
             IF (allocated(loc_from_me)) deallocate(loc_from_me)
 
-            iworker = modulo(iworker+1, p_np_worker)
-            jworker = modulo(jworker-1, p_np_worker)
+            iworker = modulo(iworker+1, p_np_compute)
+            jworker = modulo(jworker-1, p_np_compute)
          ENDDO
 
          IF (allocated (loc_from_other)) deallocate (loc_from_other)
 
-         CALL mpi_barrier (p_comm_worker, p_err)
+         CALL mpi_barrier (p_comm_compute, p_err)
 #endif
 
          IF (allocated(ids_me_sorted)) deallocate(ids_me_sorted)
@@ -225,22 +225,22 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE build_worker_pushdata_uniq
+   END SUBROUTINE build_compute_pushdata_uniq
 
    ! ----------
-   SUBROUTINE build_worker_pushdata_single (num_me, ids_me, num_req, ids_req, pushdata)
+   SUBROUTINE build_compute_pushdata_single (num_me, ids_me, num_req, ids_req, pushdata)
 
    IMPLICIT NONE
 
    integer, intent(in) :: num_me,  ids_me  (:)
    integer, intent(in) :: num_req, ids_req (:)
-   type(worker_pushdata_type), intent(inout) :: pushdata
+   type(compute_pushdata_type), intent(inout) :: pushdata
 
    ! Local Variables
    integer :: n_req_uniq, iloc, i
    integer, allocatable :: ids_req_uniq (:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          n_req_uniq = 0
 
@@ -259,17 +259,17 @@ CONTAINS
 
          pushdata%num_req_uniq = n_req_uniq
 
-         CALL build_worker_pushdata_uniq ( &
+         CALL build_compute_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
 
          IF (allocated (ids_req_uniq)) deallocate(ids_req_uniq)
 
       ENDIF
 
-   END SUBROUTINE build_worker_pushdata_single
+   END SUBROUTINE build_compute_pushdata_single
 
    ! ----------
-   SUBROUTINE build_worker_pushdata_multi ( &
+   SUBROUTINE build_compute_pushdata_multi ( &
          num_me, ids_me, num_req, ids_req, area_req, pushdata)
 
    IMPLICIT NONE
@@ -277,14 +277,14 @@ CONTAINS
    integer,  intent(in) :: num_me,  ids_me  (:)
    integer,  intent(in) :: num_req, ids_req (:,:)
    real(r8), intent(in) :: area_req(:,:)
-   type(worker_pushdata_type), intent(inout) :: pushdata
+   type(compute_pushdata_type), intent(inout) :: pushdata
 
    ! Local Variables
    integer :: ndim1, n_req_uniq, iloc, i, j, iworker
    integer, allocatable :: ids_req_uniq (:)
    logical, allocatable :: id_found     (:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          n_req_uniq = 0
 
@@ -311,7 +311,7 @@ CONTAINS
 
          pushdata%num_req_uniq = n_req_uniq
 
-         CALL build_worker_pushdata_uniq ( &
+         CALL build_compute_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
 
          IF (num_req > 0) THEN
@@ -329,7 +329,7 @@ CONTAINS
 
             IF (pushdata%nself > 0) id_found(pushdata%self_to) = .true.
 #ifdef COLM_PARALLEL
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (pushdata%n_from_other(iworker) > 0) THEN
                   id_found(pushdata%other_to(iworker)%val) = .true.
                ENDIF
@@ -353,10 +353,10 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE build_worker_pushdata_multi
+   END SUBROUTINE build_compute_pushdata_multi
 
    ! ----------
-   SUBROUTINE build_worker_pushdata_subset ( &
+   SUBROUTINE build_compute_pushdata_subset ( &
          num_me, num_req, pushdata_in, subset_in, pushdata_out, subset_out, numsubset)
 
    USE MOD_Pixelset
@@ -365,10 +365,10 @@ CONTAINS
    integer, intent(in) :: num_me
    integer, intent(in) :: num_req
 
-   type(worker_pushdata_type),  intent(in)    :: pushdata_in
+   type(compute_pushdata_type),  intent(in)    :: pushdata_in
    type(subset_type),           intent(in)    :: subset_in
 
-   type(worker_pushdata_type),  intent(inout) :: pushdata_out
+   type(compute_pushdata_type),  intent(inout) :: pushdata_out
    type(subset_type), optional, intent(inout) :: subset_out
    integer, optional,           intent(inout) :: numsubset
 
@@ -377,7 +377,7 @@ CONTAINS
    integer, allocatable :: nsub_me  (:), nsub_req(:), nsub_req_uniq(:)
    integer, allocatable :: subdsp_me(:), subdsp_req_uniq(:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (num_me > 0) THEN
             allocate (nsub_me (num_me))
@@ -388,7 +388,7 @@ CONTAINS
             allocate (nsub_req (num_req))
          ENDIF
 
-         CALL worker_push_data (pushdata_in, nsub_me, nsub_req, 0)
+         CALL compute_push_data (pushdata_in, nsub_me, nsub_req, 0)
 
          IF (present(subset_out) .and. present(numsubset)) THEN
             IF (num_req > 0) THEN
@@ -484,10 +484,10 @@ CONTAINS
          ENDIF
 
 #ifdef COLM_PARALLEL
-         allocate (pushdata_out%n_to_other (0:p_np_worker-1))
-         allocate (pushdata_out%to_other   (0:p_np_worker-1))
+         allocate (pushdata_out%n_to_other (0:p_np_compute-1))
+         allocate (pushdata_out%to_other   (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
             pushdata_out%n_to_other(iworker) = 0
             DO i = 1, pushdata_in%n_to_other(iworker)
@@ -510,10 +510,10 @@ CONTAINS
 
          ENDDO
 
-         allocate (pushdata_out%n_from_other (0:p_np_worker-1))
-         allocate (pushdata_out%other_to     (0:p_np_worker-1))
+         allocate (pushdata_out%n_from_other (0:p_np_compute-1))
+         allocate (pushdata_out%other_to     (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
             pushdata_out%n_from_other(iworker) = 0
             DO i = 1, pushdata_in%n_from_other(iworker)
                pushdata_out%n_from_other(iworker) = pushdata_out%n_from_other(iworker) &
@@ -543,10 +543,10 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE build_worker_pushdata_subset
+   END SUBROUTINE build_compute_pushdata_subset
 
    ! ----------
-   SUBROUTINE build_worker_remapdata (pixelset, grid, remapdata)
+   SUBROUTINE build_compute_remapdata (pixelset, grid, remapdata)
 
    USE MOD_Grid
    USE MOD_Pixelset
@@ -556,7 +556,7 @@ CONTAINS
    type(pixelset_type), intent(in) :: pixelset
    type(grid_type),     intent(in) :: grid
 
-   type(worker_remapdata_type), intent(inout) :: remapdata
+   type(compute_remapdata_type), intent(inout) :: remapdata
 
    ! Local Variables
    type(spatial_mapping_type) :: mapping
@@ -566,10 +566,10 @@ CONTAINS
 
       CALL mapping%build_arealweighted (grid, pixelset)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          ngrid = 0
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             ngrid = ngrid + mapping%glist(iproc)%ng
          ENDDO
 
@@ -579,7 +579,7 @@ CONTAINS
          ENDIF
 
          ngrid = 0
-         DO iproc = 0, p_np_io-1
+         DO iproc = 0, p_np_active-1
             DO ig = 1, mapping%glist(iproc)%ng
                CALL insert_into_sorted_list2 ( &
                   mapping%glist(iproc)%ilon(ig), mapping%glist(iproc)%ilat(ig), &
@@ -635,15 +635,15 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE build_worker_remapdata
+   END SUBROUTINE build_compute_remapdata
 
    ! ----------
-   SUBROUTINE worker_push_data_uniq_real8 ( &
+   SUBROUTINE compute_push_data_uniq_real8 ( &
          pushdata, vec_send, vec_recv, fillvalue)
 
    IMPLICIT NONE
 
-   type(worker_pushdata_type), intent(in) :: pushdata
+   type(compute_pushdata_type), intent(in) :: pushdata
 
    real(r8), intent(in)   , optional :: vec_send (:)
    real(r8), intent(inout), optional :: vec_recv (:)
@@ -661,7 +661,7 @@ CONTAINS
    integer :: iworker, iproc, idsp, istt, iend, i, i_to
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = fillvalue
@@ -680,7 +680,7 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (pushdata%n_to_other(iworker) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
@@ -688,7 +688,7 @@ CONTAINS
 
                   sendcache(istt:iend) = vec_send(pushdata%to_other(iworker)%val)
                   CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(iworker), MPI_REAL8, &
-                     iworker, 101, p_comm_worker, req_send(iproc), p_err)
+                     iworker, 101, p_comm_compute, req_send(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -703,14 +703,14 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (pushdata%n_from_other(iworker) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
                   iend  = idsp + pushdata%n_from_other(iworker)
 
                   CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(iworker), MPI_REAL8, &
-                     iworker, 101, p_comm_worker, req_recv(iproc), p_err)
+                     iworker, 101, p_comm_compute, req_recv(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -722,7 +722,7 @@ CONTAINS
             CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
 
             idsp = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                DO i = 1, pushdata%n_from_other(iworker)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
@@ -752,15 +752,15 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE worker_push_data_uniq_real8
+   END SUBROUTINE compute_push_data_uniq_real8
 
    ! ----------
-   SUBROUTINE worker_push_data_uniq_int32 ( &
+   SUBROUTINE compute_push_data_uniq_int32 ( &
          pushdata, vec_send, vec_recv, fillvalue)
 
    IMPLICIT NONE
 
-   type(worker_pushdata_type), intent(in) :: pushdata
+   type(compute_pushdata_type), intent(in) :: pushdata
 
    integer, intent(in)   , optional :: vec_send (:)
    integer, intent(inout), optional :: vec_recv (:)
@@ -778,7 +778,7 @@ CONTAINS
    integer :: iworker, iproc, idsp, istt, iend, i, i_to
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = fillvalue
@@ -797,7 +797,7 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (pushdata%n_to_other(iworker) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
@@ -805,7 +805,7 @@ CONTAINS
 
                   sendcache(istt:iend) = vec_send(pushdata%to_other(iworker)%val)
                   CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(iworker), MPI_INTEGER, &
-                     iworker, 101, p_comm_worker, req_send(iproc), p_err)
+                     iworker, 101, p_comm_compute, req_send(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -820,14 +820,14 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                IF (pushdata%n_from_other(iworker) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
                   iend  = idsp + pushdata%n_from_other(iworker)
 
                   CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(iworker), MPI_INTEGER, &
-                     iworker, 101, p_comm_worker, req_recv(iproc), p_err)
+                     iworker, 101, p_comm_compute, req_recv(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -839,7 +839,7 @@ CONTAINS
             CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
 
             idsp = 0
-            DO iworker = 0, p_np_worker-1
+            DO iworker = 0, p_np_compute-1
                DO i = 1, pushdata%n_from_other(iworker)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
@@ -869,14 +869,14 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE worker_push_data_uniq_int32
+   END SUBROUTINE compute_push_data_uniq_int32
 
    ! ----------
-   SUBROUTINE worker_push_data_single_real8 (pushdata, vec_send, vec_recv, fillvalue)
+   SUBROUTINE compute_push_data_single_real8 (pushdata, vec_send, vec_recv, fillvalue)
 
    IMPLICIT NONE
 
-   type(worker_pushdata_type) :: pushdata
+   type(compute_pushdata_type) :: pushdata
 
    real(r8), intent(in)    :: vec_send (:)
    real(r8), intent(inout) :: vec_recv (:)
@@ -885,16 +885,16 @@ CONTAINS
    ! Local Variables
    real(r8), allocatable   :: vec_recv_uniq (:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          ! Always allocate (zero-length if no requests) to avoid passing
-         ! unallocated array to worker_push_data_uniq_real8.
+         ! unallocated array to compute_push_data_uniq_real8.
          allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
-         CALL worker_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
+         CALL compute_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = vec_recv_uniq(pushdata%addr_single)
@@ -903,14 +903,14 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE worker_push_data_single_real8
+   END SUBROUTINE compute_push_data_single_real8
 
    ! ----------
-   SUBROUTINE worker_push_data_multi_real8 (pushdata, vec_send, vec_recv, fillvalue, mode)
+   SUBROUTINE compute_push_data_multi_real8 (pushdata, vec_send, vec_recv, fillvalue, mode)
 
    IMPLICIT NONE
 
-   type(worker_pushdata_type) :: pushdata
+   type(compute_pushdata_type) :: pushdata
 
    real(r8), intent(in)    :: vec_send (:)
    real(r8), intent(inout) :: vec_recv (:)
@@ -923,16 +923,16 @@ CONTAINS
    integer  :: i, j
    real(r8) :: val, sumarea
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          ! Always allocate (zero-length if no requests) to avoid passing
-         ! unallocated array to worker_push_data_uniq_real8.
+         ! unallocated array to compute_push_data_uniq_real8.
          allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
-         CALL worker_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
+         CALL compute_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
          IF (pushdata%num_req_uniq > 0) THEN
 
@@ -966,14 +966,14 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE worker_push_data_multi_real8
+   END SUBROUTINE compute_push_data_multi_real8
 
    ! ----------
-   SUBROUTINE worker_push_data_single_int32 (pushdata, vec_send, vec_recv, fillvalue)
+   SUBROUTINE compute_push_data_single_int32 (pushdata, vec_send, vec_recv, fillvalue)
 
    IMPLICIT NONE
 
-   type(worker_pushdata_type) :: pushdata
+   type(compute_pushdata_type) :: pushdata
 
    integer, intent(in)    :: vec_send (:)
    integer, intent(inout) :: vec_recv (:)
@@ -982,14 +982,14 @@ CONTAINS
    ! Local Variables
    integer, allocatable   :: vec_recv_uniq (:)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
-         CALL worker_push_data_uniq_int32 (pushdata, vec_send, vec_recv_uniq, fillvalue)
+         CALL compute_push_data_uniq_int32 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = vec_recv_uniq(pushdata%addr_single)
@@ -998,14 +998,14 @@ CONTAINS
 
       ENDIF
 
-   END SUBROUTINE worker_push_data_single_int32
+   END SUBROUTINE compute_push_data_single_int32
 
    ! ---------
-   SUBROUTINE worker_remap_data_pset2grid_real8 (remapdata, vec_in, vec_out, fillvalue, filter)
+   SUBROUTINE compute_remap_data_pset2grid_real8 (remapdata, vec_in, vec_out, fillvalue, filter)
 
    IMPLICIT NONE
 
-   type(worker_remapdata_type), intent(in) :: remapdata
+   type(compute_remapdata_type), intent(in) :: remapdata
 
    real(r8), intent(in)    :: vec_in (:)
    real(r8), intent(inout) :: vec_out(:)
@@ -1017,7 +1017,7 @@ CONTAINS
    real(r8) :: area
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (remapdata%num_grid > 0) THEN
 
             vec_out(:) = fillvalue
@@ -1042,14 +1042,14 @@ CONTAINS
          ENDIF
       ENDIF
 
-   END SUBROUTINE worker_remap_data_pset2grid_real8
+   END SUBROUTINE compute_remap_data_pset2grid_real8
 
    ! ---------
-   SUBROUTINE worker_remap_data_grid2pset_real8 (remapdata, vec_in, vec_out, fillvalue, mode)
+   SUBROUTINE compute_remap_data_grid2pset_real8 (remapdata, vec_in, vec_out, fillvalue, mode)
 
    IMPLICIT NONE
 
-   type(worker_remapdata_type), intent(in) :: remapdata
+   type(compute_remapdata_type), intent(in) :: remapdata
 
    real(r8), intent(in)    :: vec_in (:)
    real(r8), intent(inout) :: vec_out(:)
@@ -1061,7 +1061,7 @@ CONTAINS
    integer  :: iset, ipart, iloc
    real(r8) :: area, sumarea
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (remapdata%npset > 0) THEN
 
             vec_out(:) = fillvalue
@@ -1094,13 +1094,13 @@ CONTAINS
          ENDIF
       ENDIF
 
-   END SUBROUTINE worker_remap_data_grid2pset_real8
+   END SUBROUTINE compute_remap_data_grid2pset_real8
 
    ! ---------
-   SUBROUTINE worker_pushdata_free_mem (this)
+   SUBROUTINE compute_pushdata_free_mem (this)
 
    IMPLICIT NONE
-   type(worker_pushdata_type) :: this
+   type(compute_pushdata_type) :: this
 
       IF (allocated(this%addr_single )) deallocate(this%addr_single )
       IF (allocated(this%addr_multi  )) deallocate(this%addr_multi  )
@@ -1115,13 +1115,13 @@ CONTAINS
       IF (allocated(this%other_to    )) deallocate(this%other_to    )
 #endif
 
-   END SUBROUTINE worker_pushdata_free_mem
+   END SUBROUTINE compute_pushdata_free_mem
 
    ! ---------
-   SUBROUTINE worker_remapdata_free_mem (this)
+   SUBROUTINE compute_remapdata_free_mem (this)
 
    IMPLICIT NONE
-   type(worker_remapdata_type) :: this
+   type(compute_remapdata_type) :: this
 
       IF (allocated(this%ilon_me )) deallocate(this%ilon_me )
       IF (allocated(this%ilat_me )) deallocate(this%ilat_me )
@@ -1131,6 +1131,6 @@ CONTAINS
       IF (allocated(this%part_to )) deallocate(this%part_to )
       IF (allocated(this%areapart)) deallocate(this%areapart)
 
-   END SUBROUTINE worker_remapdata_free_mem
+   END SUBROUTINE compute_remapdata_free_mem
 
-END MODULE MOD_WorkerPushData
+END MODULE MOD_ComputePushData

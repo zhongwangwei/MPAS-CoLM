@@ -60,7 +60,7 @@ CONTAINS
    USE MOD_LandPFT
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
 
             allocate (taux_p       (numpft)) ; taux_p       (:) = spval !wind stress: E-W [kg/m/s2]
@@ -96,7 +96,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_LandPFT
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
 
             deallocate (taux_p       )
@@ -138,7 +138,7 @@ CONTAINS
    real(r8),intent(in) :: Values
    real(r8),intent(in) :: Nan
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpft > 0) THEN
 
             taux_p      (:) = Values  !wind stress: E-W [kg/m/s2]

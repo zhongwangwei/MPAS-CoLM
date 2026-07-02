@@ -70,7 +70,7 @@ CONTAINS
       parafile = DEF_ReservoirPara_file
 
 #ifndef MPAS_EMBEDDED_COLM
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial (parafile, 'dam_GRAND_ID', dam_GRAND_ID)
       ENDIF
 
@@ -81,7 +81,7 @@ CONTAINS
       CALL ncio_inquire_length (parafile, 'dam_seq', totalnumresv)
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          allocate (ucat2resv (numucat))
          ucat2resv = 0
@@ -144,38 +144,38 @@ CONTAINS
       ! with resv_global_index, so no master-side global address table is needed.
 #else
 #ifdef COLM_PARALLEL
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 
-         allocate (resv_data_address (0:p_np_worker-1))
+         allocate (resv_data_address (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_worker-1
+         DO iworker = 0, p_np_compute-1
 
-            IF (p_address_worker(iworker) == p_iam_glb) THEN
+            IF (p_address_compute(iworker) == p_iam_glb) THEN
                nresv = numresv
             ELSE
                CALL mpi_recv (nresv, 1, MPI_INTEGER, &
-                  p_address_worker(iworker), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+                  p_address_compute(iworker), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
             ENDIF
 
             IF (nresv > 0) THEN
                allocate (resv_data_address(iworker)%val (nresv))
-               IF (p_address_worker(iworker) == p_iam_glb) THEN
+               IF (p_address_compute(iworker) == p_iam_glb) THEN
                   resv_data_address(iworker)%val = resv_global_index(1:nresv)
                ELSE
                   CALL mpi_recv (resv_data_address(iworker)%val, nresv, MPI_INTEGER, &
-                     p_address_worker(iworker), mpi_tag_data, p_comm_glb, p_stat, p_err)
+                     p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_stat, p_err)
                ENDIF
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_worker .and. (.not. p_is_master)) THEN
+      IF (p_is_compute .and. (.not. p_is_root)) THEN
 
-         CALL mpi_send (numresv, 1, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (numresv, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numresv > 0) THEN
-            CALL mpi_send (resv_global_index(1:numresv), numresv, MPI_INTEGER, p_address_master, &
+            CALL mpi_send (resv_global_index(1:numresv), numresv, MPI_INTEGER, p_address_root, &
                mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 
@@ -189,7 +189,7 @@ CONTAINS
 #endif
 #endif
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numresv > 0) THEN
 
@@ -212,7 +212,7 @@ CONTAINS
       ENDIF
 
 #ifdef MPAS_EMBEDDED_COLM
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          CALL ncio_read_indexed_serial (parafile, 'dam_year', resv_global_index(1:numresv), icache)
          dam_build_year = icache
 
@@ -230,33 +230,33 @@ CONTAINS
       ENDIF
 #else
       CALL ncio_read_bcast_serial (parafile, 'dam_year', icache)
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          dam_build_year = icache(resv_global_index(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_TotalVol_mcm', rcache)
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          volresv_total = rcache(resv_global_index(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_ConVol_mcm', rcache)
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          volresv_normal = rcache(resv_global_index(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qn', rcache)
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          qresv_normal = rcache(resv_global_index(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qf', rcache)
-      IF (p_is_worker .and. (numresv > 0)) THEN
+      IF (p_is_compute .and. (numresv > 0)) THEN
          qresv_flood = rcache(resv_global_index(1:numresv))
       ENDIF
 #endif
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO irsv = 1, numresv
             volresv_emerg (irsv) = volresv_total(irsv) * 0.94
             volresv_adjust(irsv) = volresv_total(irsv) * 0.77

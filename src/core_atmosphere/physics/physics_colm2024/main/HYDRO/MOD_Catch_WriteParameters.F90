@@ -30,7 +30,7 @@ CONTAINS
 
       file_parameters = trim(DEF_dir_output) // '/' // trim(DEF_CASE_NAME) // '/catch_parameters.nc'
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_create_file (trim(file_parameters))
          CALL ncio_define_dimension(file_parameters, 'hydrounit', totalnumhru)
 
@@ -43,7 +43,7 @@ CONTAINS
             'long_name', 'index of hydrological units inside basin')
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numhru > 0) allocate (hrupara (numhru))
       ENDIF
 
@@ -52,7 +52,7 @@ CONTAINS
          write(slev,'(i1.1)') ilev
 
          ! sand
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO i = 1, numhru
                ps = hru_patch%substt(i)
                pe = hru_patch%subend(i)
@@ -64,7 +64,7 @@ CONTAINS
             hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_sand_l'//slev, 'hydrounit')
 
          ! clay
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO i = 1, numhru
                ps = hru_patch%substt(i)
                pe = hru_patch%subend(i)
@@ -76,7 +76,7 @@ CONTAINS
             hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_clay_l'//slev, 'hydrounit')
 
          ! organic matter
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO i = 1, numhru
                ps = hru_patch%substt(i)
                pe = hru_patch%subend(i)
@@ -88,7 +88,7 @@ CONTAINS
             hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_om_l'//slev, 'hydrounit')
 
          ! silt
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO i = 1, numhru
                ps = hru_patch%substt(i)
                pe = hru_patch%subend(i)
@@ -102,7 +102,7 @@ CONTAINS
 
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO i = 1, numhru
             ps = hru_patch%substt(i)
             pe = hru_patch%subend(i)
@@ -113,7 +113,7 @@ CONTAINS
       CALL vector_gather_and_write (&
          hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'lulc_igbp', 'hydrounit')
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numhru > 0) hrupara(:) = spval
          DO ielm = 1, numelm
             IF (lake_id_elm(ielm) <= 0) THEN
@@ -130,12 +130,12 @@ CONTAINS
       CALL vector_gather_and_write (&
          hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'slope_length', 'hydrounit')
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_put_attr (file_parameters, 'slope_length', 'units', 'm')
          CALL ncio_put_attr (file_parameters, 'slope_length', 'missing_value', spval)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numhru > 0) hrupara(:) = spval
          DO ielm = 1, numelm
             IF (lake_id_elm(ielm) <= 0) THEN
@@ -152,12 +152,12 @@ CONTAINS
       CALL vector_gather_and_write (&
          hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'elevation', 'hydrounit')
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_put_attr (file_parameters, 'elevation', 'units', 'm')
          CALL ncio_put_attr (file_parameters, 'elevation', 'missing_value', spval)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numhru > 0) hrupara(:) = spval
          DO ielm = 1, numelm
             IF (lake_id_elm(ielm) <= 0) THEN
@@ -180,7 +180,7 @@ CONTAINS
       CALL vector_gather_and_write (&
          hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'slope_ratio', 'hydrounit')
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_put_attr (file_parameters, 'slope_ratio', 'units', '-')
          CALL ncio_put_attr (file_parameters, 'slope_ratio', 'missing_value', spval)
       ENDIF
@@ -192,7 +192,7 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (numresv_uniq > 0) THEN
 
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                CALL ncio_define_dimension (file_parameters, 'reservoir', numresv_uniq)
                CALL ncio_write_serial (file_parameters, 'resv_hylak_id' , resv_hylak_id, 'reservoir')
                CALL ncio_put_attr     (file_parameters, 'resv_hylak_id' , 'long_name', &
@@ -202,19 +202,19 @@ CONTAINS
             allocate (varpara (numresv_uniq))
 
             CALL reservoir_gather_var (volresv_total, varpara)
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                CALL ncio_write_serial (file_parameters, 'volresv_total', varpara, 'reservoir', 1)
                CALL ncio_put_attr     (file_parameters, 'volresv_total', 'units', 'm^3')
             ENDIF
 
             CALL reservoir_gather_var (qresv_mean, varpara)
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                CALL ncio_write_serial (file_parameters, 'qresv_mean', varpara, 'reservoir', 1)
                CALL ncio_put_attr     (file_parameters, 'qresv_mean', 'units', 'm^3/s')
             ENDIF
 
             CALL reservoir_gather_var (qresv_flood, varpara)
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                CALL ncio_write_serial (file_parameters, 'qresv_flood', varpara, 'reservoir', 1)
                CALL ncio_put_attr     (file_parameters, 'qresv_flood', 'units', 'm^3/s')
             ENDIF

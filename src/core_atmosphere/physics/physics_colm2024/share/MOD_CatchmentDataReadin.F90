@@ -118,19 +118,19 @@ CONTAINS
    real(r8), allocatable :: latitude(:), longitude(:)
    logical :: fexists
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
-         IF (p_iam_io == p_root) THEN
+         IF (p_iam_active == p_root) THEN
             IF (grid%yinc == 1) THEN
                write(*,*) 'Warning: latitude in catchment data should be from north to south.'
             ENDIF
          ENDIF
 
-         IF (p_iam_io == p_root) THEN
+         IF (p_iam_active == p_root) THEN
             in_one_file = ncio_var_exist (file_meshdata_in, dataname)
          ENDIF
 #ifdef USEMPI
-         CALL mpi_bcast (in_one_file, 1, mpi_logical, p_root, p_comm_io, p_err)
+         CALL mpi_bcast (in_one_file, 1, mpi_logical, p_root, p_comm_active, p_err)
 #endif
 
          IF (in_one_file) THEN

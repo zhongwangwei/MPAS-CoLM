@@ -128,7 +128,7 @@ CONTAINS
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
             allocate (fwsun                         (numurban))
             allocate (dfwsun                        (numurban))
@@ -415,7 +415,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_LandUrban
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numurban > 0) THEN
             deallocate (fwsun        )
             deallocate (dfwsun       )

@@ -59,12 +59,12 @@ CONTAINS
       IF (allocated(lon)) deallocate(lon)
       IF (allocated(lat)) deallocate(lat)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data (grid_fire, f_xy_fire)
       ENDIF
 
       file_fire = trim(DEF_dir_runtime) // '/fire/abm_colm_double_fillcoast.nc'
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_fire, 'abm', grid_fire, f_xy_fire)
       ENDIF
       CALL mg2p_fire%grid2pset (f_xy_fire, abm_lf)
@@ -73,7 +73,7 @@ CONTAINS
 #endif
 
       file_fire = trim(DEF_dir_runtime) // '/fire/peatf_colm_360x720_c100428.nc'
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_fire, 'peatf', grid_fire, f_xy_fire)
       ENDIF
       CALL mg2p_fire%grid2pset (f_xy_fire, peatf_lf)
@@ -82,7 +82,7 @@ CONTAINS
 #endif
 
       file_fire = trim(DEF_dir_runtime) // '/fire/gdp_colm_360x720_c100428.nc'
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_fire, 'gdp', grid_fire, f_xy_fire)
       ENDIF
       CALL mg2p_fire%grid2pset (f_xy_fire, gdp_lf)
@@ -122,7 +122,7 @@ CONTAINS
       file_fire = trim(DEF_dir_runtime) &
          // '/fire/colmforc.Li_2017_HYDEv3.2_CMIP6_hdm_0.5x0.5_AVHRR_simyr1850-2016_c180202.nc'
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_fire, f_xy_fire)
          CALL ncio_read_block_time (file_fire, 'hdm', grid_fire, itime, f_xy_fire)
       ENDIF

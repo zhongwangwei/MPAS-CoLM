@@ -99,7 +99,7 @@ CONTAINS
          CALL retrieve_yymm_from_days (time_real8(itime), obsyear(itime), obsmonth(itime))
       ENDDO
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,*) 'Assimilate GRACE data at'
          DO itime = 1, nobstime
             write(*,*) obsyear(itime), obsmonth(itime)
@@ -113,7 +113,7 @@ CONTAINS
 
       CALL mg2p_grace%build_arealweighted (grid_grace, landelm)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numelm > 0) THEN
             allocate (lwe_obs_this (numelm))
             allocate (err_obs_this (numelm))
@@ -138,11 +138,11 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             rnofmask = patchtype == 0
             IF (DEF_forcing%has_missing_value) THEN
@@ -157,7 +157,7 @@ CONTAINS
       nac_grace_this = 0
       nac_grace_prev = 0
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          wat_this_m     (:) = 0.
          rnof_acc_this_m(:) = 0.
          rnof_this_m    (:) = 0.
@@ -205,13 +205,13 @@ CONTAINS
 
       is_obs_time = any((obsyear == idate(1)) .and. (obsmonth == month))
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          IF (is_obs_time) THEN
             write(*,*) 'GRACE at this time.'
          ENDIF
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (has_prev_grace_obs) THEN
 
@@ -243,7 +243,7 @@ CONTAINS
 
          itime = findloc_ud((obsyear == idate(1)) .and. (obsmonth == month))
 
-         IF (p_is_io) THEN
+         IF (p_is_active) THEN
             CALL allocate_block_data (grid_grace, f_grace_lwe)
             CALL allocate_block_data (grid_grace, f_grace_err)
             CALL ncio_read_block_time (file_grace, 'lwe_thickness', grid_grace, itime, f_grace_lwe)
@@ -253,7 +253,7 @@ CONTAINS
          CALL mg2p_grace%grid2pset (f_grace_lwe, lwe_obs_this)
          CALL mg2p_grace%grid2pset (f_grace_err, err_obs_this)
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
 
             lwe_obs_this = lwe_obs_this * 10.0 ! from cm to mm
             err_obs_this = err_obs_this * 10.0 ! from cm to mm
@@ -271,7 +271,7 @@ CONTAINS
                .or. ((idate(1) == year_prev+1) .and. (month_prev == 12) .and. (month == 1)))) &
                THEN
 
-               ! write(sid,'(I0)') p_iam_worker
+               ! write(sid,'(I0)') p_iam_compute
                ! logfile = 'log/grace_log_' // trim(sid) // '.txt'
                ! open(12, file = trim(logfile), position = 'append')
 
@@ -366,7 +366,7 @@ CONTAINS
       ENDIF
 
       IF (isendofmonth(idate, deltim)) THEN
-         IF (p_is_worker .and. (numpatch > 0)) THEN
+         IF (p_is_compute .and. (numpatch > 0)) THEN
             nextmonth = mod(month+1,12)+1
             fslp_k = fslp_k_mon(nextmonth,:)
          ENDIF

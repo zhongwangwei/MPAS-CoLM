@@ -33,7 +33,7 @@ CONTAINS
       file_restart = trim(DEF_dir_restart) // '/ParaOpt/' // trim(DEF_CASE_NAME) //'_baseflow.nc'
       CALL ncio_read_vector (file_restart, 'scale_baseflow', landpatch, scale_baseflow, defval = 1.)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL system('mkdir -p ' // trim(DEF_dir_restart)//'/ParaOpt')
       ENDIF
 #ifdef USEMPI
@@ -42,7 +42,7 @@ CONTAINS
 
       IF (DEF_Optimize_Baseflow) THEN
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                allocate (zwt_init  (numpatch));  zwt_init  (:) = zwt
                allocate (rchg_year (numpatch));  rchg_year (:) = spval
@@ -80,7 +80,7 @@ CONTAINS
 
       IF (DEF_Optimize_Baseflow .and. is_spinup) THEN
 
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
 
                allocate (recharge(numpatch));   recharge(:) = spval
@@ -102,7 +102,7 @@ CONTAINS
             iter_bf_opt = iter_bf_opt + 1
 
             write(strcyc,'(A1,I4.4)') 'c', iter_bf_opt
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                CALL system('mkdir -p ' // trim(DEF_dir_restart)//'/ParaOpt/'//strcyc)
             ENDIF
 #ifdef USEMPI
@@ -117,7 +117,7 @@ CONTAINS
             CALL ncio_write_vector (file_restart, 'total_recharge', 'patch', landpatch, rchg_year, 1)
             CALL ncio_write_vector (file_restart, 'total_subsurface_runoff', 'patch', landpatch, rsub_year, 1)
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                DO ipatch = 1, numpatch
                   IF (patchtype(ipatch) <= 1) THEN
 
@@ -148,7 +148,7 @@ CONTAINS
             CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
             CALL ncio_write_vector (file_restart, 'scale_baseflow', 'patch', landpatch, scale_baseflow, 1)
 
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   rchg_year(:) = spval
                   rsub_year(:) = spval

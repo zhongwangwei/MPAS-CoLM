@@ -56,7 +56,7 @@ CONTAINS
    logical :: has_nan
    character(len=256) :: wfmt, exception, str_print
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -102,19 +102,19 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         IF (p_iam_io == p_root) THEN
-            allocate (gmin_all (0:p_np_io-1))
-            allocate (gmax_all (0:p_np_io-1))
-            CALL mpi_gather (gmin, 1, MPI_REAL8, gmin_all, 1, MPI_REAL8, p_root, p_comm_io, p_err)
-            CALL mpi_gather (gmax, 1, MPI_REAL8, gmax_all, 1, MPI_REAL8, p_root, p_comm_io, p_err)
+         IF (p_iam_active == p_root) THEN
+            allocate (gmin_all (0:p_np_active-1))
+            allocate (gmax_all (0:p_np_active-1))
+            CALL mpi_gather (gmin, 1, MPI_REAL8, gmin_all, 1, MPI_REAL8, p_root, p_comm_active, p_err)
+            CALL mpi_gather (gmax, 1, MPI_REAL8, gmax_all, 1, MPI_REAL8, p_root, p_comm_active, p_err)
          ELSE
-            CALL mpi_gather (gmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_io, p_err)
-            CALL mpi_gather (gmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_io, p_err)
+            CALL mpi_gather (gmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_active, p_err)
+            CALL mpi_gather (gmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_active, p_err)
          ENDIF
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
 
-         IF (p_iam_io == p_root) THEN
+         IF (p_iam_active == p_root) THEN
             IF (any(gmin_all /= spv)) THEN
                gmin = minval(gmin_all, mask = (gmin_all /= spv))
             ELSE
@@ -131,7 +131,7 @@ CONTAINS
             deallocate (gmax_all)
          ENDIF
 #endif
-         IF (p_iam_io == p_root) THEN
+         IF (p_iam_active == p_root) THEN
 
             exception = ''
 
@@ -149,19 +149,19 @@ CONTAINS
             write(str_print,wfmt) varname, gmin, gmax, trim(exception)
 
 #ifdef USEMPI
-            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_io(p_root), &
+         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_active(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_io(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_active(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
 
@@ -198,7 +198,7 @@ CONTAINS
    logical  :: has_nan
    character(len=256) :: wfmt, exception, str_print
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -225,19 +225,19 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ENDIF
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (any(vmin_all /= spv)) THEN
                vmin = minval(vmin_all, mask = (vmin_all /= spv))
             ELSE
@@ -255,7 +255,7 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             exception = ''
 
@@ -273,19 +273,19 @@ CONTAINS
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
 #ifdef USEMPI
-            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
 
@@ -321,7 +321,7 @@ CONTAINS
    logical  :: has_nan
    character(len=256) :: wfmt, exception, str_print
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -350,19 +350,19 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ENDIF
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (any(vmin_all /= spv)) THEN
                vmin = minval(vmin_all, mask = (vmin_all /= spv))
             ELSE
@@ -380,7 +380,7 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             exception = ''
 
@@ -398,19 +398,19 @@ CONTAINS
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
 #ifdef USEMPI
-            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
 
@@ -446,7 +446,7 @@ CONTAINS
    logical  :: has_nan
    character(len=256) :: wfmt, exception, str_print
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -477,20 +477,20 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ENDIF
 
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (any(vmin_all /= spv)) THEN
                vmin = minval(vmin_all, mask = (vmin_all /= spv))
             ELSE
@@ -508,7 +508,7 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             exception = ''
 
@@ -526,19 +526,19 @@ CONTAINS
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
 #ifdef USEMPI
-            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
 
@@ -574,7 +574,7 @@ CONTAINS
    logical  :: has_nan
    character(len=256) :: wfmt, exception, str_print
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -607,20 +607,20 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ENDIF
 
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (any(vmin_all /= spv)) THEN
                vmin = minval(vmin_all, mask = (vmin_all /= spv))
             ELSE
@@ -638,7 +638,7 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             exception = ''
 
@@ -656,19 +656,19 @@ CONTAINS
             write(str_print,wfmt) varname, vmin, vmax, trim(exception)
 
 #ifdef USEMPI
-            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (exception, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (exception, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
 
@@ -704,7 +704,7 @@ CONTAINS
    logical  :: has_nan
    character(len=256) :: wfmt, ss, info
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (present(spv_in)) THEN
             spv = spv_in
@@ -734,20 +734,20 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (vmin, 1, MPI_REAL8, vmin_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, vmax_all, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (vmin, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax, 1, MPI_REAL8, MPI_RNULL_P, 1, MPI_REAL8, p_root, p_comm_compute, p_err)
          ENDIF
 
 
-         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, has_nan, 1, MPI_LOGICAL, MPI_LOR, p_comm_compute, p_err)
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (any(vmin_all /= spv)) THEN
                vmin = minval(vmin_all, mask = (vmin_all /= spv))
             ELSE
@@ -765,7 +765,7 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
 
             info = ''
 
@@ -814,7 +814,7 @@ CONTAINS
    integer, allocatable :: vmin_all(:), vmax_all(:)
    character(len=256) :: wfmt, str_print
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          isnull = .not. allocated(vdata)
 
@@ -834,20 +834,20 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         IF (p_iam_worker == p_root) THEN
-            allocate (null_all (0:p_np_worker-1))
-            allocate (vmin_all (0:p_np_worker-1))
-            allocate (vmax_all (0:p_np_worker-1))
-            CALL mpi_gather (isnull, 1, MPI_LOGICAL, null_all, 1, MPI_LOGICAL, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmin,   1, MPI_INTEGER, vmin_all, 1, MPI_INTEGER, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax,   1, MPI_INTEGER, vmax_all, 1, MPI_INTEGER, p_root, p_comm_worker, p_err)
+         IF (p_iam_compute == p_root) THEN
+            allocate (null_all (0:p_np_compute-1))
+            allocate (vmin_all (0:p_np_compute-1))
+            allocate (vmax_all (0:p_np_compute-1))
+            CALL mpi_gather (isnull, 1, MPI_LOGICAL, null_all, 1, MPI_LOGICAL, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmin,   1, MPI_INTEGER, vmin_all, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax,   1, MPI_INTEGER, vmax_all, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
          ELSE
-            CALL mpi_gather (isnull, 1, MPI_LOGICAL, MPI_LNULL_P, 1, MPI_LOGICAL, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmin,   1, MPI_INTEGER, MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_worker, p_err)
-            CALL mpi_gather (vmax,   1, MPI_INTEGER, MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_worker, p_err)
+            CALL mpi_gather (isnull, 1, MPI_LOGICAL, MPI_LNULL_P, 1, MPI_LOGICAL, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmin,   1, MPI_INTEGER, MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
+            CALL mpi_gather (vmax,   1, MPI_INTEGER, MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
          ENDIF
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             IF (present(spv_in)) THEN
                null_all = null_all .and. (vmin_all == spv_in)
             ENDIF
@@ -861,19 +861,19 @@ CONTAINS
          ENDIF
 #endif
 
-         IF (p_iam_worker == p_root) THEN
+         IF (p_iam_compute == p_root) THEN
             wfmt = "('Check vector data:', A25, ' is in (', I20, ',', I20, ')')"
             write(str_print,wfmt) varname, vmin, vmax
 #ifdef USEMPI
-            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_master, &
+            CALL mpi_send (str_print, 256, MPI_CHARACTER, p_address_root, &
                mpi_tag_mesg, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
 #ifdef USEMPI
-         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_worker(p_root), &
+         CALL mpi_recv (str_print, 256, MPI_CHARACTER, p_address_compute(p_root), &
             mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 #endif
          write(*,'(A)') trim(str_print)

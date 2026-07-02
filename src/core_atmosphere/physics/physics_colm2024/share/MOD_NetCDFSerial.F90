@@ -836,10 +836,10 @@ CONTAINS
    integer, intent(out) :: rdata
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_int32_0d (filename, dataname, rdata)
       ENDIF
-      CALL mpi_bcast (rdata, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (rdata, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_int32_0d (filename, dataname, rdata)
 #endif
@@ -858,10 +858,10 @@ CONTAINS
    real(r8), intent(out) :: rdata
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_0d (filename, dataname, rdata)
       ENDIF
-      CALL mpi_bcast (rdata, 1, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (rdata, 1, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_0d (filename, dataname, rdata)
 #endif
@@ -880,13 +880,13 @@ CONTAINS
    integer :: vlen
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_int32_1d(filename, dataname, rdata)
          vlen = size(rdata)
       ENDIF
-      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vlen))
-      CALL mpi_bcast (rdata, vlen, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vlen))
+      CALL mpi_bcast (rdata, vlen, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_int32_1d(filename, dataname, rdata)
 #endif
@@ -905,13 +905,13 @@ CONTAINS
    integer :: vsize(2)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_int32_2d(filename, dataname, rdata)
          vsize = shape(rdata)
       ENDIF
-      CALL mpi_bcast (vsize, 2, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vsize(1), vsize(2)))
-      CALL mpi_bcast (rdata, vsize(1)*vsize(2), MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vsize, 2, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vsize(1), vsize(2)))
+      CALL mpi_bcast (rdata, vsize(1)*vsize(2), MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_int32_2d(filename, dataname, rdata)
 #endif
@@ -932,13 +932,13 @@ CONTAINS
    integer :: vlen
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_1d(filename, dataname, rdata)
          vlen = size(rdata)
       ENDIF
-      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vlen))
-      CALL mpi_bcast (rdata, vlen, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vlen))
+      CALL mpi_bcast (rdata, vlen, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_1d(filename, dataname, rdata)
 #endif
@@ -959,13 +959,13 @@ CONTAINS
    integer :: vsize(2)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_2d(filename, dataname, rdata)
          vsize = shape(rdata)
       ENDIF
-      CALL mpi_bcast (vsize, 2, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vsize(1),vsize(2)))
-      CALL mpi_bcast (rdata, vsize(1)*vsize(2), MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vsize, 2, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vsize(1),vsize(2)))
+      CALL mpi_bcast (rdata, vsize(1)*vsize(2), MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_2d(filename, dataname, rdata)
 #endif
@@ -986,13 +986,13 @@ CONTAINS
    integer :: vsize(3)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_3d(filename, dataname, rdata)
          vsize = shape(rdata)
       ENDIF
-      CALL mpi_bcast (vsize, 3, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vsize(1),vsize(2),vsize(3)))
-      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3), MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vsize, 3, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vsize(1),vsize(2),vsize(3)))
+      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3), MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_3d(filename, dataname, rdata)
 #endif
@@ -1013,13 +1013,13 @@ CONTAINS
    integer :: vsize(4)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_4d(filename, dataname, rdata)
          vsize = shape(rdata)
       ENDIF
-      CALL mpi_bcast (vsize, 4, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vsize(1),vsize(2),vsize(3),vsize(4)))
-      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3)*vsize(4), MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vsize, 4, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vsize(1),vsize(2),vsize(3),vsize(4)))
+      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3)*vsize(4), MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_4d(filename, dataname, rdata)
 #endif
@@ -1040,13 +1040,13 @@ CONTAINS
    integer :: vsize(5)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_real8_5d(filename, dataname, rdata)
          vsize = shape(rdata)
       ENDIF
-      CALL mpi_bcast (vsize, 5, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vsize(1),vsize(2),vsize(3),vsize(4),vsize(5)))
-      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3)*vsize(4)*vsize(5), MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vsize, 5, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vsize(1),vsize(2),vsize(3),vsize(4),vsize(5)))
+      CALL mpi_bcast (rdata, vsize(1)*vsize(2)*vsize(3)*vsize(4)*vsize(5), MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_real8_5d(filename, dataname, rdata)
 #endif
@@ -1066,7 +1066,7 @@ CONTAINS
    integer(1), allocatable :: rdata_byte(:)
 
 #ifdef USEMPI
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL ncio_read_serial_int8_1d(filename, dataname, rdata_byte)
          vlen = size(rdata_byte)
 
@@ -1075,9 +1075,9 @@ CONTAINS
 
          deallocate (rdata_byte)
       ENDIF
-      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      IF (.not. p_is_master)  allocate (rdata (vlen))
-      CALL mpi_bcast (rdata, vlen, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (vlen, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
+      IF (.not. p_is_root)  allocate (rdata (vlen))
+      CALL mpi_bcast (rdata, vlen, MPI_LOGICAL, p_address_root, p_comm_glb, p_err)
 #else
       CALL ncio_read_serial_int8_1d(filename, dataname, rdata_byte)
       vlen = size(rdata_byte)

@@ -323,7 +323,7 @@ CONTAINS
    IMPLICIT NONE
 
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -619,7 +619,7 @@ CONTAINS
 ! Deallocates memory for CoLM 1d [numpatch] variables
 ! --------------------------------------------------
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 

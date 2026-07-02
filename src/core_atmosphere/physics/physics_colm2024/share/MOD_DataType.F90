@@ -672,7 +672,7 @@ CONTAINS
    ! Local variables
    integer :: iblkme, iblk, jblk
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          IF (.not. present(spv)) THEN
 

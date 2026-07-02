@@ -275,35 +275,35 @@ CONTAINS
 #if defined(GridRiverLakeFlow) && defined(MPAS_EMBEDDED_COLM)
 	   SUBROUTINE colm_mpas_check_embedded_riverlake(ierr)
 	      USE MOD_Namelist, only: DEF_USE_SEDIMENT
-	      USE MOD_SPMD_Task, only: p_np_glb, p_is_master
+	      USE MOD_SPMD_Task, only: p_np_glb, p_is_root
 	      integer, intent(out) :: ierr
 
 	      ierr = 0
 	      IF (DEF_USE_SEDIMENT) THEN
-	         IF (p_is_master) THEN
+	         IF (p_is_root) THEN
 	            write(*,'(A)') 'CoLM2024 MPAS embedded mode does not support GridRiverLakeSediment yet.'
 	            write(*,'(A)') 'Set DEF_USE_SEDIMENT = .false. until sediment routing is migrated to MPAS-owned rank decomposition.'
 	         ENDIF
 	         ierr = 1
 	         RETURN
 	      ENDIF
-	      IF (p_np_glb > 1 .and. p_is_master) THEN
+	      IF (p_np_glb > 1 .and. p_is_root) THEN
 	         write(*,'(A)') 'CoLM2024 MPAS embedded GridRiverLakeFlow uses MPAS communicator ranks for distributed routing.'
-	         write(*,'(A)') 'CoLM standalone master/io/worker MPI pools and replicated full-river-network fallback are disabled.'
+	         write(*,'(A)') 'CoLM standalone MPI process pools and replicated full-river-network fallback are disabled.'
 	      ENDIF
 		   END SUBROUTINE colm_mpas_check_embedded_riverlake
 #endif
 
 	   SUBROUTINE colm_mpas_check_embedded_io(ierr)
 	      USE MOD_Namelist, only: DEF_HIST_FREQ, DEF_HIST_WriteBack, USE_SITE_HistWriteBack
-	      USE MOD_SPMD_Task, only: p_is_master
+	      USE MOD_SPMD_Task, only: p_is_root
 	      integer, intent(out) :: ierr
 
 	      ierr = 0
 	      USE_SITE_HistWriteBack = .false.
 	      IF ((trim(adjustl(DEF_HIST_FREQ)) /= 'none' .and. trim(adjustl(DEF_HIST_FREQ)) /= 'NONE') .or. &
 	          DEF_HIST_WriteBack) THEN
-	         IF (p_is_master) THEN
+	         IF (p_is_root) THEN
 	            write(*,'(A)') 'CoLM2024 MPAS embedded mode currently writes fluxes through MPAS streams.'
 	            write(*,'(A)') 'Disable CoLM DEF_HIST_FREQ/DEF_HIST_WriteBack; CoLM restart files remain supported for patch/PFT state.'
 	            write(*,'(A)') 'CoLM USE_SITE_HistWriteBack is forced off in MPAS embedded mode.'

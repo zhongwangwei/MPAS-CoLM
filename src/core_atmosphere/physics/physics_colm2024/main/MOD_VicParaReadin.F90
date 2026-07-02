@@ -74,14 +74,14 @@ CONTAINS
       CALL grid_Ds%define_by_center (lat, lon)
       CALL grid_DsM%define_by_center (lat, lon)
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_b_infilt, f_xy_b_infilt)
          CALL allocate_block_data  (grid_Ws, f_xy_Ws)
          CALL allocate_block_data  (grid_Ds, f_xy_Ds)
          CALL allocate_block_data  (grid_DsM, f_xy_DsM)
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL ncio_read_block (file_vic_para,'b', grid_b_infilt, f_xy_b_infilt)
          CALL ncio_read_block (file_vic_para,'Ws', grid_Ws, f_xy_Ws)
          CALL ncio_read_block (file_vic_para,'Ds', grid_Ds, f_xy_Ds)
@@ -98,7 +98,7 @@ CONTAINS
       IF (allocated(lon)) deallocate(lon)
       IF (allocated(lat)) deallocate(lat)
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0)  allocate (b_infilt_tmp (numpatch))
          IF (numpatch > 0)  allocate (Ws_tmp (numpatch))
          IF (numpatch > 0)  allocate (Ds_tmp (numpatch))
@@ -110,7 +110,7 @@ CONTAINS
       CALL mg2patch_Ds%grid2pset (f_xy_Ds, Ds_tmp(:))
       CALL mg2patch_DsM%grid2pset (f_xy_DsM, DsM_tmp(:))
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          vic_b_infilt(:) = -9999
          vic_Dsmax(:) = -9999
          vic_Ds(:) = -9999
@@ -118,7 +118,7 @@ CONTAINS
          vic_c = 2
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          DO ipft = 1, numpatch
             !WRITE(*,*) 'Values of vic_b_infilt: ', DsM_tmp(ipft)
             vic_b_infilt(ipft) = b_infilt_tmp(ipft)

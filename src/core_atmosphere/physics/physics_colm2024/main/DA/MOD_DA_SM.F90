@@ -341,7 +341,7 @@ CONTAINS
 !#############################################################################
 ! Makeup derived types of pixel index for fast access at each worker
 !#############################################################################
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             allocate (counter (pixel%nlat))
             counter(:) = 0
 
@@ -403,7 +403,7 @@ CONTAINS
          ! find the located pixel of each site & broadcast workers
          allocate (iloc_synop (2, nsite))
          iloc_synop(:,:) = -1
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
             DO i = 1, nsite
                numpxl_lat = count(pixel%lat_s <= synop_lat_all(i) .and. pixel%lat_n > synop_lat_all(i))
                numpxl_lon = count(pixel%lon_w <= synop_lon_all(i) .and. pixel%lon_e > synop_lon_all(i))
@@ -425,7 +425,7 @@ CONTAINS
                ENDIF
             ENDDO
          ENDIF
-         CALL mpi_bcast(iloc_synop, 2*nsite, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+         CALL mpi_bcast(iloc_synop, 2*nsite, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
@@ -434,7 +434,7 @@ CONTAINS
 !#############################################################################
 ! Assess the patch id of pixel that cover each observation at each worker
 !#############################################################################
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             ! count the number of site that located in pixels of each worker
             counter_worker_nsite = 0
             DO i = 1, nsite
@@ -474,11 +474,11 @@ CONTAINS
             ! send the number of site and their patch id to master
 #ifdef USEMPI
             mesg = (/p_iam_glb, counter_worker_nsite/)
-            CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+            CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
             IF (counter_worker_nsite > 0) THEN
                CALL mpi_send(ip_worker, 2*counter_worker_nsite, MPI_INTEGER, &
-                  p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  p_address_root, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
 #endif
 
@@ -496,12 +496,12 @@ CONTAINS
 !#############################################################################
 ! Generate look-up-table (contains the worker/patch id of each site) at master
 !#############################################################################
-         IF (p_is_master) THEN
+         IF (p_is_root) THEN
             allocate (synop_lut (2, nsite))
             synop_lut(:,:) = -1
 
 #ifdef USEMPI
-            DO iwork = 0, p_np_worker-1
+            DO iwork = 0, p_np_compute-1
                CALL mpi_recv(mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                   mpi_tag_mesg, p_comm_glb, p_stat, p_err)
                isrc = mesg(1)
@@ -712,7 +712,7 @@ CONTAINS
       ENDIF
 
       ! print info of observations
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          IF (has_smap_obs) THEN
             print *, '[CoLM-DA] Have SMAP observations:', trim(file_smap)
          ELSE
@@ -735,7 +735,7 @@ CONTAINS
 !#############################################################################
       IF (DEF_DA_SM_SMAP) THEN
          ! allocate memory for ensemble predicted observations at patch (for DA or no DA)
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                IF (allocated(pred_smap_tb_h_pset_ens)) deallocate (pred_smap_tb_h_pset_ens)
                IF (allocated(pred_smap_tb_v_pset_ens)) deallocate (pred_smap_tb_v_pset_ens)
@@ -757,7 +757,7 @@ CONTAINS
 
       IF (DEF_DA_SM_FY) THEN
          ! allocate memory for ensemble predicted observations at patch (for DA or no DA)
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (numpatch > 0) THEN
                IF (allocated(pred_fy3d_tb_h_pset_ens)) deallocate (pred_fy3d_tb_h_pset_ens)
                IF (allocated(pred_fy3d_tb_v_pset_ens)) deallocate (pred_fy3d_tb_v_pset_ens)
@@ -793,7 +793,7 @@ CONTAINS
 ! Calculate predicted observations using observation operator
 !#############################################################################
       ! forward model (for no DA)
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          ! SMAP forward model
          DO np = 1, numpatch
             lat_p   = patchlatr(np)*180/pi
@@ -824,7 +824,7 @@ CONTAINS
       ENDIF
 
       ! forward model for ensemble DA
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (DEF_DA_SM_SMAP) THEN
             IF (DEF_DA_ENS_NUM > 1) THEN
                DO iens = 1, DEF_DA_ENS_NUM
@@ -919,18 +919,18 @@ CONTAINS
          IF (has_smap_obs) THEN
             ! prepare filter for land patches
             allocate (filter(numpatch))
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   filter(:) = patchtype <= 2
                ENDIF
             ENDIF
 
             ! calculate area of each patch across world grid
-            IF (p_is_io) CALL allocate_block_data(grid_smap, area_smap_wgrid)
+            IF (p_is_active) CALL allocate_block_data(grid_smap, area_smap_wgrid)
             CALL mg2p_smap%get_sumarea(area_smap_wgrid, filter)
 
             ! mapping predicted observations from patch to world grid
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL allocate_block_data(grid_smap, pred_smap_tb_h_wgrid_ens, DEF_DA_ENS_NUM)
                CALL allocate_block_data(grid_smap, pred_smap_tb_v_wgrid_ens, DEF_DA_ENS_NUM)
             ENDIF
@@ -939,7 +939,7 @@ CONTAINS
             deallocate (filter)
 
             ! crop the predicted observations
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                allocate (iloc(num_smap_obs))
                pred_smap_tb_h_ogrid_ens = -9999.0
                pred_smap_tb_v_ogrid_ens = -9999.0
@@ -972,16 +972,16 @@ CONTAINS
                ! send data from io to masters
 #ifdef USEMPI
                smesg = (/p_iam_glb, ndata/)
-               CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+               CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
                IF (ndata > 0) THEN
-                  CALL mpi_send(iloc(1:ndata), ndata, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(iloc(1:ndata), ndata, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
                   allocate (dtemp(ndata, DEF_DA_ENS_NUM))
                   dtemp = pred_smap_tb_h_ogrid_ens(1:ndata, :)
-                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
                   dtemp = pred_smap_tb_v_ogrid_ens(1:ndata, :)
-                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, mpi_tag_data + 1, p_comm_glb, p_err)
+                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, mpi_tag_data + 1, p_comm_glb, p_err)
                   deallocate (dtemp)
                ENDIF
 #endif
@@ -991,10 +991,10 @@ CONTAINS
 
             ! broadcast from master to all workers
 #ifdef USEMPI
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                pred_smap_tb_h_ogrid_ens = -9999.0
                pred_smap_tb_v_ogrid_ens = -9999.0
-               DO ip = 0, p_np_io - 1
+               DO ip = 0, p_np_active - 1
                   CALL mpi_recv(rmesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
                   ndata = rmesg(2)
@@ -1014,8 +1014,8 @@ CONTAINS
                   ENDIF
                ENDDO
             ENDIF
-            CALL mpi_bcast(pred_smap_tb_h_ogrid_ens, num_smap_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, p_comm_glb, p_err)
-            CALL mpi_bcast(pred_smap_tb_v_ogrid_ens, num_smap_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+            CALL mpi_bcast(pred_smap_tb_h_ogrid_ens, num_smap_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, p_comm_glb, p_err)
+            CALL mpi_bcast(pred_smap_tb_v_ogrid_ens, num_smap_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
@@ -1024,18 +1024,18 @@ CONTAINS
          IF (has_fy3d_obs) THEN
             ! prepare filter for land patches
             allocate (filter(numpatch))
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (numpatch > 0) THEN
                   filter(:) = patchtype <= 2
                ENDIF
             ENDIF
 
             ! calculate area of each patch across world grid
-            IF (p_is_io) CALL allocate_block_data(grid_fy3d, area_fy3d_wgrid)
+            IF (p_is_active) CALL allocate_block_data(grid_fy3d, area_fy3d_wgrid)
             CALL mg2p_fy3d%get_sumarea(area_fy3d_wgrid, filter)
 
             ! mapping predicted observations from patch to world grid
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                CALL allocate_block_data(grid_fy3d, pred_fy3d_tb_h_wgrid_ens, DEF_DA_ENS_NUM)
                CALL allocate_block_data(grid_fy3d, pred_fy3d_tb_v_wgrid_ens, DEF_DA_ENS_NUM)
             ENDIF
@@ -1044,7 +1044,7 @@ CONTAINS
             deallocate (filter)
 
             ! crop the predicted observations
-            IF (p_is_io) THEN
+            IF (p_is_active) THEN
                allocate (iloc(num_fy3d_obs))
                pred_fy3d_tb_h_ogrid_ens = -9999.0
                pred_fy3d_tb_v_ogrid_ens = -9999.0
@@ -1077,16 +1077,16 @@ CONTAINS
                ! send data from io to masters
 #ifdef USEMPI
                smesg = (/p_iam_glb, ndata/)
-               CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+               CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
                IF (ndata > 0) THEN
-                  CALL mpi_send(iloc(1:ndata), ndata, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(iloc(1:ndata), ndata, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
 
                   allocate (dtemp(ndata, DEF_DA_ENS_NUM))
                   dtemp = pred_fy3d_tb_h_ogrid_ens(1:ndata, :)
-                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
                   dtemp = pred_fy3d_tb_v_ogrid_ens(1:ndata, :)
-                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, mpi_tag_data + 1, p_comm_glb, p_err)
+                  CALL mpi_send(dtemp, ndata*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, mpi_tag_data + 1, p_comm_glb, p_err)
                   deallocate (dtemp)
                ENDIF
 #endif
@@ -1096,10 +1096,10 @@ CONTAINS
 
             ! broadcast from master to all workers
 #ifdef USEMPI
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                pred_fy3d_tb_h_ogrid_ens = -9999.0
                pred_fy3d_tb_v_ogrid_ens = -9999.0
-               DO ip = 0, p_np_io - 1
+               DO ip = 0, p_np_active - 1
                   CALL mpi_recv(rmesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
                   ndata = rmesg(2)
@@ -1119,8 +1119,8 @@ CONTAINS
                   ENDIF
                ENDDO
             ENDIF
-            CALL mpi_bcast(pred_fy3d_tb_h_ogrid_ens, num_fy3d_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, p_comm_glb, p_err)
-            CALL mpi_bcast(pred_fy3d_tb_v_ogrid_ens, num_fy3d_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+            CALL mpi_bcast(pred_fy3d_tb_h_ogrid_ens, num_fy3d_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, p_comm_glb, p_err)
+            CALL mpi_bcast(pred_fy3d_tb_v_ogrid_ens, num_fy3d_obs*DEF_DA_ENS_NUM, MPI_REAL8, p_address_root, p_comm_glb, p_err)
 #endif
          ENDIF
       ENDIF
@@ -1129,15 +1129,15 @@ CONTAINS
          ! crop corresponding index (worker id and patch id) of each observation
          IF (has_synop_obs) THEN
             synop_idx(:,:) = -1
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
                synop_idx = synop_lut(:, synop_id)
             ENDIF
-            CALL mpi_bcast(synop_idx, 2*num_synop_obs, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+            CALL mpi_bcast(synop_idx, 2*num_synop_obs, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
          ENDIF
 
          ! recount the number of observations at each worker
          IF (has_synop_obs) THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                counter_worker_nsite = 0
                DO i = 1, num_synop_obs
                   IF (synop_idx(1, i) == p_iam_glb) THEN
@@ -1149,7 +1149,7 @@ CONTAINS
 
          ! allocate memory for worker
          IF (has_synop_obs) THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                IF (counter_worker_nsite > 0) THEN
                   IF (allocated(tref_ens_worker)) deallocate (tref_ens_worker)
                   IF (allocated(qref_ens_worker)) deallocate (qref_ens_worker)
@@ -1163,7 +1163,7 @@ CONTAINS
 
          ! crop observations at each worker according index & send to master
          IF (has_synop_obs) THEN
-            IF (p_is_worker) THEN
+            IF (p_is_compute) THEN
                counter_worker_nsite = 0
                DO i = 1, num_synop_obs
                   IF (synop_idx(1, i) == p_iam_glb) THEN
@@ -1177,12 +1177,12 @@ CONTAINS
 #ifdef USEMPI
                ! send the number of site and their patch id to master
                mesg = (/p_iam_glb, counter_worker_nsite/)
-               CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+               CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
                IF (counter_worker_nsite > 0) THEN
-                  CALL mpi_send(tref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
-                  CALL mpi_send(qref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_master, mpi_tag_data, p_comm_glb, p_err)
-                  CALL mpi_send(site_id_worker, counter_worker_nsite, MPI_INTEGER, p_address_master, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(tref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(qref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(site_id_worker, counter_worker_nsite, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
                ENDIF
 #endif
 
@@ -1196,9 +1196,9 @@ CONTAINS
          IF (has_synop_obs) THEN
             qref_ens_o = spval
             tref_ens_o = spval
-            IF (p_is_master) THEN
+            IF (p_is_root) THEN
 #ifdef USEMPI
-               DO iwork = 0, p_np_worker-1
+               DO iwork = 0, p_np_compute-1
                   CALL mpi_recv(mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
                   isrc = mesg(1)
                   ndata = mesg(2)
@@ -1222,8 +1222,8 @@ CONTAINS
                ENDDO
 #endif
             ENDIF
-            CALL mpi_bcast(qref_ens_o, DEF_DA_ENS_NUM*num_synop_obs, MPI_REAL8, p_address_master, p_comm_glb, p_err)
-            CALL mpi_bcast(tref_ens_o, DEF_DA_ENS_NUM*num_synop_obs, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+            CALL mpi_bcast(qref_ens_o, DEF_DA_ENS_NUM*num_synop_obs, MPI_REAL8, p_address_root, p_comm_glb, p_err)
+            CALL mpi_bcast(tref_ens_o, DEF_DA_ENS_NUM*num_synop_obs, MPI_REAL8, p_address_root, p_comm_glb, p_err)
          ENDIF
       ENDIF
 #endif
@@ -1234,7 +1234,7 @@ CONTAINS
       has_DA = .false.
       IF (has_smap_obs .or. has_fy3d_obs .or. has_synop_obs) THEN
          ! for grid data assimilation
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             DO np = 1, numpatch
 
 !#############################################################################
@@ -1607,7 +1607,7 @@ CONTAINS
 ! Calculate ensemble brightness temperature after DA for diagnostic
 !#############################################################################
       IF (has_DA) THEN
-         IF (p_is_worker) THEN
+         IF (p_is_compute) THEN
             IF (DEF_DA_SM_SMAP) THEN
                IF (DEF_DA_ENS_NUM > 1) THEN
                   DO iens = 1, DEF_DA_ENS_NUM

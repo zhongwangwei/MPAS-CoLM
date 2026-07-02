@@ -175,7 +175,7 @@ CONTAINS
       IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             allocate (z_sno_noda      (maxsnl+1:0,      numpatch)); z_sno_noda       (:,:) = spval
             allocate (dz_sno_noda     (maxsnl+1:0,      numpatch)); dz_sno_noda      (:,:) = spval
@@ -324,7 +324,7 @@ CONTAINS
       IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             deallocate (z_sno_noda                 )
             deallocate (dz_sno_noda                )
@@ -490,7 +490,7 @@ CONTAINS
       write(cyear,'(i4.4)') lc_year
       write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          CALL system('mkdir -p ' // trim(dir_restart)//'/'//trim(cdate))
       ENDIF
 #ifdef USEMPI
@@ -584,7 +584,7 @@ CONTAINS
       CALL mpi_barrier(p_comm_glb, p_err)
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write (*, *) 'Loading DA Time Variables ...'
       END IF
 
@@ -639,7 +639,7 @@ CONTAINS
       CALL check_DATimeVariables
 #endif
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write (*, *) 'Loading DA Time Variables done.'
       END IF
 
@@ -660,7 +660,7 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_barrier(p_comm_glb, p_err)
 #endif
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write (*, *) 'Checking DA Time Variables ...'
       END IF
 

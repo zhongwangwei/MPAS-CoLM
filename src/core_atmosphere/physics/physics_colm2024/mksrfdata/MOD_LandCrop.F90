@@ -55,7 +55,7 @@ CONTAINS
    integer , allocatable :: classshared(:)
 
       write(cyear,'(i4.4)') lc_year
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making patches (crop shared):'
       ENDIF
 
@@ -63,7 +63,7 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          dir_5x5 = trim(DEF_dir_rawdata) // '/plant_15s'
          suffix  = 'MOD'//trim(cyear)
@@ -90,13 +90,13 @@ CONTAINS
             pctshared, classshared)
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (landpatch%nset > 0) THEN
             WHERE (classshared == 2) landpatch%settyp = CROPLAND
          ENDIF
       ENDIF
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          file_patch = trim(DEF_dir_rawdata) // '/global_CFT_surface_data.nc'
          CALL allocate_block_data (grid_crop, cropdata, N_CFT)
          CALL ncio_read_block (file_patch, 'PCT_CFT', grid_crop, N_CFT, cropdata)
@@ -110,7 +110,7 @@ CONTAINS
       numpatch = landpatch%nset
 
       landpatch%has_shared = .true.
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
          IF (numpatch > 0) THEN
             IF (allocated(landpatch%pctshared)) THEN
                deallocate(landpatch%pctshared)
@@ -125,9 +125,9 @@ CONTAINS
       IF (allocated(classshared)) deallocate(classshared)
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', npatch_glb, ' patches (with crop).'
          ENDIF
       ENDIF

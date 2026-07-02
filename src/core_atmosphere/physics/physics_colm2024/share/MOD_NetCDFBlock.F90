@@ -62,7 +62,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -122,7 +122,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -183,7 +183,7 @@ CONTAINS
    integer :: iblk, jblk, ndims(3), start3(3), count3(3), start_mem
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -245,7 +245,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -307,7 +307,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -368,7 +368,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -431,7 +431,7 @@ CONTAINS
    integer, SAVE :: ncid, time_dim
    logical, SAVE :: fid = .false.
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL check_ncfile_exist (filename)
 
          IF ((.not. fid) .or. (trim(fileopen) /= trim(filename))) THEN

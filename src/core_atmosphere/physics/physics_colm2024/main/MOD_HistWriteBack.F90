@@ -387,19 +387,19 @@ CONTAINS
       lasttime%next => null()
 
       CALL mpi_isend (dataid_zero, 1, MPI_INTEGER, &
-         p_address_writeback, tag_next, p_comm_glb_plus, req_zero, p_err)
+         p_address_history_task, tag_next, p_comm_glb_plus, req_zero, p_err)
 
       CALL mpi_isend (lasttime%filename, 256, MPI_CHARACTER, &
-         p_address_writeback, tag_time, p_comm_glb_plus, lasttime%req(1), p_err)
+         p_address_history_task, tag_time, p_comm_glb_plus, lasttime%req(1), p_err)
 
       CALL mpi_isend (lasttime%filelast, 256, MPI_CHARACTER, &
-         p_address_writeback, tag_time, p_comm_glb_plus, lasttime%req(2), p_err)
+         p_address_history_task, tag_time, p_comm_glb_plus, lasttime%req(2), p_err)
 
       CALL mpi_isend (lasttime%timename, 256, MPI_CHARACTER, &
-         p_address_writeback, tag_time, p_comm_glb_plus, lasttime%req(3), p_err)
+         p_address_history_task, tag_time, p_comm_glb_plus, lasttime%req(3), p_err)
 
       CALL mpi_isend (lasttime%time, 3, MPI_INTEGER, &
-         p_address_writeback, tag_time, p_comm_glb_plus, lasttime%req(4), p_err)
+         p_address_history_task, tag_time, p_comm_glb_plus, lasttime%req(4), p_err)
 
 
       IF (.not. SDimInited) THEN
@@ -423,20 +423,20 @@ CONTAINS
             yGridCnt(i) = HistConcat%ysegs(i)%cnt
          ENDDO
 
-         CALL mpi_send (nGridData, 1, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (nGridData, 1, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (nxGridSeg, 1, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (nxGridSeg, 1, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (nyGridSeg, 1, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (nyGridSeg, 1, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
 
-         CALL mpi_send (xGridDsp, nxGridSeg, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (xGridDsp, nxGridSeg, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (xGridCnt, nxGridSeg, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (xGridCnt, nxGridSeg, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (yGridDsp, nyGridSeg, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (yGridDsp, nyGridSeg, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (yGridCnt, nyGridSeg, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (yGridCnt, nyGridSeg, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
 
          nlat = HistConcat%ginfo%nlat
@@ -448,21 +448,21 @@ CONTAINS
          allocate(lon_w(nlon));  lon_w = HistConcat%ginfo%lon_w
          allocate(lon_e(nlon));  lon_e = HistConcat%ginfo%lon_e
 
-         CALL mpi_send (nlat,     1, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (nlat,     1, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lat_c, nlat, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lat_c, nlat, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lat_s, nlat, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lat_s, nlat, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lat_n, nlat, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lat_n, nlat, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (nlon,     1, MPI_INTEGER, p_address_writeback, tag_dims, &
+         CALL mpi_send (nlon,     1, MPI_INTEGER, p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lon_c, nlon, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lon_c, nlon, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lon_w, nlon, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lon_w, nlon, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
-         CALL mpi_send (lon_e, nlon, MPI_REAL8,   p_address_writeback, tag_dims, &
+         CALL mpi_send (lon_e, nlon, MPI_REAL8,   p_address_history_task, tag_dims, &
                         p_comm_glb_plus, p_err)
 
          SDimInited = .true.
@@ -549,14 +549,14 @@ CONTAINS
       LastSendBuffer%sendchar(9) = units
 
       CALL mpi_isend (LastSendBuffer%dataid, 1, MPI_INTEGER, &
-         p_address_writeback, tag_next, p_comm_glb_plus, LastSendBuffer%sendreqs(1), p_err)
+         p_address_history_task, tag_next, p_comm_glb_plus, LastSendBuffer%sendreqs(1), p_err)
 
       CALL mpi_isend (LastSendBuffer%sendint4(1:2), 2, MPI_INTEGER, &
-         p_address_writeback, LastSendBuffer%datatag, &
+         p_address_history_task, LastSendBuffer%datatag, &
          p_comm_glb_plus, LastSendBuffer%sendreqs(2), p_err)
 
       CALL mpi_isend (LastSendBuffer%sendchar, 256*9, MPI_CHARACTER, &
-         p_address_writeback, LastSendBuffer%datatag, &
+         p_address_history_task, LastSendBuffer%datatag, &
          p_comm_glb_plus, LastSendBuffer%sendreqs(3), p_err)
 
    END SUBROUTINE hist_writeback_var_header
@@ -644,11 +644,11 @@ CONTAINS
       LastSendBuffer%sendint4(1:5) = (/p_iam_glb_plus, ixseg, iyseg, ndim1, ndim2/)
 
       CALL mpi_isend (LastSendBuffer%sendint4(1:5), 5, MPI_INTEGER, &
-         p_address_writeback, LastSendBuffer%datatag, &
+         p_address_history_task, LastSendBuffer%datatag, &
          p_comm_glb_plus, LastSendBuffer%sendreqs(1), p_err)
 
       CALL mpi_isend (LastSendBuffer%senddata, totalsize, MPI_REAL8, &
-         p_address_writeback, LastSendBuffer%datatag, &
+         p_address_history_task, LastSendBuffer%datatag, &
          p_comm_glb_plus, LastSendBuffer%sendreqs(2), p_err)
 
    END SUBROUTINE hist_writeback_var
@@ -702,13 +702,13 @@ CONTAINS
       IF (allocated(lon_e   )) deallocate(lon_e   )
 
 
-      IF (.not. p_is_writeback) THEN
+      IF (.not. p_is_history_task) THEN
          CALL mpi_barrier (p_comm_glb, p_err)
       ENDIF
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          dataid = -1
-         CALL mpi_send (dataid, 1, MPI_INTEGER, p_address_writeback, &
+         CALL mpi_send (dataid, 1, MPI_INTEGER, p_address_history_task, &
                         tag_next, p_comm_glb_plus, p_err)
       ENDIF
 

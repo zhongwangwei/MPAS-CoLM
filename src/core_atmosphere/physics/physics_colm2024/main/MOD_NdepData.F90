@@ -132,14 +132,14 @@ CONTAINS
 
       itime = max(min(YY,2006),1849) - 1848
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_ndep, f_xy_ndep)
          CALL ncio_read_block_time (file_ndep, 'NDEP_year', grid_ndep, itime, f_xy_ndep)
       ENDIF
 
       CALL mg2p_ndep%grid2pset (f_xy_ndep, ndep)
 
-      IF (p_is_worker .and. iswrite) THEN
+      IF (p_is_compute .and. iswrite) THEN
          IF (numpatch > 0) THEN
             DO npatch = 1, numpatch
                m = patchclass(npatch)
@@ -195,14 +195,14 @@ CONTAINS
 
       itime = (max(min(YY,2006),1849) - 1849)*12 + MM
 
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
          CALL allocate_block_data  (grid_ndep, f_xy_ndep)
          CALL ncio_read_block_time (file_ndep, 'NDEP_month', grid_ndep, itime, f_xy_ndep)
       ENDIF
 
       CALL mg2p_ndep%grid2pset (f_xy_ndep, ndep)
 
-      IF (p_is_worker .and. iswrite) THEN
+      IF (p_is_compute .and. iswrite) THEN
          IF (numpatch > 0) THEN
             DO npatch = 1, numpatch
                m = patchclass(npatch)

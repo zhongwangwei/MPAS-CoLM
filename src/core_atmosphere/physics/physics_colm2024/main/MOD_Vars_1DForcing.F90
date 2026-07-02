@@ -65,7 +65,7 @@ CONTAINS
    USE MOD_LandPatch
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 
@@ -118,7 +118,7 @@ CONTAINS
    USE MOD_LandPatch
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
 

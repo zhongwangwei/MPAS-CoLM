@@ -69,7 +69,7 @@ CONTAINS
    logical, allocatable :: mask(:)
    real(r8) :: srfbsn, dvol, nextl, nexta, nextv, ddep
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          DO ibasin = 1, numbasin
 

@@ -90,7 +90,7 @@ CONTAINS
 
    character(len=256) :: suffix, cyear
 
-      IF (p_is_master) THEN
+      IF (p_is_root) THEN
          write(*,'(A)') 'Making urban type tiles:'
       ENDIF
 
@@ -99,7 +99,7 @@ CONTAINS
 #endif
 
       ! allocate and read the grided LCZ/NCAR urban type
-      IF (p_is_io) THEN
+      IF (p_is_active) THEN
 
          dir_urban = trim(DEF_dir_rawdata) // '/urban_type'
 
@@ -119,7 +119,7 @@ ENDIF
 #endif
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF (numpatch > 0) THEN
             ! a temporary numpatch with max urban patch number
@@ -259,7 +259,7 @@ ENDIF
          ENDDO
 
 #ifdef USEMPI
-         CALL aggregation_worker_done ()
+         CALL aggregation_compute_done ()
 #endif
 
          numpatch = jpatch
@@ -323,9 +323,9 @@ ENDIF
       CALL map_patch_to_urban
 
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numurban, nurb_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numurban, nurb_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', nurb_glb, ' urban tiles.'
          ENDIF
       ENDIF
@@ -337,9 +337,9 @@ ENDIF
 
 #ifndef CROP
 #ifdef USEMPI
-      IF (p_is_worker) THEN
-         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
-         IF (p_iam_worker == 0) THEN
+      IF (p_is_compute) THEN
+         CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
+         IF (p_iam_compute == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', npatch_glb, ' patches.'
          ENDIF
       ENDIF
@@ -382,7 +382,7 @@ ENDIF
 
    integer :: ipatch, iurban
 
-      IF (p_is_worker) THEN
+      IF (p_is_compute) THEN
 
          IF ((numpatch <= 0) .or. (numurban <= 0)) RETURN
 
