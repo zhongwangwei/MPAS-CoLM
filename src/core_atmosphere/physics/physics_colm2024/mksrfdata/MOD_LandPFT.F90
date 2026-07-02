@@ -136,8 +136,7 @@ CONTAINS
 
                sumarea = sum(area_one * sum(pctpft_one(0:N_PFT-1,:),dim=1))
 
-               ! in case of no PFT data, set to 100% bare when patchtype=0,
-               ! be consistent with Aggregation_PercentagesPFT.F90.
+               ! In case of no PFT data, set patchtype=0 to 100% bare.
                IF (sumarea <= 0.0) THEN
                   pctpft_patch(0,ipatch) = 1.
                ELSE

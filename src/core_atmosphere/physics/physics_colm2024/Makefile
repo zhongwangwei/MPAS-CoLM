@@ -10,12 +10,14 @@ endif
 ifneq ($(strip $(PNETCDF_INC)),)
 INCLUDE_DIR += -I$(PNETCDF_INC)
 endif
-VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+VPATH = include : share : mksrfdata \
+	: main : main/HYDRO : main/BGC : main/URBAN : main/DA \
 	: main/ParaOpt : drivers/mpas : .bld
 
 .PHONY: all
 all : mpas_objects
+
+.NOTPARALLEL:
 
 .PHONY: mkdir_build
 mkdir_build :
@@ -59,12 +61,10 @@ OBJS_SHARED =    \
 				  MOD_LandUrban.o              \
 				  MOD_Urban_Const_LCZ.o        \
 				  MOD_SingleSrfdata.o          \
-				  MOD_SrfdataDiag.o            \
 				  MOD_SrfdataRestart.o         \
 				  MOD_ElmVector.o              \
 				  MOD_HRUVector.o              \
-				  MOD_MeshFilter.o             \
-				  MOD_RegionClip.o
+				  MOD_MeshFilter.o
 
 ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -121,23 +121,12 @@ OBJS_BASIC =    \
 				 MOD_Urban_Shortwave.o          \
 				 MOD_Urban_Albedo.o             \
 				 MOD_MonthlyinSituCO2MaunaLoa.o \
-				 MOD_PercentagesPFTReadin.o     \
-				 MOD_LakeDepthReadin.o          \
-				 MOD_DBedrockReadin.o           \
-				 MOD_SoilColorRefl.o            \
-				 MOD_SoilParametersReadin.o     \
-				 MOD_SoilTextureReadin.o        \
-				 MOD_HtopReadin.o               \
-				 MOD_UrbanReadin.o              \
 				 MOD_BGC_CNSummary.o            \
-				 MOD_IniTimeVariable.o          \
-				 MOD_UrbanIniTimeVariable.o     \
 				 MOD_ElementNeighbour.o         \
 				 MOD_Catch_HillslopeNetwork.o   \
 				 MOD_Catch_RiverLakeNetwork.o   \
 				 MOD_Catch_Reservoir.o          \
-				 MOD_VicParaReadin.o            \
-				 MOD_Initialize.o
+				 MOD_VicParaReadin.o
 
 
 $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
@@ -248,12 +237,6 @@ OBJS_MAIN = \
 				MOD_Urban_LUCY.o                          \
 				MOD_Urban_Thermal.o                       \
 				CoLMMAIN_Urban.o                          \
-				MOD_Lulcc_Vars_TimeInvariants.o           \
-				MOD_Lulcc_Vars_TimeVariables.o            \
-				MOD_Lulcc_TransferTraceReadin.o           \
-					MOD_Lulcc_MassEnergyConserve.o            \
-					MOD_Lulcc_Initialize.o                    \
-					MOD_Lulcc_Driver.o                        \
 					CoLMDRIVER.o                              \
 					MOD_CoLM_MPAS_Interface.o                 \
 					CoLMMAIN.o

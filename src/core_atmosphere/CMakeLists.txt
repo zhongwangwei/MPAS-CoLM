@@ -321,12 +321,10 @@ if(MPAS_COLM2024)
         include
         share
         mksrfdata
-        mkinidata
         main
         main/HYDRO
         main/BGC
         main/URBAN
-        main/LULCC
         main/DA
         main/ParaOpt
         drivers/mpas
