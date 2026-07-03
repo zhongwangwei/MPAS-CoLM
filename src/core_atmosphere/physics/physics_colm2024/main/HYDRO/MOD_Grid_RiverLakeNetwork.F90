@@ -1314,13 +1314,14 @@ CONTAINS
 
       CALL build_mpas_embedded_local_topology (parafile)
 
-      IF (p_is_compute) THEN
-         allocate (wts_ups (upnmax,numucat))
-         IF (numucat > 0) wts_ups(:,:) = 1._r8
+	      IF (p_is_compute) THEN
+	         allocate (wts_ups (upnmax,numucat))
+	         IF (numucat > 0) wts_ups(:,:) = 1._r8
 
-         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_next, push_next2ucat)
-         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
-      ENDIF
+	         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_next, push_next2ucat)
+	         CALL check_mpas_embedded_downstream_ownership ()
+	         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
+	      ENDIF
 
 #ifdef COLM_PARALLEL
       IF (p_is_compute) THEN
@@ -1598,10 +1599,72 @@ CONTAINS
          deallocate (ucat_order)
       ENDIF
 
-   END SUBROUTINE build_mpas_embedded_local_topology
+	   END SUBROUTINE build_mpas_embedded_local_topology
 
-   ! ---------
-   SUBROUTINE build_mpas_embedded_uc2gd (parafile, nlon_ucat, inpn, numinpm, inpm_gdid, &
+	   ! ---------
+	   SUBROUTINE check_mpas_embedded_downstream_ownership ()
+
+	   USE MOD_SPMD_Task
+	   IMPLICIT NONE
+
+	   logical, allocatable :: id_found(:)
+	   integer :: i, iworker, ireq
+	   integer :: local_missing, global_missing
+	   integer :: first_missing, global_first_missing
+
+	      IF (.not. p_is_compute) RETURN
+
+	      local_missing = 0
+	      first_missing = huge(1)
+
+	      IF (numucat > 0 .and. push_next2ucat%num_req_uniq > 0) THEN
+	         allocate (id_found (push_next2ucat%num_req_uniq))
+	         id_found(:) = .false.
+
+	         IF (push_next2ucat%nself > 0) id_found(push_next2ucat%self_to) = .true.
+
+#ifdef COLM_PARALLEL
+	         DO iworker = 0, p_np_compute-1
+	            IF (push_next2ucat%n_from_other(iworker) > 0) THEN
+	               id_found(push_next2ucat%other_to(iworker)%val) = .true.
+	            ENDIF
+	         ENDDO
+#endif
+
+	         DO i = 1, numucat
+	            IF (ucat_next(i) > 0) THEN
+	               ireq = push_next2ucat%addr_single(i)
+	               IF (ireq <= 0 .or. .not. id_found(ireq)) THEN
+	                  local_missing = local_missing + 1
+	                  first_missing = min(first_missing, ucat_next(i))
+	               ENDIF
+	            ENDIF
+	         ENDDO
+
+	         deallocate (id_found)
+	      ENDIF
+
+#ifdef COLM_PARALLEL
+	      CALL mpi_allreduce (local_missing, global_missing, 1, MPI_INTEGER, MPI_SUM, p_comm_compute, p_err)
+	      CALL mpi_allreduce (first_missing, global_first_missing, 1, MPI_INTEGER, MPI_MIN, p_comm_compute, p_err)
+#else
+	      global_missing = local_missing
+	      global_first_missing = first_missing
+#endif
+
+	      IF (global_missing > 0) THEN
+	         IF (p_is_root) THEN
+	            write(*,'(A,I0,A,I0)') 'ERROR: MPAS embedded CoLM GridRiverLakeFlow is missing ', &
+	               global_missing, ' downstream unit-catchment owner(s); first missing seq_next = ', &
+	               global_first_missing
+	         ENDIF
+	         CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network ownership is incomplete.')
+	      ENDIF
+
+	   END SUBROUTINE check_mpas_embedded_downstream_ownership
+
+	   ! ---------
+	   SUBROUTINE build_mpas_embedded_uc2gd (parafile, nlon_ucat, inpn, numinpm, inpm_gdid, &
       nucpart, idmap_uc2gd, area_uc2gd)
 
    USE MOD_SPMD_Task

@@ -867,7 +867,9 @@ CONTAINS
 
       ! Step 5: IF MPI is used, scatter elms from IO to workers.
 #ifdef USEMPI
+#ifndef MPAS_EMBEDDED_COLM
       CALL scatter_mesh_from_io_to_worker ()
+#endif
 #endif
 
       IF (p_is_root) THEN
@@ -911,6 +913,7 @@ CONTAINS
 
 
 #ifdef USEMPI
+#ifndef MPAS_EMBEDDED_COLM
    ! --------------------------------
    SUBROUTINE scatter_mesh_from_io_to_worker
 
@@ -1021,6 +1024,7 @@ CONTAINS
 
    END SUBROUTINE scatter_mesh_from_io_to_worker
 
+#endif
 #endif
 
    ! --------------------------------

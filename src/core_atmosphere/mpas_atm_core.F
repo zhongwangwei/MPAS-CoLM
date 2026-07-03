@@ -591,7 +591,7 @@ module atm_core
          call physics_run_init(block % configs, mesh, state, clock, stream_manager)
 
          !initialization of all physics:
-         call physics_init(dminfo, stream_manager, clock, block % configs, mesh, diag, tend, tend_physics, state, 1, &
+         call physics_init(dminfo, stream_manager, clock, block, block % configs, mesh, diag, tend, tend_physics, state, 1, &
                            diag_physics, diag_physics_noahmp, ngw_input, atm_input, sfc_input, output_noahmp)
       endif
 #endif

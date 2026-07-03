@@ -108,14 +108,15 @@ CONTAINS
    USE MOD_Const_PFT
    USE MOD_Const_Physical, only: denh2o,roverg,hvap,hsub,rgas,cpair,&
                                  stefnc,denice,tfrz,vonkar,grav,cpliq,cpice
-   USE MOD_FrictionVelocity
-   USE MOD_Eroot
-   USE MOD_GroundFluxes
-   USE MOD_LeafTemperature
-   USE MOD_LeafTemperaturePC
-   USE MOD_GroundTemperature
-   USE MOD_Qsadv
-   USE MOD_SoilSurfaceResistance
+	   USE MOD_FrictionVelocity
+	   USE MOD_Eroot
+	   USE MOD_GroundFluxes
+	   USE MOD_LeafTemperature
+	   USE MOD_LeafTemperaturePC
+	   USE MOD_GroundTemperature
+	   USE MOD_Qsadv
+	   USE MOD_SoilSurfaceResistance
+	   USE MOD_Vars_TimeVariables, only: qsfc
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_Vars_TimeInvariants, only: patchclass
@@ -594,11 +595,12 @@ ELSE
       q_snow = qsatg
       dqgdT  = dqgdT + fsno*qsatgdT
 
-      ! weighted average qg
-      qg = (1.-fsno)*q_soil + fsno*q_snow
-ENDIF
+	      ! weighted average qg
+	      qg = (1.-fsno)*q_soil + fsno*q_snow
+	ENDIF
+	      IF (allocated(qsfc)) qsfc(ipatch) = qg
 
-      ! calculate soil surface resistance (rss)
+	      ! calculate soil surface resistance (rss)
       ! ------------------------------------------------
       !NOTE: (1) DEF_RSS_SCHEME=0 means no rss considered
       !      (2) Do NOT calculate rss for the first timestep

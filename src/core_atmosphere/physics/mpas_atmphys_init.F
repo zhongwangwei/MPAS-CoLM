@@ -81,15 +81,17 @@
 
 
 !=================================================================================================================
- subroutine physics_init(dminfo,stream_manager,clock,configs,mesh,diag,tend,tend_physics,state,time_lev,diag_physics, &
+ subroutine physics_init(dminfo,stream_manager,clock,block,configs,mesh,diag,tend,tend_physics,state,time_lev,diag_physics, &
                          diag_physics_noahmp,ngw_input,atm_input,sfc_input,output_noahmp)
 !=================================================================================================================
 
 use mpas_stream_manager
+use mpas_derived_types, only: block_type
 
 !input arguments:
  type(dm_info),intent(in):: dminfo
  type(MPAS_streamManager_type),intent(inout):: stream_manager
+ type(block_type),intent(in):: block
  type(mpas_pool_type),intent(in):: mesh
  type(mpas_pool_type),intent(in):: configs
  type(MPAS_Clock_type),intent(in):: clock
@@ -422,7 +424,7 @@ use mpas_stream_manager
     elseif(config_lsm_scheme .eq. 'sf_noahmp') then
        call init_lsm_noahmp(configs,mesh,clock,diag_physics,diag_physics_noahmp,output_noahmp,sfc_input)
     elseif(config_lsm_scheme .eq. 'sf_colm2024') then
-       call init_lsm_colm2024(dminfo,configs,mesh,diag_physics,sfc_input)
+       call init_lsm_colm2024(dminfo,configs,block,diag_physics,sfc_input)
     endif
  endif
 

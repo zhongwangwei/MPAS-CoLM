@@ -14,8 +14,8 @@ MODULE MOD_CoLM_MPAS_Interface
 #endif
    USE MOD_Vars_1DFluxes, only: oroflag, fsena, lfevpa, fevpa, fgrnd, rnof, rsur, rsub
    USE MOD_Vars_TimeInvariants, only: patchmask
-   USE MOD_Vars_TimeVariables, only: t_grnd, tref, qref, emis, z0m, alb, &
-      ldew, scv, snowdp, fsno, lai, t_soisno, wliq_soisno, wice_soisno
+	   USE MOD_Vars_TimeVariables, only: t_grnd, tref, qref, qsfc, emis, z0m, alb, &
+	      ldew, scv, snowdp, fsno, lai, t_soisno, wliq_soisno, wice_soisno
    USE MOD_TimeManager, only: timestamp
 
    IMPLICIT NONE
@@ -53,14 +53,14 @@ MODULE MOD_CoLM_MPAS_Interface
 
 CONTAINS
 
-   SUBROUTINE colm_mpas_initialize_from_namelist(nlfile, ierr, mpas_comm, mpas_lon_rad, mpas_lat_rad, &
-                                                mpas_cell_id, n_mpas_cells, cell_to_element)
+   SUBROUTINE colm_mpas_initialize_from_namelist(nlfile, ierr, mpas_comm, mpas_cell_id, &
+                                                n_mpas_cells, cell_to_element)
 	      USE MOD_Namelist, only: read_namelist, DEF_CASE_NAME, DEF_dir_landdata, &
 		         DEF_dir_restart, DEF_LC_YEAR, DEF_simulation_time, DEF_USE_SNICAR, &
 		         DEF_file_snowoptics, DEF_file_snowaging, DEF_forcing, DEF_Reservoir_Method, &
 		         DEF_WRST_FREQ, DEF_HIST_FREQ, DEF_HIST_WriteBack
 	      USE MOD_Vars_Global, only: Init_GlobalVars
-	      USE MOD_SPMD_Task, only: spmd_init
+      USE MOD_SPMD_Task, only: spmd_init, p_is_root
 	      USE MOD_Const_LC, only: Init_LC_Const
 	      USE MOD_Const_PFT, only: Init_PFT_Const, rho_p, tau_p
       USE MOD_TimeManager, only: initimetype, monthday2julian, adj2begin, adj2end
@@ -91,8 +91,6 @@ CONTAINS
       character(len=*), intent(in) :: nlfile
       integer, intent(out) :: ierr
       integer, intent(in), optional :: mpas_comm
-      real(r8), intent(in), optional :: mpas_lon_rad(:)
-      real(r8), intent(in), optional :: mpas_lat_rad(:)
       integer, intent(in), optional :: mpas_cell_id(:)
       integer, intent(in), optional :: n_mpas_cells
       integer, intent(out), optional :: cell_to_element(:)
@@ -162,16 +160,18 @@ CONTAINS
       CALL Init_PFT_Const
 
       n_mpas = 0
+#ifdef MPAS_EMBEDDED_COLM
+      IF (.not. present(n_mpas_cells)) THEN
+         IF (p_is_root) write(*,'(A)') 'CoLM2024 MPAS embedded initialization requires MPAS-owned cell ids.'
+         RETURN
+      ENDIF
+#endif
       IF (present(n_mpas_cells)) THEN
-         IF (.not. present(mpas_lon_rad)) RETURN
-         IF (.not. present(mpas_lat_rad)) RETURN
          IF (.not. present(mpas_cell_id)) RETURN
          IF (.not. present(cell_to_element)) RETURN
 
          n_mpas = n_mpas_cells
          IF (n_mpas < 1) RETURN
-         IF (size(mpas_lon_rad) < n_mpas) RETURN
-         IF (size(mpas_lat_rad) < n_mpas) RETURN
          IF (size(mpas_cell_id) < n_mpas) RETURN
          IF (size(cell_to_element) < n_mpas) RETURN
 
@@ -185,7 +185,7 @@ CONTAINS
       CALL gblock%load_from_file(dir_landdata)
 
       IF (n_mpas > 0) THEN
-         CALL colm_mpas_claim_owned_blocks(mpas_lon_rad, mpas_lat_rad, n_mpas, ierr)
+         CALL colm_mpas_claim_owned_blocks(dir_landdata, lc_year, mpas_cell_id_i8, n_mpas, ierr)
          IF (ierr /= 0) RETURN
 
          CALL mesh_load_from_file(dir_landdata, lc_year, subset_eindex=mpas_cell_id_i8)
@@ -300,45 +300,95 @@ CONTAINS
 	      ENDIF
 	   END SUBROUTINE colm_mpas_check_embedded_io
 
-		   SUBROUTINE colm_mpas_claim_owned_blocks(mpas_lon_rad, mpas_lat_rad, n_mpas_cells, ierr)
-	      USE MOD_Block, only: gblock
+		   SUBROUTINE colm_mpas_claim_owned_blocks(dir_landdata, lc_year, mpas_cell_id, n_mpas_cells, ierr)
+	      USE MOD_Block, only: gblock, get_filename_block
 	      USE MOD_SPMD_Task, only: p_iam_glb
-	      USE MOD_Utils, only: normalize_longitude, find_nearest_south, find_nearest_west
-	      real(r8), intent(in) :: mpas_lon_rad(:)
-	      real(r8), intent(in) :: mpas_lat_rad(:)
+	      USE MOD_NetCDFSerial, only: ncio_read_serial
+	      USE MOD_Utils, only: quicksort, find_in_sorted_list1
+	      character(len=*), intent(in) :: dir_landdata
+	      integer, intent(in) :: lc_year
+	      integer*8, intent(in) :: mpas_cell_id(:)
 	      integer, intent(in) :: n_mpas_cells
 	      integer, intent(out) :: ierr
 
 	      logical, allocatable :: keep_block(:,:)
+	      logical, allocatable :: found_element(:)
+	      logical :: fexists
 	      integer :: i
+	      integer :: ie
 	      integer :: iblk
 	      integer :: jblk
 	      integer :: iblkme
-	      real(r8) :: lon_deg
-	      real(r8) :: lat_deg
-	      real(r8), parameter :: rad_to_deg = 57.295779513082320876798154814105_r8
+	      integer :: match
+	      character(len=256) :: filename
+	      character(len=256) :: fileblock
+	      character(len=256) :: cyear
+	      integer, allocatable :: order(:)
+	      integer*8, allocatable :: elmindx(:)
+	      integer*8, allocatable :: sorted_cell_id(:)
 
 	      ierr = 1
 	      IF (n_mpas_cells < 1) RETURN
 	      IF (.not. allocated(gblock%pio)) RETURN
 	      IF (.not. allocated(gblock%lon_w)) RETURN
 	      IF (.not. allocated(gblock%lat_s)) RETURN
+	      IF (size(mpas_cell_id) < n_mpas_cells) RETURN
 
 	      allocate(keep_block(gblock%nxblk, gblock%nyblk))
+	      allocate(found_element(n_mpas_cells))
+	      allocate(sorted_cell_id(n_mpas_cells))
 	      keep_block = .false.
+	      found_element = .false.
+	      sorted_cell_id = mpas_cell_id(1:n_mpas_cells)
 
-	      DO i = 1, n_mpas_cells
-	         lon_deg = mpas_lon_rad(i) * rad_to_deg
-	         lat_deg = mpas_lat_rad(i) * rad_to_deg
-	         CALL normalize_longitude(lon_deg)
-	         lat_deg = max(-90._r8, min(90._r8, lat_deg))
+	      IF (n_mpas_cells > 1) THEN
+	         allocate(order(n_mpas_cells))
+	         order = (/ (i, i = 1, n_mpas_cells) /)
+	         CALL quicksort(n_mpas_cells, sorted_cell_id, order)
+	         deallocate(order)
 
-	         iblk = find_nearest_west(lon_deg, gblock%nxblk, gblock%lon_w)
-	         jblk = find_nearest_south(lat_deg, gblock%nyblk, gblock%lat_s)
-	         IF (iblk >= 1 .and. iblk <= gblock%nxblk .and. jblk >= 1 .and. jblk <= gblock%nyblk) THEN
-	            keep_block(iblk,jblk) = .true.
-	         ENDIF
+	         DO i = 2, n_mpas_cells
+	            IF (sorted_cell_id(i) == sorted_cell_id(i-1)) THEN
+	               write(*,'(A,I0,A,I0)') 'CoLM2024 MPAS embedded duplicate cell/eindex on rank ', &
+	                  p_iam_glb, ': ', sorted_cell_id(i)
+	               deallocate(keep_block, found_element, sorted_cell_id)
+	               RETURN
+	            ENDIF
+	         ENDDO
+	      ENDIF
+
+	      write(cyear,'(i4.4)') lc_year
+	      filename = trim(dir_landdata) // '/mesh/' // trim(cyear) // '/mesh.nc'
+
+	      DO jblk = 1, gblock%nyblk
+	         DO iblk = 1, gblock%nxblk
+	            CALL get_filename_block(filename, iblk, jblk, fileblock)
+	            inquire(file=trim(fileblock), exist=fexists)
+	            IF (.not. fexists) CYCLE
+
+	            CALL ncio_read_serial(fileblock, 'elmindex', elmindx)
+	            DO ie = 1, size(elmindx)
+	               match = find_in_sorted_list1(elmindx(ie), n_mpas_cells, sorted_cell_id)
+	               IF (match > 0) THEN
+	                  keep_block(iblk,jblk) = .true.
+	                  found_element(match) = .true.
+	               ENDIF
+	            ENDDO
+	            IF (allocated(elmindx)) deallocate(elmindx)
+	         ENDDO
 	      ENDDO
+
+	      IF (count(found_element) /= n_mpas_cells) THEN
+	         DO i = 1, n_mpas_cells
+	            IF (.not. found_element(i)) THEN
+	               write(*,'(A,I0,A,I0)') 'CoLM2024 MPAS embedded mesh is missing cell/eindex on rank ', &
+	                  p_iam_glb, ': ', sorted_cell_id(i)
+	               EXIT
+	            ENDIF
+	         ENDDO
+	         deallocate(keep_block, found_element, sorted_cell_id)
+	         RETURN
+	      ENDIF
 
 	      gblock%pio(:,:) = -1
 	      WHERE (keep_block)
@@ -349,7 +399,8 @@ CONTAINS
 	      IF (allocated(gblock%yblkme)) deallocate(gblock%yblkme)
 	      gblock%nblkme = count(keep_block)
 	      IF (gblock%nblkme < 1) THEN
-	         deallocate(keep_block)
+	         write(*,'(A,I0)') 'CoLM2024 MPAS embedded found no local mesh blocks for rank ', p_iam_glb
+	         deallocate(keep_block, found_element, sorted_cell_id)
 	         RETURN
 	      ENDIF
 
@@ -366,7 +417,7 @@ CONTAINS
 	         ENDDO
 	      ENDDO
 
-	      deallocate(keep_block)
+	      deallocate(keep_block, found_element, sorted_cell_id)
 	      ierr = 0
 	   END SUBROUTINE colm_mpas_claim_owned_blocks
 
@@ -553,7 +604,7 @@ CONTAINS
       integer, intent(out), optional :: patch_count
 
       ready = allocated(forc_t) .and. allocated(oroflag) .and. allocated(fsena) .and. allocated(t_grnd) &
-         .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subfrc)
+         .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subend) .and. allocated(elm_patch%subfrc)
       IF (present(patch_count)) THEN
          IF (allocated(oroflag)) THEN
             patch_count = size(oroflag)
@@ -635,6 +686,7 @@ CONTAINS
 
       ierr = 1
       IF (.not. allocated(elm_patch%substt)) RETURN
+      IF (.not. allocated(elm_patch%subend)) RETURN
       IF (.not. allocated(elm_patch%subfrc)) RETURN
       IF (element < 1 .or. element > size(elm_patch%substt)) RETURN
 
@@ -762,14 +814,15 @@ CONTAINS
 	      ENDIF
 	   END FUNCTION colm_mpas_timestamp_reached
 
-   SUBROUTINE colm_mpas_get_surface(patch, sensible, latent, evaporation, ground_heat, runoff, &
-                                    surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
-                                    emissivity, roughness, albedo, ierr)
-      integer, intent(in) :: patch
-      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
-      real(r8), intent(out) :: surface_runoff, subsurface_runoff, skin_temp, t2m, q2m
-      real(r8), intent(out) :: emissivity, roughness, albedo
-      integer, intent(out) :: ierr
+	   SUBROUTINE colm_mpas_get_surface(patch, sensible, latent, evaporation, ground_heat, runoff, &
+	                                    surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
+	                                    surface_humidity, emissivity, roughness, albedo, ierr)
+	      integer, intent(in) :: patch
+	      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
+	      real(r8), intent(out) :: surface_runoff, subsurface_runoff, skin_temp, t2m, q2m
+	      real(r8), intent(out) :: surface_humidity
+	      real(r8), intent(out) :: emissivity, roughness, albedo
+	      integer, intent(out) :: ierr
 
       ierr = 1
       sensible = spval
@@ -779,15 +832,39 @@ CONTAINS
       runoff = spval
       surface_runoff = spval
       subsurface_runoff = spval
-      skin_temp = spval
-      t2m = spval
-      q2m = spval
-      emissivity = spval
-      roughness = spval
+	      skin_temp = spval
+	      t2m = spval
+	      q2m = spval
+	      surface_humidity = spval
+	      emissivity = spval
+	      roughness = spval
       albedo = spval
 
       IF (.not. allocated(fsena)) RETURN
-      IF (patch < 1 .or. patch > size(fsena)) RETURN
+      IF (.not. allocated(lfevpa)) RETURN
+      IF (.not. allocated(fevpa)) RETURN
+      IF (.not. allocated(fgrnd)) RETURN
+      IF (.not. allocated(rnof)) RETURN
+      IF (.not. allocated(rsur)) RETURN
+      IF (.not. allocated(rsub)) RETURN
+      IF (.not. allocated(t_grnd)) RETURN
+      IF (.not. allocated(tref)) RETURN
+      IF (.not. allocated(qref)) RETURN
+      IF (.not. allocated(emis)) RETURN
+      IF (.not. allocated(z0m)) RETURN
+      IF (patch < 1) RETURN
+      IF (patch > size(fsena)) RETURN
+      IF (patch > size(lfevpa)) RETURN
+      IF (patch > size(fevpa)) RETURN
+      IF (patch > size(fgrnd)) RETURN
+      IF (patch > size(rnof)) RETURN
+      IF (patch > size(rsur)) RETURN
+      IF (patch > size(rsub)) RETURN
+      IF (patch > size(t_grnd)) RETURN
+      IF (patch > size(tref)) RETURN
+      IF (patch > size(qref)) RETURN
+      IF (patch > size(emis)) RETURN
+      IF (patch > size(z0m)) RETURN
 
       sensible = fsena(patch)
       latent = lfevpa(patch)
@@ -796,25 +873,32 @@ CONTAINS
       runoff = rnof(patch)
       surface_runoff = rsur(patch)
       subsurface_runoff = rsub(patch)
-      skin_temp = t_grnd(patch)
-      t2m = tref(patch)
-      q2m = qref(patch)
-      emissivity = emis(patch)
+	      skin_temp = t_grnd(patch)
+	      t2m = tref(patch)
+	      q2m = qref(patch)
+	      surface_humidity = qref(patch)
+	      IF (allocated(qsfc)) THEN
+	         IF (patch <= size(qsfc)) THEN
+	            IF (qsfc(patch) > 0._r8 .and. qsfc(patch) < 1._r8) surface_humidity = qsfc(patch)
+	         ENDIF
+	      ENDIF
+	      emissivity = emis(patch)
       roughness = z0m(patch)
       IF (allocated(alb)) THEN
          ! ponytail: bulk albedo average; replace with band/beam mapping when MPAS consumes CoLM spectral albedo.
-         albedo = sum(alb(:,:,patch)) / real(size(alb(:,:,patch)), r8)
+         IF (patch <= size(alb,3)) albedo = sum(alb(:,:,patch)) / real(size(alb(:,:,patch)), r8)
       ENDIF
       ierr = 0
    END SUBROUTINE colm_mpas_get_surface
 
-   SUBROUTINE colm_mpas_get_element_surface(element, sensible, latent, evaporation, ground_heat, runoff, &
-                                            surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
-                                            emissivity, roughness, albedo, ierr)
-      integer, intent(in) :: element
-      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
-      real(r8), intent(out) :: surface_runoff, subsurface_runoff, skin_temp, t2m, q2m
-      real(r8), intent(out) :: emissivity, roughness, albedo
+	   SUBROUTINE colm_mpas_get_element_surface(element, sensible, latent, evaporation, ground_heat, runoff, &
+	                                            surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
+	                                            surface_humidity, emissivity, roughness, albedo, ierr)
+	      integer, intent(in) :: element
+	      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
+	      real(r8), intent(out) :: surface_runoff, subsurface_runoff, skin_temp, t2m, q2m
+	      real(r8), intent(out) :: surface_humidity
+	      real(r8), intent(out) :: emissivity, roughness, albedo
       integer, intent(out) :: ierr
 
       integer :: patch
@@ -827,8 +911,8 @@ CONTAINS
       real(r8) :: albedo_wt
       real(r8) :: patch_sensible, patch_latent, patch_evaporation, patch_ground_heat
       real(r8) :: patch_runoff, patch_surface_runoff, patch_subsurface_runoff
-      real(r8) :: patch_skin_temp, patch_t2m, patch_q2m
-      real(r8) :: patch_emissivity, patch_roughness, patch_albedo
+	      real(r8) :: patch_skin_temp, patch_t2m, patch_q2m, patch_surface_humidity
+	      real(r8) :: patch_emissivity, patch_roughness, patch_albedo
 
       ierr = 1
       sensible = spval
@@ -838,14 +922,16 @@ CONTAINS
       runoff = spval
       surface_runoff = spval
       subsurface_runoff = spval
-      skin_temp = spval
-      t2m = spval
-      q2m = spval
-      emissivity = spval
+	      skin_temp = spval
+	      t2m = spval
+	      q2m = spval
+	      surface_humidity = spval
+	      emissivity = spval
       roughness = spval
       albedo = spval
 
       IF (.not. allocated(elm_patch%substt)) RETURN
+      IF (.not. allocated(elm_patch%subend)) RETURN
       IF (.not. allocated(elm_patch%subfrc)) RETURN
       IF (element < 1 .or. element > size(elm_patch%substt)) RETURN
 
@@ -860,40 +946,48 @@ CONTAINS
       runoff = 0._r8
       surface_runoff = 0._r8
       subsurface_runoff = 0._r8
-      skin_temp = 0._r8
-      t2m = 0._r8
-      q2m = 0._r8
-      emissivity = 0._r8
+	      skin_temp = 0._r8
+	      t2m = 0._r8
+	      q2m = 0._r8
+	      surface_humidity = 0._r8
+	      emissivity = 0._r8
       roughness = 0._r8
       albedo_sum = 0._r8
       albedo_wt = 0._r8
       sumwt = 0._r8
 
-      DO patch = istt, iend
-         IF (patch < 1 .or. patch > numpatch) CYCLE
-         IF (allocated(patchmask)) THEN
-            IF (.not. patchmask(patch)) CYCLE
-         ENDIF
-         wt = elm_patch%subfrc(patch)
-         IF (wt <= 0._r8) CYCLE
-         CALL colm_mpas_get_surface(patch, patch_sensible, patch_latent, patch_evaporation, patch_ground_heat, &
-                                    patch_runoff, patch_surface_runoff, patch_subsurface_runoff, &
-                                    patch_skin_temp, patch_t2m, patch_q2m, patch_emissivity, &
-                                    patch_roughness, patch_albedo, patch_ierr)
-         IF (patch_ierr /= 0) CYCLE
+	      DO patch = istt, iend
+	         IF (patch < 1 .or. patch > numpatch) THEN
+	            WRITE(*,*) 'Error: CoLM2024 element surface references invalid patch:', element, patch, numpatch
+	            RETURN
+	         ENDIF
+	         IF (allocated(patchmask)) THEN
+	            IF (.not. patchmask(patch)) CYCLE
+	         ENDIF
+	         wt = elm_patch%subfrc(patch)
+	         IF (wt <= 0._r8) CYCLE
+	         CALL colm_mpas_get_surface(patch, patch_sensible, patch_latent, patch_evaporation, patch_ground_heat, &
+	                                    patch_runoff, patch_surface_runoff, patch_subsurface_runoff, &
+	                                    patch_skin_temp, patch_t2m, patch_q2m, patch_surface_humidity, &
+	                                    patch_emissivity, patch_roughness, patch_albedo, patch_ierr)
+	         IF (patch_ierr /= 0) THEN
+	            WRITE(*,*) 'Error: failed to retrieve CoLM2024 patch surface:', element, patch, patch_ierr
+	            RETURN
+	         ENDIF
 
-         sumwt = sumwt + wt
-         sensible = sensible + wt * patch_sensible
-         latent = latent + wt * patch_latent
-         evaporation = evaporation + wt * patch_evaporation
+	         sumwt = sumwt + wt
+	         sensible = sensible + wt * patch_sensible
+	         latent = latent + wt * patch_latent
+	         evaporation = evaporation + wt * patch_evaporation
          ground_heat = ground_heat + wt * patch_ground_heat
          runoff = runoff + wt * patch_runoff
          surface_runoff = surface_runoff + wt * patch_surface_runoff
          subsurface_runoff = subsurface_runoff + wt * patch_subsurface_runoff
-         skin_temp = skin_temp + wt * patch_skin_temp
-         t2m = t2m + wt * patch_t2m
-         q2m = q2m + wt * patch_q2m
-         emissivity = emissivity + wt * patch_emissivity
+	         skin_temp = skin_temp + wt * patch_skin_temp
+	         t2m = t2m + wt * patch_t2m
+	         q2m = q2m + wt * patch_q2m
+	         surface_humidity = surface_humidity + wt * patch_surface_humidity
+	         emissivity = emissivity + wt * patch_emissivity
          roughness = roughness + wt * patch_roughness
          IF (patch_albedo > 0._r8 .and. patch_albedo < 1._r8) THEN
             albedo_sum = albedo_sum + wt * patch_albedo
@@ -909,10 +1003,11 @@ CONTAINS
          runoff = spval
          surface_runoff = spval
          subsurface_runoff = spval
-         skin_temp = spval
-         t2m = spval
-         q2m = spval
-         emissivity = spval
+	         skin_temp = spval
+	         t2m = spval
+	         q2m = spval
+	         surface_humidity = spval
+	         emissivity = spval
          roughness = spval
          RETURN
       ENDIF
@@ -924,10 +1019,11 @@ CONTAINS
       runoff = runoff / sumwt
       surface_runoff = surface_runoff / sumwt
       subsurface_runoff = subsurface_runoff / sumwt
-      skin_temp = skin_temp / sumwt
-      t2m = t2m / sumwt
-      q2m = q2m / sumwt
-      emissivity = emissivity / sumwt
+	      skin_temp = skin_temp / sumwt
+	      t2m = t2m / sumwt
+	      q2m = q2m / sumwt
+	      surface_humidity = surface_humidity / sumwt
+	      emissivity = emissivity / sumwt
       roughness = roughness / sumwt
       IF (albedo_wt > 0._r8) albedo = albedo_sum / albedo_wt
       ierr = 0
@@ -998,11 +1094,14 @@ CONTAINS
       soil_wt(:) = 0._r8
       sumwt = 0._r8
 
-      DO patch = istt, iend
-         IF (patch < 1 .or. patch > numpatch) CYCLE
-         IF (allocated(patchmask)) THEN
-            IF (.not. patchmask(patch)) CYCLE
-         ENDIF
+	      DO patch = istt, iend
+	         IF (patch < 1 .or. patch > numpatch) THEN
+	            WRITE(*,*) 'Error: CoLM2024 element state references invalid patch:', element, patch, numpatch
+	            RETURN
+	         ENDIF
+	         IF (allocated(patchmask)) THEN
+	            IF (.not. patchmask(patch)) CYCLE
+	         ENDIF
          wt = elm_patch%subfrc(patch)
          IF (wt <= 0._r8) CYCLE
 

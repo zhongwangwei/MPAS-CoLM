@@ -44,6 +44,10 @@ CONTAINS
 
    integer :: nsend, nrecv, ndone, ndsp
 
+#ifdef MPAS_EMBEDDED_COLM
+      CALL CoLM_stop('MPAS embedded CoLM does not support standalone mesh_save_to_file.')
+#endif
+
       ! add parameter input for time year
       write(cyear,'(i4.4)') lc_year
 #ifdef USEMPI
@@ -379,6 +383,8 @@ CONTAINS
                      ENDDO
                      IF (count(keep_elm) < 1) THEN
                         deallocate(keep_elm)
+                        IF (allocated(elmindx)) deallocate(elmindx)
+                        IF (allocated(npxl)) deallocate(npxl)
                         CYCLE
                      ENDIF
                   ENDIF
@@ -419,6 +425,11 @@ CONTAINS
                   ENDDO
 
                   IF (allocated(keep_elm)) deallocate(keep_elm)
+                  IF (allocated(elmindx)) deallocate(elmindx)
+                  IF (allocated(npxl)) deallocate(npxl)
+                  IF (allocated(datasize)) deallocate(datasize)
+                  IF (allocated(pixels)) deallocate(pixels)
+                  IF (allocated(pixels2d)) deallocate(pixels2d)
                ENDIF
             ENDDO
 
@@ -476,6 +487,10 @@ CONTAINS
 
    ! Local variables
    character(len=256)   :: filename, cyear
+
+#ifdef MPAS_EMBEDDED_COLM
+      CALL CoLM_stop('MPAS embedded CoLM does not support standalone pixelset_save_to_file.')
+#endif
 
       write(cyear,'(i4.4)') lc_year
 #ifdef USEMPI

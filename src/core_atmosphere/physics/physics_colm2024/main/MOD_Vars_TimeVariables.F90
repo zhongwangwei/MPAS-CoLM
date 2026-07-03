@@ -554,10 +554,11 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: ssno_lyr(:,:,:,:) ! snow layer absorption [-]
 
    real(r8), allocatable :: trad          (:) ! radiative temperature of surface [K]
-   real(r8), allocatable :: tref          (:) ! 2 m height air temperature [kelvin]
-   real(r8), allocatable :: t2m_wmo       (:) ! 2 m WMO air temperature [kelvin]
-   real(r8), allocatable :: qref          (:) ! 2 m height air specific humidity
-   real(r8), allocatable :: rst           (:) ! canopy stomatal resistance (s/m)
+	   real(r8), allocatable :: tref          (:) ! 2 m height air temperature [kelvin]
+	   real(r8), allocatable :: t2m_wmo       (:) ! 2 m WMO air temperature [kelvin]
+	   real(r8), allocatable :: qref          (:) ! 2 m height air specific humidity
+	   real(r8), allocatable :: qsfc          (:) ! bulk surface/ground specific humidity [kg/kg]
+	   real(r8), allocatable :: rst           (:) ! canopy stomatal resistance (s/m)
    real(r8), allocatable :: emis          (:) ! averaged bulk surface emissivity
    real(r8), allocatable :: z0m           (:) ! effective roughness [m]
    real(r8), allocatable :: displa        (:) ! zero displacement height [m]
@@ -746,10 +747,11 @@ CONTAINS
             allocate (ssno_lyr     (2,2,maxsnl+1:1,numpatch)); ssno_lyr(:,:,:,:) = spval
 
             allocate (trad                        (numpatch)); trad          (:) = spval
-            allocate (tref                        (numpatch)); tref          (:) = spval
-            allocate (t2m_wmo                     (numpatch)); t2m_wmo       (:) = spval
-            allocate (qref                        (numpatch)); qref          (:) = spval
-            allocate (rst                         (numpatch)); rst           (:) = spval
+	            allocate (tref                        (numpatch)); tref          (:) = spval
+	            allocate (t2m_wmo                     (numpatch)); t2m_wmo       (:) = spval
+	            allocate (qref                        (numpatch)); qref          (:) = spval
+	            allocate (qsfc                        (numpatch)); qsfc          (:) = spval
+	            allocate (rst                         (numpatch)); rst           (:) = spval
             allocate (emis                        (numpatch)); emis          (:) = spval
             allocate (z0m                         (numpatch)); z0m           (:) = spval
             allocate (displa                      (numpatch)); displa        (:) = spval
@@ -947,10 +949,11 @@ CONTAINS
             deallocate (ssno_lyr               )
 
             deallocate (trad                   )
-            deallocate (tref                   )
-            deallocate (t2m_wmo                )
-            deallocate (qref                   )
-            deallocate (rst                    )
+	            deallocate (tref                   )
+	            deallocate (t2m_wmo                )
+	            deallocate (qref                   )
+	            deallocate (qsfc                   )
+	            deallocate (rst                    )
             deallocate (emis                   )
             deallocate (z0m                    )
             deallocate (displa                 )
@@ -1558,10 +1561,11 @@ ENDIF
       CALL check_vector_data ('dz_sno      [m]    ', dz_sno)      ! interface depth [m]
       CALL check_vector_data ('t_soisno    [K]    ', t_soisno   ) ! soil temperature [K]
       CALL check_vector_data ('wliq_soisno [kg/m2]', wliq_soisno) ! liquid water in layers [kg/m2]
-      CALL check_vector_data ('wice_soisno [kg/m2]', wice_soisno) ! ice lens in layers [kg/m2]
-      CALL check_vector_data ('smp         [mm]   ', smp        ) ! soil matrix potential [mm]
-      CALL check_vector_data ('hk          [mm/s] ', hk         ) ! hydraulic conductivity [mm h2o/s]
-IF(DEF_USE_PLANTHYDRAULICS)THEN
+	      CALL check_vector_data ('wice_soisno [kg/m2]', wice_soisno) ! ice lens in layers [kg/m2]
+	      CALL check_vector_data ('smp         [mm]   ', smp        ) ! soil matrix potential [mm]
+	      CALL check_vector_data ('hk          [mm/s] ', hk         ) ! hydraulic conductivity [mm h2o/s]
+	      CALL check_vector_data ('qsfc        [kg/kg]', qsfc       ) ! bulk surface/ground specific humidity
+	IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL check_vector_data ('vegwp       [m]    ', vegwp      ) ! vegetation water potential [mm]
       CALL check_vector_data ('gs0sun      []     ', gs0sun     ) ! working copy of sunlit stomata conductance
       CALL check_vector_data ('gs0sha      []     ', gs0sha     ) ! working copy of shaded stomata conductance

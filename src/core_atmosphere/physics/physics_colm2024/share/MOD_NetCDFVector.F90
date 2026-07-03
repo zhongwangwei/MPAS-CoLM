@@ -117,10 +117,26 @@ CONTAINS
       ENDIF
 #endif
 
-   END SUBROUTINE get_filename_vector_block
+	   END SUBROUTINE get_filename_vector_block
 
-   !---------------------------------------------------------
-   SUBROUTINE ncio_read_vector_int32_1d ( &
+	   !---------------------------------------------------------
+	   SUBROUTINE ncio_vector_stop_missing_block (filename, dataname, fileblock)
+
+	   USE MOD_SPMD_Task, only: CoLM_stop
+	   IMPLICIT NONE
+
+	   character(len=*), intent(in) :: filename
+	   character(len=*), intent(in) :: dataname
+	   character(len=*), intent(in) :: fileblock
+
+	      write(*,*) 'Error : required vector data '//trim(dataname) &
+	         //' in '//trim(filename)//' is missing from block file '//trim(fileblock)//'.'
+	      CALL CoLM_stop ()
+
+	   END SUBROUTINE ncio_vector_stop_missing_block
+
+	   !---------------------------------------------------------
+	   SUBROUTINE ncio_read_vector_int32_1d ( &
          filename, dataname, pixelset, rdata, defval)
 
    USE MOD_NetCDFSerial
@@ -161,13 +177,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -283,13 +301,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -409,13 +429,15 @@ CONTAINS
 	               CALL ncio_read_serial (fileblock, dataname, sbuff)
 	               any_data_exists = .true.
 	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-               IF (defval) THEN
-                  sbuff(:) = 1
-               ELSE
-                  sbuff(:) = 0
-               ENDIF
-            ENDIF
+		            ELSEIF (present(defval)) THEN
+	               IF (defval) THEN
+	                  sbuff(:) = 1
+	               ELSE
+	                  sbuff(:) = 0
+	               ENDIF
+	            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+	               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+	            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -532,13 +554,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -656,13 +680,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:,:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:,:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -780,13 +806,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:,:,:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:,:,:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -904,13 +932,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:,:,:,:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:,:,:,:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
@@ -1029,13 +1059,15 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, use_srcpos = use_srcpos)
 
 	            block_has_data = .false.
-	            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
-	               CALL ncio_read_serial (fileblock, dataname, sbuff)
-	               any_data_exists = .true.
-	               block_has_data = .true.
-	            ELSEIF (present(defval)) THEN
-	               sbuff(:,:,:,:,:) = defval
-	            ENDIF
+		            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+		               CALL ncio_read_serial (fileblock, dataname, sbuff)
+		               any_data_exists = .true.
+		               block_has_data = .true.
+		            ELSEIF (present(defval)) THEN
+		               sbuff(:,:,:,:,:) = defval
+		            ELSEIF (pixelset%vecgs%vlen(iblk,jblk) > 0) THEN
+		               CALL ncio_vector_stop_missing_block (filename, dataname, fileblock)
+		            ENDIF
 
 #ifdef COLM_VECTOR_MPI_IO
             CALL mpi_scatterv ( &
