@@ -132,6 +132,7 @@ CONTAINS
    real(r8) :: volwater, friction, floodarea
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
+   real(r8) :: global_dt_remaining(1)
 #ifdef CoLMDEBUG
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
 #endif
@@ -300,9 +301,19 @@ CONTAINS
          totaldis  = 0.
 #endif
 
-         dt_res(:) = acctime_rnof
+         dt_res(:) = 0._r8
+         DO i = 1, numucat
+            dt_res(irivsys(i)) = acctime_rnof
+         ENDDO
 
-         DO WHILE (any(dt_res > 0))
+         global_dt_remaining(1) = maxval(dt_res)
+#ifdef COLM_PARALLEL
+         IF (rivsys_by_multiple_procs) THEN
+            CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, p_comm_rivsys, p_err)
+         ENDIF
+#endif
+
+         DO WHILE (global_dt_remaining(1) > 0._r8)
 
             ntimestep = ntimestep + 1
 
@@ -310,11 +321,14 @@ CONTAINS
             ! velocity in ocean or inland depression is assumed to be 0.
             CALL compute_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
 
-            dt_all(:) = min(dt_res(:), 60.)
+            dt_all(:) = huge(1._r8)
+            WHERE (dt_res > 0._r8)
+               dt_all = min(dt_res, 60._r8)
+            END WHERE
 
             DO i = 1, numucat
 
-               ucatfilter(i) = dt_all(irivsys(i)) > 0
+               ucatfilter(i) = dt_res(irivsys(i)) > 0._r8
 
                IF (.not. ucatfilter(i)) CYCLE
 
@@ -551,7 +565,7 @@ CONTAINS
 
 #ifdef COLM_PARALLEL
             IF (rivsys_by_multiple_procs) THEN
-               CALL mpi_allreduce (MPI_IN_PLACE, dt_all, 1, MPI_REAL8, MPI_MIN, p_comm_rivsys, p_err)
+               CALL mpi_allreduce (MPI_IN_PLACE, dt_all, size(dt_all), MPI_REAL8, MPI_MIN, p_comm_rivsys, p_err)
             ENDIF
 #endif
 
@@ -639,7 +653,16 @@ CONTAINS
 	               ENDIF
             ENDDO
 
-            dt_res = dt_res - dt_all
+            WHERE (dt_res > 0._r8)
+               dt_res = max(0._r8, dt_res - dt_all)
+            END WHERE
+
+            global_dt_remaining(1) = maxval(dt_res)
+#ifdef COLM_PARALLEL
+            IF (rivsys_by_multiple_procs) THEN
+               CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, p_comm_rivsys, p_err)
+            ENDIF
+#endif
 
 #ifdef GridRiverLakeSediment
             IF (DEF_USE_SEDIMENT) THEN

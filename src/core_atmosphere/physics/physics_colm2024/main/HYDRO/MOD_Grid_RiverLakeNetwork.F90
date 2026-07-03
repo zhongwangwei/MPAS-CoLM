@@ -1252,7 +1252,6 @@ CONTAINS
    integer, allocatable :: idmap_x(:,:), idmap_y(:,:)
    integer :: nlat_ucat, nlon_ucat
    integer :: inpn
-   integer :: p_np_rivsys
    integer :: i, j
 
       parafile = DEF_UnitCatchment_file
@@ -1323,21 +1322,7 @@ CONTAINS
 	         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
 	      ENDIF
 
-#ifdef COLM_PARALLEL
-      IF (p_is_compute) THEN
-         p_comm_rivsys = p_comm_compute
-         CALL mpi_comm_size (p_comm_rivsys, p_np_rivsys, p_err)
-         rivsys_by_multiple_procs = p_np_rivsys > 1
-      ENDIF
-#else
-      rivsys_by_multiple_procs = .false.
-#endif
-
-      IF (p_is_compute) THEN
-         allocate (irivsys (numucat))
-         numrivsys = 1
-         IF (numucat > 0) irivsys(:) = 1
-      ENDIF
+      CALL build_mpas_embedded_river_systems (parafile)
 
       CALL readin_riverlake_parameter (parafile, 'topo_rivelv',    rdata1d = topo_rivelv   )
       CALL readin_riverlake_parameter (parafile, 'topo_rivhgt',    rdata1d = topo_rivhgt   )
@@ -1418,6 +1403,135 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE build_riverlake_network_mpas_embedded
+
+   ! ---------
+   SUBROUTINE build_mpas_embedded_river_systems (parafile)
+
+   USE MOD_SPMD_Task
+   USE MOD_NetCDFSerial
+   USE MOD_Utils
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: parafile
+
+   integer, allocatable :: mouth_id(:), next_id(:)
+   integer, allocatable :: request(:), request_order(:), request_next(:)
+   integer, allocatable :: local_mouths(:), all_mouths(:), global_mouths(:)
+#ifdef COLM_PARALLEL
+   integer, allocatable :: counts(:), displs(:)
+#endif
+   integer :: i, iloc, nactive, niter, nlocal_mouths, total_mouths
+   logical :: is_new
+
+      IF (.not. p_is_compute) RETURN
+
+      allocate (irivsys (numucat))
+      allocate (mouth_id (numucat))
+      allocate (local_mouths (max(1,numucat)))
+      mouth_id(:) = 0
+
+      IF (numucat > 0) THEN
+         allocate (next_id (numucat))
+         next_id = ucat_next
+
+         DO i = 1, numucat
+            IF (next_id(i) <= 0) THEN
+               mouth_id(i) = ucat_ucid(i)
+            ENDIF
+         ENDDO
+
+         nactive = count(next_id > 0)
+         niter = 0
+         DO WHILE (nactive > 0)
+            niter = niter + 1
+            IF (niter > totalnumucat) THEN
+               CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network has a downstream cycle.')
+            ENDIF
+
+            allocate (request (nactive))
+            allocate (request_order (nactive))
+            iloc = 0
+            DO i = 1, numucat
+               IF (next_id(i) > 0) THEN
+                  iloc = iloc + 1
+                  request(iloc) = next_id(i)
+                  request_order(iloc) = i
+               ENDIF
+            ENDDO
+
+            CALL quicksort (nactive, request, request_order)
+            CALL ncio_read_indexed_serial (parafile, 'seq_next', request, request_next)
+
+            nactive = 0
+            DO iloc = 1, size(request)
+               i = request_order(iloc)
+               IF (request_next(iloc) > 0) THEN
+                  next_id(i) = request_next(iloc)
+                  nactive = nactive + 1
+               ELSE
+                  mouth_id(i) = request(iloc)
+                  next_id(i) = 0
+               ENDIF
+            ENDDO
+
+            deallocate (request)
+            deallocate (request_order)
+            deallocate (request_next)
+         ENDDO
+
+         deallocate (next_id)
+      ENDIF
+
+      nlocal_mouths = 0
+      DO i = 1, numucat
+         CALL insert_into_sorted_list1 (mouth_id(i), nlocal_mouths, local_mouths, iloc, is_new)
+      ENDDO
+
+#ifdef COLM_PARALLEL
+      allocate (counts (0:p_np_compute-1))
+      allocate (displs (0:p_np_compute-1))
+      CALL mpi_allgather (nlocal_mouths, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, p_comm_compute, p_err)
+
+      displs(0) = 0
+      DO i = 1, p_np_compute-1
+         displs(i) = displs(i-1) + counts(i-1)
+      ENDDO
+      total_mouths = sum(counts)
+
+      allocate (all_mouths (max(1,total_mouths)))
+      CALL mpi_allgatherv (local_mouths, nlocal_mouths, MPI_INTEGER, all_mouths, counts, displs, &
+         MPI_INTEGER, p_comm_compute, p_err)
+
+      allocate (global_mouths (max(1,total_mouths)))
+      numrivsys = 0
+      DO i = 1, total_mouths
+         CALL insert_into_sorted_list1 (all_mouths(i), numrivsys, global_mouths, iloc, is_new)
+      ENDDO
+
+      p_comm_rivsys = p_comm_compute
+      rivsys_by_multiple_procs = p_np_compute > 1
+
+      deallocate (counts)
+      deallocate (displs)
+      deallocate (all_mouths)
+#else
+      total_mouths = nlocal_mouths
+      allocate (global_mouths (max(1,total_mouths)))
+      numrivsys = nlocal_mouths
+      IF (numrivsys > 0) global_mouths(1:numrivsys) = local_mouths(1:numrivsys)
+      rivsys_by_multiple_procs = .false.
+#endif
+
+      DO i = 1, numucat
+         irivsys(i) = find_in_sorted_list1 (mouth_id(i), numrivsys, global_mouths(1:numrivsys))
+         IF (irivsys(i) <= 0) CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river-system map is incomplete.')
+      ENDDO
+
+      deallocate (mouth_id)
+      deallocate (local_mouths)
+      deallocate (global_mouths)
+
+   END SUBROUTINE build_mpas_embedded_river_systems
 
    ! ---------
    SUBROUTINE build_mpas_embedded_local_ucats (parafile, nlon_ucat, numinpm, inpm_gdid)
