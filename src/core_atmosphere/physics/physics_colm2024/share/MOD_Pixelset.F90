@@ -38,7 +38,7 @@ MODULE MOD_Pixelset
 !    "Vector" is a collection of data when each pixelset in a given level is associated
 !    with a value, representing its averaged physical, chemical or biological state.
 !
-!    In standalone CoLM, vector data may be redistributed between ranks for IO.
+!    Legacy vector MPI I/O may redistribute vector data between ranks for IO.
 !    MPAS-embedded CoLM keeps land vectors on MPAS-owned cell subsets.
 !
 !  Created by Shupeng Zhang, May 2023
@@ -268,7 +268,13 @@ CONTAINS
       IF (allocated(this%xblkgrp)) deallocate(this%xblkgrp)
       IF (allocated(this%yblkgrp)) deallocate(this%yblkgrp)
 
+      CALL vec_gather_scatter_free_mem(this%vecgs)
+
       IF (allocated(this%pctshared)) deallocate(this%pctshared)
+
+      this%nset = 0
+      this%nblkgrp = 0
+      this%has_shared = .false.
 
    END SUBROUTINE pixelset_free_mem
 
@@ -290,7 +296,13 @@ CONTAINS
       IF (allocated(this%xblkgrp)) deallocate(this%xblkgrp)
       IF (allocated(this%yblkgrp)) deallocate(this%yblkgrp)
 
+      CALL vec_gather_scatter_free_mem(this%vecgs)
+
       IF (allocated(this%pctshared)) deallocate(this%pctshared)
+
+      this%nset = 0
+      this%nblkgrp = 0
+      this%has_shared = .false.
 
    END SUBROUTINE pixelset_forc_free_mem
 

@@ -119,7 +119,7 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_dir_history  = 'path/to/history'
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-! ----- Part 6: make surface data -----
+! ----- Part 6: landdata and surface inputs -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    character(len=256) :: DEF_file_mesh          = 'path/to/mesh/file'

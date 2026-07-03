@@ -20,11 +20,6 @@ SUBROUTINE CoLMMAIN ( &
            hksati,       csol,         k_solids,     dksatu,       &
            dksatf,       dkdry,        BA_alpha,     BA_beta,      &
            rootfr,       lakedepth,    dz_lake,      elvstd,  BVIC,&
-#if (defined CaMa_Flood)
-           ! add flood depth, flood fraction, flood evaporation and
-           ! flood re-infiltration
-           flddepth,     fldfrc,       fevpg_fld,    qinfl_fld,    &
-#endif
 
          ! vegetation information
            htop,         hbot,         sqrtdi,       &
@@ -196,11 +191,6 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, &
                            DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION
    USE MOD_LeafInterception
-#if (defined CaMa_Flood)
-   ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
-   USE MOD_CaMa_colmCaMa, only: get_fldevp
-   USE YOS_CMF_INPUT, only: LWINFILT,LWEVAP
-#endif
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
 #endif
@@ -375,14 +365,6 @@ SUBROUTINE CoLMMAIN ( &
         forc_hpbl   ,&! atmospheric boundary layer height [m]
         forc_aerdep(14)!atmospheric aerosol deposition data [kg/m/s]
 
-#if (defined CaMa_Flood)
-   real(r8), intent(in)    :: fldfrc    !inundation fraction
-                                        ! --> allow re-evaporation and infiltration![0-1]
-   real(r8), intent(inout) :: flddepth  !inundation depth
-                                        ! --> allow re-evaporation and infiltration![mm]
-   real(r8), intent(out)   :: fevpg_fld !effective evaporation from inundation [mm/s]
-   real(r8), intent(out)   :: qinfl_fld !effective re-infiltration from inundation [mm/s]
-#endif
 ! Variables required for restart run
 !-----------------------------------------------------------------------
    integer, intent(in) :: &
@@ -648,27 +630,6 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
 
-#if (defined CaMa_Flood)
-   !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
-   real(r8) :: kk
-   real(r8) :: taux_fld    ! wind stress: E-W [kg/m/s**2]
-   real(r8) :: tauy_fld    ! wind stress: N-S [kg/m/s**2]
-   real(r8) :: fsena_fld   ! sensible heat from agcm reference height to atmosphere [W/m2]
-   real(r8) :: fevpa_fld   ! evaporation from agcm reference height to atmosphere [mm/s]
-   real(r8) :: fseng_fld   ! sensible heat flux from ground [W/m2]
-   real(r8) :: tref_fld    ! 2 m height air temperature [kelvin]
-   real(r8) :: qref_fld    ! 2 m height air humidity
-   real(r8) :: z0m_fld     ! effective roughness [m]
-   real(r8) :: zol_fld     ! dimensionless height (z/L) used in Monin-Obukhov theory
-   real(r8) :: rib_fld     ! bulk Richardson number in surface layer
-   real(r8) :: ustar_fld   ! friction velocity [m/s]
-   real(r8) :: tstar_fld   ! temperature scaling parameter
-   real(r8) :: qstar_fld   ! moisture scaling parameter
-   real(r8) :: fm_fld      ! integral of profile function for momentum
-   real(r8) :: fh_fld      ! integral of profile function for heat
-   real(r8) :: fq_fld      ! integral of profile function for moisture
-#endif
-
 !-----------------------------------------------------------------------
 
       z_soisno (maxsnl+1:0) = z_sno (maxsnl+1:0)
@@ -910,11 +871,6 @@ SUBROUTINE CoLMMAIN ( &
                  ssi               ,wimp              ,smpmin            ,zwt               ,&
                  wdsrf             ,wa                ,qcharge           ,&
 
-#if (defined CaMa_Flood)
-                 !add variables for flood depth [mm], flood fraction [0-1]
-                 !and re-infiltration [mm/s] calculation.
-                 flddepth          ,fldfrc            ,qinfl_fld         ,&
-#endif
 ! SNICAR model variables
                  forc_aer          ,&
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
@@ -944,11 +900,6 @@ SUBROUTINE CoLMMAIN ( &
                  qinfl                                                                      ,&
                  qlayer            ,ssi               ,pondmx            ,wimp              ,&
                  zwt               ,wdsrf             ,wa                ,wetwat            ,&
-#if (defined CaMa_Flood)
-                 !add variables for flood depth [mm], flood fraction [0-1]
-                 !and re-infiltration [mm/s] calculation.
-                 flddepth          ,fldfrc            ,qinfl_fld         ,&
-#endif
 ! SNICAR model variables
                  forc_aer          ,&
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
@@ -1047,14 +998,6 @@ SUBROUTINE CoLMMAIN ( &
                endwb = endwb + wetwat
             ENDIF
          ENDIF
-#if (defined CaMa_Flood)
-         IF (LWINFILT) THEN
-            IF (patchtype == 0) THEN
-               endwb=endwb - qinfl_fld*deltim
-            ENDIF
-         ENDIF
-#endif
-
 #ifndef CatchLateralFlow
          errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa-rnof)*deltim
 #else
@@ -1506,36 +1449,6 @@ SUBROUTINE CoLMMAIN ( &
 
 !======================================================================
       ENDIF
-
-#if (defined CaMa_Flood)
-      IF (LWEVAP) THEN
-         IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05).and.patchtype == 0)THEN
-            CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q,&
-               forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd,&
-               forc_hpbl, &
-               taux_fld,tauy_fld,fseng_fld,fevpg_fld,tref_fld,qref_fld,&
-               z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld,tstar_fld,fm_fld,fh_fld,fq_fld)
-
-            IF (fevpg_fld<0.0) fevpg_fld=0.0d0
-
-            IF ((flddepth-deltim*fevpg_fld .gt. 0.0) .and. (fevpg_fld.gt.0.0)) THEN
-               flddepth=flddepth-deltim*fevpg_fld
-               fseng= fseng_fld*fldfrc+(1.0-fldfrc)*fseng
-               fevpg= fevpg_fld*fldfrc+(1.0-fldfrc)*fevpg
-               fevpg_fld=fevpg_fld*fldfrc
-            ELSE
-               fevpg_fld=0.0d0
-            ENDIF
-
-         ELSE
-            fevpg_fld=0.0d0
-         ENDIF
-
-      ELSE
-         fevpg_fld=0.0d0
-      ENDIF
-#endif
-
 
 !======================================================================
 ! Preparation for the next time step

@@ -230,6 +230,10 @@ CONTAINS
       ENDIF
 
       CALL elm_patch%build(landelm, landpatch, use_frac = .true.)
+#ifdef MPAS_EMBEDDED_COLM
+      CALL colm_mpas_validate_element_patch_map(.false., ierr)
+      IF (ierr /= 0) RETURN
+#endif
 
 #ifdef GridRiverLakeFlow
 #ifdef MPAS_EMBEDDED_COLM
@@ -250,6 +254,10 @@ CONTAINS
 
       CALL allocate_TimeInvariants()
       CALL READ_TimeInvariants(lc_year, casename, dir_restart)
+#ifdef MPAS_EMBEDDED_COLM
+      CALL colm_mpas_validate_element_patch_map(.true., ierr)
+      IF (ierr /= 0) RETURN
+#endif
       CALL allocate_TimeVariables()
       CALL READ_TimeVariables(jdate, lc_year, casename, dir_restart)
 
@@ -626,6 +634,74 @@ CONTAINS
       IF (hits /= 1) element = 0
    END SUBROUTINE colm_mpas_find_element_by_eindex
 
+   SUBROUTINE colm_mpas_validate_element_patch_map(require_active_patch, ierr)
+      USE MOD_LandElm, only: landelm
+      USE MOD_SPMD_Task, only: p_iam_glb
+      logical, intent(in) :: require_active_patch
+      integer, intent(out) :: ierr
+
+      integer :: element
+      integer :: patch
+      integer :: istt
+      integer :: iend
+      integer :: local_missing
+      integer :: first_missing
+      logical :: has_patch
+
+      ierr = 1
+      IF (.not. allocated(elm_patch%substt)) RETURN
+      IF (.not. allocated(elm_patch%subend)) RETURN
+      IF (.not. allocated(elm_patch%subfrc)) RETURN
+      IF (size(elm_patch%substt) < landelm%nset) RETURN
+      IF (size(elm_patch%subend) < landelm%nset) RETURN
+      IF (size(elm_patch%subfrc) < numpatch) RETURN
+      IF (require_active_patch .and. numpatch > 0 .and. .not. allocated(patchmask)) RETURN
+      IF (require_active_patch .and. numpatch > 0) THEN
+         IF (size(patchmask) < numpatch) RETURN
+      ENDIF
+
+      local_missing = 0
+      first_missing = -1
+
+      DO element = 1, landelm%nset
+         istt = elm_patch%substt(element)
+         iend = elm_patch%subend(element)
+         has_patch = .false.
+
+         IF (istt >= 1 .and. iend >= istt .and. iend <= numpatch) THEN
+            DO patch = istt, iend
+               IF (patch < 1 .or. patch > numpatch) CYCLE
+               IF (require_active_patch .and. allocated(patchmask)) THEN
+                  IF (patchmask(patch)) has_patch = .true.
+               ELSE
+                  has_patch = .true.
+               ENDIF
+            ENDDO
+         ENDIF
+
+         IF (.not. has_patch) THEN
+            local_missing = local_missing + 1
+            IF (first_missing < 0) first_missing = element
+         ENDIF
+      ENDDO
+
+      IF (local_missing > 0) THEN
+         IF (first_missing > 0 .and. first_missing <= landelm%nset) THEN
+            write(*,'(A,I0,A,I0,A,I0,A,I0)') &
+               'CoLM2024 MPAS embedded landdata is missing usable patch coverage on rank ', &
+               p_iam_glb, ': ', local_missing, ' element(s); first local element ', &
+               first_missing, ', eindex ', landelm%eindex(first_missing)
+         ELSE
+            write(*,'(A,I0,A,I0)') &
+               'CoLM2024 MPAS embedded landdata is missing usable patch coverage on rank ', &
+               p_iam_glb, ': ', local_missing
+         ENDIF
+         RETURN
+      ENDIF
+
+      ierr = 0
+   END SUBROUTINE colm_mpas_validate_element_patch_map
+
    SUBROUTINE colm_mpas_ready(ready, patch_count)
       logical, intent(out) :: ready
       integer, intent(out), optional :: patch_count
@@ -799,7 +875,7 @@ CONTAINS
 	      integer :: write_lc_year
 	      logical :: should_write
 	      character(len=256) :: wrst_freq
-#ifdef GridRiverLakeFlow
+#if defined(GridRiverLakeFlow) && !defined(MPAS_EMBEDDED_COLM)
 	      character(len=14) :: cdate
 	      character(len=256) :: cyear
 	      character(len=256) :: file_restart
@@ -838,6 +914,9 @@ CONTAINS
 #endif
 
 #ifdef GridRiverLakeFlow
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
+#else
 	      IF (numpatch == 0) THEN
 	         write(cyear,'(i4.4)') write_lc_year
 	         write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') write_idate(1), write_idate(2), write_idate(3)
@@ -848,8 +927,13 @@ CONTAINS
 	      ELSE
 	         CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
 	      ENDIF
+#endif
+#else
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
 #else
 	      IF (numpatch > 0) CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
+#endif
 #endif
 	      colm_mpas_last_restart_idate(:) = write_idate(:)
 	   END SUBROUTINE colm_mpas_write_restart_if_due

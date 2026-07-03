@@ -388,6 +388,7 @@ CONTAINS
    integer :: iblkme, iblk, jblk
    logical :: fexists
 
+      itime = 0
       IF (trim(DEF_HIST_mode) == 'one') THEN
          IF (p_is_root) THEN
 #ifdef USEMPI
@@ -459,7 +460,11 @@ CONTAINS
 
          ENDIF
 #ifdef USEMPI
+#ifdef MPAS_EMBEDDED_COLM
+         CALL mpi_allreduce (MPI_IN_PLACE, itime, 1, MPI_INTEGER, MPI_MAX, p_comm_group, p_err)
+#else
          IF (.not. p_is_root) CALL mpi_bcast (itime, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
+#endif
 #endif
 
       ENDIF

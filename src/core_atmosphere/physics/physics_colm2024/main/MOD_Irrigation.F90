@@ -30,9 +30,6 @@ MODULE MOD_Irrigation
    USE MOD_Vars_1DForcing, only: forc_t, forc_frl, forc_psrf, forc_us, forc_vs
    USE MOD_Vars_1DFluxes, only: sabg, sabvsun, sabvsha, olrg, fgrnd
    USE MOD_Hydro_SoilFunction, only: soil_vliq_from_psi
-#ifdef CaMa_Flood
-   USE MOD_CaMa_Vars, only: withdrawal_cama, withdrawal_dam_cama, withdrawal_riv_cama, withdrawal_rof_cama
-#endif
    USE MOD_SPMD_Task
    IMPLICIT NONE
 
@@ -83,24 +80,6 @@ CONTAINS
          zwt_stand(i) = max(0., zwt_stand(i))
          zwt_stand(i) = min(80., zwt_stand(i))
       end if
-
-#ifdef CaMa_Flood
-      !  irrigation withdraw from reservoir and river
-      reservoirriver_supply(i) = withdrawal_cama(i)
-      reservoir_supply(i) = withdrawal_dam_cama(i)
-      river_supply(i) = withdrawal_riv_cama(i)
-      runoff_supply(i) = withdrawal_rof_cama(i)
-      waterstorage(i) = waterstorage(i) + max(0._r8, reservoirriver_supply(i))
-      withdrawal_cama(i) = 0._r8
-      withdrawal_dam_cama(i) = 0._r8
-      withdrawal_riv_cama(i) = 0._r8
-      withdrawal_rof_cama(i) = 0._r8
-
-      ! IF (reservoirriver_supply(i) > 0) THEN
-      !    WRITE(*,*) "LHB debug line98 runoff error: p_iam_glb, ipatch, reservoirriver_supply ---> ", &
-      !       p_iam_glb, i, reservoirriver_supply(i)
-      ! ENDIF
-#endif
 
       ! !   calculate last day potential evapotranspiration
       ! CALL CalPotentialEvapotranspiration(i,idate,dlon,deltim)
@@ -394,11 +373,6 @@ CONTAINS
                waterstorage_supply = min(waterstorage(i), deficit_irrig(i))
                waterstorage_supply = max(waterstorage_supply, 0._r8)
                actual_irrig(i) = actual_irrig(i) + waterstorage_supply
-#ifdef CaMa_Flood
-               IF (deficit_irrig(i) > actual_irrig(i)) THEN
-                  reservoirriver_demand(i) = max(deficit_irrig(i) - actual_irrig(i), 0._r8)
-               ENDIF
-#endif
                !  irrigation withdraw from ground water (unconfined and confined)
                IF (deficit_irrig(i) > actual_irrig(i)) THEN
                   groundwater_demand(i) = max(deficit_irrig(i) - actual_irrig(i), 0._r8)
@@ -410,11 +384,6 @@ CONTAINS
                waterstorage_supply = min(waterstorage(i), deficit_irrig(i))
                waterstorage_supply = max(waterstorage_supply, 0._r8)
                actual_irrig(i) = actual_irrig(i) + waterstorage_supply
-#ifdef CaMa_Flood
-               IF (deficit_irrig(i) > actual_irrig(i)) THEN
-                  reservoirriver_demand(i) = max((deficit_irrig(i) - actual_irrig(i))*(1.-irrig_gw_alloc(i)), 0._r8)
-               ENDIF
-#endif
                !   irrigation withdraw from ground water (unconfined and confined)
                IF (deficit_irrig(i) > actual_irrig(i)) THEN
                   groundwater_demand(i) = max((deficit_irrig(i) - actual_irrig(i))*irrig_gw_alloc(i), 0._r8)

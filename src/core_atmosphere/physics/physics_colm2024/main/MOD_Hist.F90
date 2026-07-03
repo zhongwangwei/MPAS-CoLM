@@ -137,9 +137,6 @@ CONTAINS
    USE MOD_Vars_PFTimeInvariants, only: pftclass
    USE MOD_LandPFT, only: patch_pft_s
 #endif
-#if (defined CaMa_Flood)
-   USE MOD_CaMa_Vars !definition of CaMa variables
-#endif
    USE MOD_Forcing, only: forcmask_pch
 #ifdef DataAssimilation
    USE MOD_DA_TWS, only: fslp_k_mon
@@ -163,10 +160,6 @@ CONTAINS
    logical :: lwrite
    character(len=256) :: file_hist
    integer :: itime_in_file
-#if (defined CaMa_Flood)
-   character(len=256) :: file_hist_cama
-   integer :: itime_in_file_cama
-#endif
    integer :: month, day
    integer :: days_month(1:12)
    character(len=10) :: cdate
@@ -267,14 +260,6 @@ CONTAINS
          ELSE
             write(*,*) 'Warning : Please USE one of DAY/MONTH/YEAR for history group.'
          ENDIF
-
-#if (defined CaMa_Flood)
-         ! add variables to write cama-flood output.
-         ! file name of cama-flood output
-         file_hist_cama = trim(dir_hist) // '/' // trim(casename) //'_hist_cama_'//trim(cdate)//'.nc'
-         ! write CaMa-Flood output
-         CALL hist_write_cama_time (file_hist_cama, 'time', idate, itime_in_file_cama)
-#endif
 
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
@@ -4713,15 +4698,6 @@ ENDIF
          CALL write_history_variable_3d ( DEF_hist_vars%sensors, &
             a_sensors, file_hist, 'f_sensors', itime_in_file, 'sensor', 1, nsensor, &
             sumarea, filter, 'variable sensors','user defined')
-
-#if (defined CaMa_Flood)
-#ifdef USEMPI
-         CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-         IF (p_is_root) THEN
-            CALL hist_out_cama (file_hist_cama, itime_in_file_cama)
-         ENDIF
-#endif
 
 #ifdef CatchLateralFlow
          CALL hist_basin_out (file_hist, idate)

@@ -143,8 +143,12 @@ CONTAINS
          allocate (rnof_gd (numinpm))
          allocate (rnof_uc (numucat))
 
-         CALL compute_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
-            fillvalue = 0., filter = filter_rnof)
+         IF (numpatch > 0) THEN
+            CALL compute_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
+               fillvalue = 0., filter = filter_rnof)
+         ELSE
+            rnof_gd = 0._r8
+         ENDIF
 
          IF (numinpm > 0) THEN
             WHERE (push_ucat2inpm%sum_area > 0)

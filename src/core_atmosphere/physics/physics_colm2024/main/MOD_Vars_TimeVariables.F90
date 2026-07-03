@@ -167,6 +167,10 @@ CONTAINS
 
       character(len=*), intent(in) :: file_restart
 
+#ifdef MPAS_EMBEDDED_COLM
+      IF (numpft <= 0) RETURN
+#endif
+
       CALL ncio_read_vector (file_restart, 'tleaf_p  ',  landpft, tleaf_p     )
       CALL ncio_read_vector (file_restart, 'ldew_p   ',  landpft, ldew_p      )
       CALL ncio_read_vector (file_restart, 'ldew_rain_p',landpft, ldew_rain_p )
@@ -229,10 +233,14 @@ ENDIF
    ! Local variables
    integer :: compress
 
-      compress = DEF_REST_CompressLevel
+	      compress = DEF_REST_CompressLevel
 
-      CALL ncio_create_file_vector (file_restart, landpft)
-      CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (numpft <= 0) RETURN
+#endif
+
+	      CALL ncio_create_file_vector (file_restart, landpft)
+	      CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
       CALL ncio_define_dimension_vector (file_restart, landpft, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpft, 'rtyp', 2)
 
@@ -1117,11 +1125,14 @@ CONTAINS
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
 
-      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (numpatch > 0) THEN
+#endif
 
-      CALL ncio_create_file_vector (file_restart, landpatch)
-      CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
+	      CALL ncio_create_file_vector (file_restart, landpatch)
+	      CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
 
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'snow',     -maxsnl       )
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'snowp1',   -maxsnl+1     )
@@ -1270,18 +1281,13 @@ ENDIF
 #endif
 
 #if (defined CatchLateralFlow)
-      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_basin_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-      CALL WRITE_CatchTimeVariables (file_restart)
-#endif
-
-#ifdef GridRiverLakeFlow
-      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-      CALL WRITE_GridRiverLakeTimeVars (file_restart)
+	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_basin_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      CALL WRITE_CatchTimeVariables (file_restart)
 #endif
 
 #if (defined URBAN_MODEL)
-      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_urban_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-      CALL WRITE_UrbanTimeVariables (file_restart)
+	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_urban_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      CALL WRITE_UrbanTimeVariables (file_restart)
 #endif
 
 #ifdef EXTERNAL_LAKE
@@ -1289,10 +1295,19 @@ ENDIF
 #endif
 
 #ifdef DataAssimilation
-      CALL WRITE_DATimeVariables (idate, lc_year, site, dir_restart)
+	      CALL WRITE_DATimeVariables (idate, lc_year, site, dir_restart)
 #endif
 
-   END SUBROUTINE WRITE_TimeVariables
+#ifdef MPAS_EMBEDDED_COLM
+	      ENDIF
+#endif
+
+#ifdef GridRiverLakeFlow
+	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      CALL WRITE_GridRiverLakeTimeVars (file_restart)
+#endif
+
+	   END SUBROUTINE WRITE_TimeVariables
 
 
    SUBROUTINE READ_TimeVariables (idate, lc_year, site, dir_restart)
@@ -1336,6 +1351,10 @@ ENDIF
 
       write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+
+#ifdef MPAS_EMBEDDED_COLM
+      IF (numpatch > 0) THEN
+#endif
 
       ! Time-varying state variables which required by restart run
       CALL ncio_read_vector (file_restart, 'z_sno   '   , -maxsnl, landpatch, z_sno )             ! node depth [m]
@@ -1473,9 +1492,17 @@ ENDIF
       CALL READ_CatchTimeVariables (file_restart)
 #endif
 
+#ifdef MPAS_EMBEDDED_COLM
+      ENDIF
+#endif
+
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL READ_GridRiverLakeTimeVars (file_restart)
+#endif
+
+#ifdef MPAS_EMBEDDED_COLM
+      IF (numpatch > 0) THEN
 #endif
 
 #if (defined URBAN_MODEL)
@@ -1493,6 +1520,10 @@ ENDIF
 
 #ifdef RangeCheck
       CALL check_TimeVariables
+#endif
+
+#ifdef MPAS_EMBEDDED_COLM
+      ENDIF
 #endif
 
       IF (p_is_root) THEN

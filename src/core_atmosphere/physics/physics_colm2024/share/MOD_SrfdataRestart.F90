@@ -356,6 +356,7 @@ CONTAINS
 
       IF (p_is_active) THEN
 
+         CALL mesh_free_mem()
          numelm = sum(nelm_blk, mask = gblock%pio == p_iam_glb)
 
          IF (numelm > 0) THEN
@@ -434,6 +435,7 @@ CONTAINS
             ENDDO
 
             numelm = ndsp
+            IF (numelm == 0) CALL mesh_free_mem()
          ENDIF
 
          IF (use_subset .and. allocated(nelm_blk)) THEN
@@ -570,6 +572,8 @@ CONTAINS
       ENDIF
 
       filename = trim(dir_landdata) // '/' // trim(psetname) // '/' // trim(cyear) // '/' // trim(psetname) // '.nc'
+
+      CALL pixelset%forc_free_mem()
 
       IF (p_is_active) THEN
 

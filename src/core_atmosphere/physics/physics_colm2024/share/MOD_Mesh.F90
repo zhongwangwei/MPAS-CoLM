@@ -1036,13 +1036,15 @@ CONTAINS
    integer :: ie
 
       IF (allocated(mesh)) THEN
-         DO ie = 1, numelm
-            deallocate (mesh(ie)%ilon)
-            deallocate (mesh(ie)%ilat)
+         DO ie = 1, size(mesh)
+            IF (allocated(mesh(ie)%ilon)) deallocate (mesh(ie)%ilon)
+            IF (allocated(mesh(ie)%ilat)) deallocate (mesh(ie)%ilat)
          ENDDO
 
          deallocate (mesh)
       ENDIF
+
+      numelm = 0
 
    END SUBROUTINE mesh_free_mem
 

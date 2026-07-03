@@ -138,11 +138,6 @@
            mss_bcpho    ,mss_bcphi    ,mss_ocpho    ,mss_ocphi    ,&
            mss_dst1     ,mss_dst2     ,mss_dst3     ,mss_dst4     ,&
 
-#if (defined CaMa_Flood)
-           ! flood depth [mm], flood fraction[0-1],
-           ! flood evaporation [mm/s], flood re-infiltration [mm/s]
-           flddepth     ,fldfrc       ,fevpg_fld    ,qinfl_fld    ,&
-#endif
          ! additional diagnostic variables for output
            laisun       ,laisha       ,rss                        ,&
            rstfac       ,h2osoi       ,wat                        ,&
@@ -347,15 +342,6 @@
         forc_hgt_t            ,&! observational height of temperature [m]
         forc_hgt_q            ,&! observational height of humidity [m]
         forc_rhoair             ! density air [kg/m3]
-
-#if (defined CaMa_Flood)
-   real(r8), intent(in)    :: fldfrc    !inundation fraction
-                                        !--> allow re-evaporation and infiltration![0-1]
-   real(r8), intent(inout) :: flddepth  !inundation depth
-                                        !--> allow re-evaporation and infiltration![mm]
-   real(r8), intent(out)   :: fevpg_fld !effective evaporation from inundation [mm/s]
-   real(r8), intent(out)   :: qinfl_fld !effective re-infiltration from inundation [mm/s]
-#endif
 
 ! Variables required for restart run
 ! ----------------------------------------------------------------------
@@ -1098,9 +1084,6 @@
          sm_roof            ,sm_gimp            ,sm_gper            ,sm_lake            ,&
          lake_icefrac       ,scv_lake           ,snowdp_lake        ,imeltl             ,&
          fioldl             ,w_old                                                      ,&
-#if (defined CaMa_Flood)
-         flddepth           ,fldfrc             ,qinfl_fld                              ,&
-#endif
          forc_us            ,forc_vs                                                    ,&
 
 ! SNICAR model variables

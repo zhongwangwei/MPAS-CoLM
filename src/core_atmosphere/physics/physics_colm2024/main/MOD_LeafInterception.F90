@@ -4,7 +4,7 @@ MODULE MOD_LeafInterception
 ! !DESCRIPTION:
 ! For calculating vegetation canopy precipitation interception.
 !
-! This MODULE is the coupler for the colm and CaMa-Flood model.
+! This module computes canopy interception and evaporation fluxes.
 
 !ANCILLARY FUNCTIONS AND SUBROUTINES
 !-------------------

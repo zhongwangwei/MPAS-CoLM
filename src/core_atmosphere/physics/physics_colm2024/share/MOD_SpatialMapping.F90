@@ -449,7 +449,7 @@ CONTAINS
 
       ENDIF
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
       IF (p_is_compute) THEN
 
          DO iproc = 0, p_np_active-1
@@ -784,7 +784,7 @@ CONTAINS
 #endif
       ENDIF
 
-#ifdef USEMPI
+#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
       IF (p_is_compute) THEN
          DO iproc = 0, p_np_active-1
             idest = p_address_active(iproc)
@@ -1862,6 +1862,37 @@ CONTAINS
 
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
+
+#ifdef MPAS_EMBEDDED_COLM
+      IF (p_is_active) CALL flush_block_data (sumarea, 0.0_r8)
+
+      IF (p_is_compute) THEN
+         DO iset = 1, this%npset
+
+            IF (present(filter)) THEN
+               IF (.not. filter(iset)) CYCLE
+            ENDIF
+
+            DO ipart = 1, this%npart(iset)
+               iproc = this%address(iset)%val(1,ipart)
+               IF (p_address_active(iproc) /= p_iam_glb) CYCLE
+
+               iloc  = this%address(iset)%val(2,ipart)
+               ilon = this%glist(iproc)%ilon(iloc)
+               ilat = this%glist(iproc)%ilat(iloc)
+               xblk = this%grid%xblk (ilon)
+               yblk = this%grid%yblk (ilat)
+               xloc = this%grid%xloc (ilon)
+               yloc = this%grid%yloc (ilat)
+
+               sumarea%blk(xblk,yblk)%val(xloc,yloc) = &
+                  sumarea%blk(xblk,yblk)%val(xloc,yloc) + this%areapart(iset)%val(ipart)
+            ENDDO
+         ENDDO
+      ENDIF
+
+      RETURN
+#endif
 
       IF (p_is_compute) THEN
 

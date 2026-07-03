@@ -81,12 +81,14 @@ CONTAINS
 
    character(len=*), intent(in) :: file_restart
 
-      CALL ncio_read_vector (file_restart, 'pftclass', landpft, pftclass) !
-      CALL ncio_read_vector (file_restart, 'pftfrac ', landpft, pftfrac ) !
-      CALL ncio_read_vector (file_restart, 'htop_p  ', landpft, htop_p  ) !
-      CALL ncio_read_vector (file_restart, 'hbot_p  ', landpft, hbot_p  ) !
+      IF (numpft > 0) THEN
+         CALL ncio_read_vector (file_restart, 'pftclass', landpft, pftclass) !
+         CALL ncio_read_vector (file_restart, 'pftfrac ', landpft, pftfrac ) !
+         CALL ncio_read_vector (file_restart, 'htop_p  ', landpft, htop_p  ) !
+         CALL ncio_read_vector (file_restart, 'hbot_p  ', landpft, hbot_p  ) !
+      ENDIF
 #ifdef CROP
-      CALL ncio_read_vector (file_restart, 'cropfrac ', landpatch, cropfrac) !
+      IF (numpatch > 0) CALL ncio_read_vector (file_restart, 'cropfrac ', landpatch, cropfrac) !
 #endif
 
    END SUBROUTINE READ_PFTimeInvariants
@@ -106,17 +108,22 @@ CONTAINS
 
       compress = DEF_REST_CompressLevel
 
-      CALL ncio_create_file_vector (file_restart, landpft)
-      CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
+      IF (numpft > 0) THEN
+         CALL ncio_create_file_vector (file_restart, landpft)
+         CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
 
-      CALL ncio_write_vector (file_restart, 'pftclass', 'pft', landpft, pftclass, compress) !
-      CALL ncio_write_vector (file_restart, 'pftfrac ', 'pft', landpft, pftfrac , compress) !
-      CALL ncio_write_vector (file_restart, 'htop_p  ', 'pft', landpft, htop_p  , compress) !
-      CALL ncio_write_vector (file_restart, 'hbot_p  ', 'pft', landpft, hbot_p  , compress) !
+         CALL ncio_write_vector (file_restart, 'pftclass', 'pft', landpft, pftclass, compress) !
+         CALL ncio_write_vector (file_restart, 'pftfrac ', 'pft', landpft, pftfrac , compress) !
+         CALL ncio_write_vector (file_restart, 'htop_p  ', 'pft', landpft, htop_p  , compress) !
+         CALL ncio_write_vector (file_restart, 'hbot_p  ', 'pft', landpft, hbot_p  , compress) !
+      ENDIF
 
 #ifdef CROP
-      CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
-      CALL ncio_write_vector (file_restart, 'cropfrac', 'patch', landpatch, cropfrac, compress) !
+      IF (numpatch > 0) THEN
+         IF (numpft <= 0) CALL ncio_create_file_vector (file_restart, landpatch)
+         CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
+         CALL ncio_write_vector (file_restart, 'cropfrac', 'patch', landpatch, cropfrac, compress) !
+      ENDIF
 #endif
 
    END SUBROUTINE WRITE_PFTimeInvariants
@@ -134,10 +141,10 @@ CONTAINS
             deallocate (pftfrac )
             deallocate (htop_p  )
             deallocate (hbot_p  )
-#ifdef CROP
-            deallocate (cropfrac)
-#endif
          ENDIF
+#ifdef CROP
+         IF (numpatch > 0) deallocate (cropfrac)
+#endif
       ENDIF
 
    END SUBROUTINE deallocate_PFTimeInvariants
@@ -463,6 +470,10 @@ CONTAINS
       write(cyear,'(i4.4)') lc_year
       file_restart = trim(dir_restart) // '/const/' // trim(casename) //'_restart_const' // '_lc' // trim(cyear) // '.nc'
 
+#ifdef MPAS_EMBEDDED_COLM
+      IF (numpatch > 0) THEN
+#endif
+
       CALL ncio_read_vector (file_restart, 'patchclass',   landpatch, patchclass)          !
       CALL ncio_read_vector (file_restart, 'patchtype' ,   landpatch, patchtype )          !
       CALL ncio_read_vector (file_restart, 'patchmask' ,   landpatch, patchmask )          !
@@ -546,6 +557,10 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'elvstd  ', landpatch, elvstd  )         !
       CALL ncio_read_vector (file_restart, 'slpratio', landpatch, slpratio)         !
 
+#ifdef MPAS_EMBEDDED_COLM
+      ENDIF
+#endif
+
       CALL ncio_read_bcast_serial (file_restart, 'zlnd  ', zlnd  ) ! roughness length for soil [m]
       CALL ncio_read_bcast_serial (file_restart, 'zsno  ', zsno  ) ! roughness length for snow [m]
       CALL ncio_read_bcast_serial (file_restart, 'csoilc', csoilc) ! drag coefficient for soil under canopy [-]
@@ -563,6 +578,10 @@ CONTAINS
       CALL ncio_read_bcast_serial (file_restart, 'trsmx0', trsmx0) ! max transpiration for moist soil+100% veg.  [mm/s]
       CALL ncio_read_bcast_serial (file_restart, 'tcrit ', tcrit ) ! critical temp. to determine rain or snow
       CALL ncio_read_bcast_serial (file_restart, 'wetwatmax', wetwatmax) ! maximum wetland water (mm)
+
+#ifdef MPAS_EMBEDDED_COLM
+      IF (numpatch > 0) THEN
+#endif
 
       IF (DEF_USE_Forcing_Downscaling) THEN
          CALL ncio_read_vector (file_restart, 'slp_type_patches' , num_slope_type, landpatch, slp_type_patches)
@@ -582,6 +601,10 @@ CONTAINS
          CALL ncio_read_vector (file_restart, 'asp_type_patches' , num_aspect_type, landpatch, asp_type_patches)
          CALL ncio_read_vector (file_restart, 'cur_patches'      ,                 landpatch, cur_patches )
       ENDIF
+
+#ifdef MPAS_EMBEDDED_COLM
+      ENDIF
+#endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint

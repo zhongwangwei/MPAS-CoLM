@@ -23,6 +23,7 @@
                                     colm_mpas_step, colm_mpas_get_element_surface, &
                                     colm_mpas_get_element_state, &
                                     colm_mpas_finalize
+ use MOD_Vars_Global, only: colm_dz_soi => dz_soi
 #endif
 
  implicit none
@@ -449,6 +450,7 @@
  real(kind=colm_r8):: emissivity, roughness, albedo
  real(kind=colm_r8):: canopy_water, snow_water, snow_depth, snow_cover, leaf_area_index
  real(kind=colm_r8):: soil_moisture_sum
+ real(kind=colm_r8):: soil_depth_sum
  real(kind=colm_r8),parameter:: colm_state_bad_value = 1.e30_colm_r8
  real(kind=colm_r8),dimension(:),allocatable:: soil_liquid, soil_moisture, soil_temperature
  real(kind=RKIND),dimension(:),pointer:: hfx, lh, qfx, grdflx, sfcrunoff, udrunoff
@@ -506,7 +508,10 @@
     skintemp(i) = real(skin_temp, RKIND)
     t2m(i) = real(t2m_colm, RKIND)
 	    qsfc(i) = real(qsfc_colm, RKIND)
-	    q2(i) = real(q2m_colm, RKIND)
+	    ! MPAS/WRF q2 is a 2 m mixing ratio; CoLM qref is specific humidity.
+	    if(abs(q2m_colm) < colm_state_bad_value .and. q2m_colm >= 0._colm_r8 .and. q2m_colm < 1._colm_r8) then
+	       q2(i) = real(q2m_colm / (1._colm_r8 - q2m_colm), RKIND)
+	    endif
     sfc_emiss(i) = real(emissivity, RKIND)
     z0(i) = real(roughness, RKIND)
     znt(i) = real(roughness, RKIND)
@@ -518,6 +523,7 @@
     lai(i) = real(max(0._colm_r8, leaf_area_index), RKIND)
 
     soil_moisture_sum = 0._colm_r8
+    soil_depth_sum = 0._colm_r8
     nvalid_soil = 0
     do ns = 1,nlev
        if(abs(soil_liquid(ns)) < colm_state_bad_value .and. &
@@ -526,17 +532,21 @@
           sh2o(ns,i) = real(soil_liquid(ns), RKIND)
           smois(ns,i) = real(soil_moisture(ns), RKIND)
           tslb(ns,i) = real(soil_temperature(ns), RKIND)
-          soil_moisture_sum = soil_moisture_sum + soil_moisture(ns)
+          if(ns <= size(colm_dz_soi) .and. colm_dz_soi(ns) > 0._colm_r8) then
+             soil_moisture_sum = soil_moisture_sum + soil_moisture(ns) * colm_dz_soi(ns)
+             soil_depth_sum = soil_depth_sum + colm_dz_soi(ns)
+          endif
           nvalid_soil = nvalid_soil + 1
        endif
     enddo
-    if(nvalid_soil > 0) then
-       smstot(i) = real(soil_moisture_sum / real(nvalid_soil, colm_r8), RKIND)
+    if(nvalid_soil > 0 .and. soil_depth_sum > 0._colm_r8) then
+       smstot(i) = real(soil_moisture_sum / soil_depth_sum, RKIND)
        if(abs(soil_moisture(1)) < colm_state_bad_value) then
           smstav(i) = real(soil_moisture(1), RKIND)
        else
           smstav(i) = smstot(i)
        endif
+       smstav(i) = max(0._RKIND, min(1._RKIND, smstav(i)))
     endif
  enddo
 

@@ -301,24 +301,7 @@ list(TRANSFORM ATMOSPHERE_CORE_PHYSICS_NOAMP_SRC_SOURCES PREPEND physics/physics
 
 if(MPAS_COLM2024)
     set(COLM2024_SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/physics/physics_colm2024)
-    file(STRINGS ${COLM2024_SOURCE_ROOT}/Makefile COLM2024_MAKEFILE_LINES)
-    set(_colm2024_collect_sources FALSE)
-    foreach(_colm2024_line IN LISTS COLM2024_MAKEFILE_LINES)
-        if(_colm2024_line MATCHES "^OBJS_SHARED[ \t]*=" OR
-           _colm2024_line MATCHES "^OBJS_BASIC[ \t]*=" OR
-           _colm2024_line MATCHES "^OBJS_MAIN[ \t]*=")
-            set(_colm2024_collect_sources TRUE)
-        endif()
-        if(_colm2024_collect_sources)
-            string(REGEX MATCHALL "[A-Za-z0-9_]+\\.o" _colm2024_objects "${_colm2024_line}")
-            list(APPEND COLM2024_OBJECT_LIST ${_colm2024_objects})
-            if(NOT _colm2024_line MATCHES "\\\\[ \t]*$")
-                set(_colm2024_collect_sources FALSE)
-            endif()
-        endif()
-    endforeach()
     set(COLM2024_SOURCE_SEARCH_DIRS
-        include
         share
         main
         main/HYDRO
@@ -328,18 +311,14 @@ if(MPAS_COLM2024)
         main/ParaOpt
         drivers/mpas
     )
-    foreach(_colm2024_obj IN LISTS COLM2024_OBJECT_LIST)
-        string(REGEX REPLACE "\\.o$" ".F90" _colm2024_src_name ${_colm2024_obj})
-        unset(_colm2024_src)
-        foreach(_colm2024_dir IN LISTS COLM2024_SOURCE_SEARCH_DIRS)
-            if(EXISTS ${COLM2024_SOURCE_ROOT}/${_colm2024_dir}/${_colm2024_src_name})
-                set(_colm2024_src ${COLM2024_SOURCE_ROOT}/${_colm2024_dir}/${_colm2024_src_name})
-                break()
-            endif()
-        endforeach()
-        if(NOT _colm2024_src)
-            message(FATAL_ERROR "Could not resolve CoLM2024 object ${_colm2024_obj} to a source file")
-        endif()
+    foreach(_colm2024_dir IN LISTS COLM2024_SOURCE_SEARCH_DIRS)
+        file(GLOB _colm2024_dir_sources CONFIGURE_DEPENDS
+            ${COLM2024_SOURCE_ROOT}/${_colm2024_dir}/*.F90)
+        list(APPEND COLM2024_SOURCE_CANDIDATES ${_colm2024_dir_sources})
+    endforeach()
+    list(REMOVE_DUPLICATES COLM2024_SOURCE_CANDIDATES)
+    list(SORT COLM2024_SOURCE_CANDIDATES)
+    foreach(_colm2024_src IN LISTS COLM2024_SOURCE_CANDIDATES)
         file(RELATIVE_PATH _colm2024_src_rel ${CMAKE_CURRENT_SOURCE_DIR} ${_colm2024_src})
         execute_process(
             COMMAND ${CPP_EXECUTABLE} -traditional-cpp -P -I${COLM2024_SOURCE_ROOT}/include ${_colm2024_src}
@@ -385,14 +364,6 @@ if(MPAS_COLM2024)
             set_property(SOURCE ${source} APPEND PROPERTY OBJECT_DEPENDS "${_colm2024_deps}")
         endif()
     endfunction()
-
-    set(_colm2024_previous_source)
-    foreach(_colm2024_source IN LISTS ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
-        if(_colm2024_previous_source)
-            _colm2024_source_depends(${_colm2024_source} ${_colm2024_previous_source})
-        endif()
-        set(_colm2024_previous_source ${_colm2024_source})
-    endforeach()
 
     _colm2024_source_depends(
         physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeTimeVars.F90

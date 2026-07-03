@@ -62,9 +62,6 @@ CONTAINS
         sm_roof        ,sm_gimp        ,sm_gper        ,sm_lake        ,&
         lake_icefrac   ,scv_lake       ,snowdp_lake    ,imelt_lake     ,&
         fioldl         ,w_old                                          ,&
-#if (defined CaMa_Flood)
-        flddepth       ,fldfrc         ,qinfl_fld                      ,&
-#endif
         forc_us        ,forc_vs                                        ,&
 ! SNICAR model variables
         forc_aer                                                       ,&
@@ -157,12 +154,6 @@ CONTAINS
         w_old                ! liquid water mass of the column at the previous time step (mm)
 
    real(r8), intent(inout) :: rootflux(1:nl_soil)
-
-#if (defined CaMa_Flood)
-   real(r8), intent(inout) :: flddepth  ! inundation water depth [mm]
-   real(r8), intent(in)    :: fldfrc    ! inundation water depth [0-1]
-   real(r8), intent(out)   :: qinfl_fld ! grid averaged inundation water input from top (mm/s)
-#endif
 
    real(r8), intent(in) :: forc_us
    real(r8), intent(in) :: forc_vs
@@ -283,9 +274,6 @@ CONTAINS
              0.          ,& ! fsno, not active
              rsur_gper   ,rnof_gper   ,qinfl       ,pondmx      ,ssi         ,&
              wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,qcharge     ,&
-#if (defined CaMa_Flood)
-             flddepth    ,fldfrc      ,qinfl_fld                             ,&
-#endif
 ! SNICAR model variables
              forc_aer                                                        ,&
              mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&

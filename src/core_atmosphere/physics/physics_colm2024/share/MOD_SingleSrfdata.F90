@@ -180,7 +180,7 @@ CONTAINS
 
 
 !-----------------------------------------------------------------------
-   SUBROUTINE read_surface_data_single (fsrfdata, mksrfdata)
+   SUBROUTINE read_surface_data_single (fsrfdata, for_surface_build)
 
    USE MOD_TimeManager
    USE MOD_Grid
@@ -202,7 +202,7 @@ CONTAINS
    IMPLICIT NONE
 
    character(len=*), intent(in) :: fsrfdata
-   logical, intent(in) :: mksrfdata
+   logical, intent(in) :: for_surface_build
 
    ! Local Variables
    real(r8) :: lat_in, lon_in
@@ -226,7 +226,7 @@ CONTAINS
       CALL Init_GlobalVars
       CALL Init_LC_Const
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,*)
          write(*,*) '  ----------------  Make Single Point Surface Data  ----------------  '
       ENDIF
@@ -255,7 +255,7 @@ CONTAINS
          LocalLongitude = SITE_lon_location
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,F8.2)') 'Latitude  : ', SITE_lat_location
          write(*,'(A,F8.2)') 'Longitude : ', SITE_lon_location
       ENDIF
@@ -278,7 +278,7 @@ CONTAINS
       numpatch = 1
 
 #ifdef LULC_USGS
-      u_site_landtype = (.not. mksrfdata) .or. (SITE_landtype >= 0) &
+      u_site_landtype = (.not. for_surface_build) .or. (SITE_landtype >= 0) &
          .or. (USE_SITE_landtype .and. ncio_var_exist(fsrfdata,'USGS_classification'))
 
       IF (u_site_landtype) THEN
@@ -292,7 +292,7 @@ CONTAINS
             SITE_lon_location, SITE_lat_location, SITE_landtype)
       ENDIF
 #else
-      u_site_landtype = (.not. mksrfdata) .or. (SITE_landtype >= 0) &
+      u_site_landtype = (.not. for_surface_build) .or. (SITE_landtype >= 0) &
          .or. (USE_SITE_landtype .and. ncio_var_exist(fsrfdata,'IGBP_classification'))
 
       IF (u_site_landtype)  THEN
@@ -320,7 +320,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,A,3A)') 'Land cover type : ', trim(patchclassname(SITE_landtype)), &
             ' (from ',trim(datasource(u_site_landtype)),')'
       ENDIF
@@ -329,7 +329,7 @@ CONTAINS
 #ifdef CROP
       IF (SITE_landtype == CROPLAND) THEN
 
-         readflag = ((.not. mksrfdata) .or. USE_SITE_pctcrop)
+         readflag = ((.not. for_surface_build) .or. USE_SITE_pctcrop)
          u_site_crop = readflag &
             .and. ncio_var_exist(fsrfdata,'croptyp',readflag) .and. ncio_var_exist(fsrfdata,'pctcrop',readflag)
 
@@ -359,7 +359,7 @@ CONTAINS
          SITE_croptyp = pack(croptyp, pctcrop > 0.)
          SITE_pctcrop = pack(pctcrop, pctcrop > 0.) / sum(pctcrop)
 
-         IF (mksrfdata) THEN
+         IF (for_surface_build) THEN
             write(c,'(I0)') numpatch
             write(*,'(A,'//trim(c)//'I5,3A)')   'crop type : ', SITE_croptyp, ' (from ',trim(datasource(u_site_crop)),')'
             write(*,'(A,'//trim(c)//'F5.2,3A)') 'crop frac : ', SITE_pctcrop, ' (from ',trim(datasource(u_site_crop)),')'
@@ -376,7 +376,7 @@ CONTAINS
 #else
       IF (patchtypes(SITE_landtype) == 0 .and. SITE_landtype /= CROPLAND) THEN
 #endif
-         readflag = ((.not. mksrfdata) .or. USE_SITE_pctpfts)
+         readflag = ((.not. for_surface_build) .or. USE_SITE_pctpfts)
          u_site_pfts = readflag &
             .and. ncio_var_exist(fsrfdata,'pfttyp',readflag) .and. ncio_var_exist(fsrfdata,'pctpfts',readflag)
 
@@ -421,7 +421,7 @@ CONTAINS
          CALL CoLM_stop()
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          IF (numpft > 0) THEN
             write(*,'(4A)') 'PFT type and fraction : ', ' (from ',trim(datasource(u_site_pfts)),')'
             DO i = 1, numpft
@@ -434,7 +434,7 @@ CONTAINS
 
 
       ! (4) forest height
-      readflag = (.not. mksrfdata) .or. USE_SITE_htop
+      readflag = (.not. for_surface_build) .or. USE_SITE_htop
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (patchtypes(SITE_landtype) == 0) THEN
          u_site_htop = readflag .and. ncio_var_exist(fsrfdata,'canopy_height_pfts',readflag)
@@ -479,7 +479,7 @@ CONTAINS
 #endif
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
          IF (patchtypes(SITE_landtype) == 0) THEN
             arraysize = size(SITE_htop_pfts)
@@ -495,7 +495,7 @@ CONTAINS
 
 
       ! (5) LAI
-      readflag = ((.not. mksrfdata) .or. USE_SITE_LAI)
+      readflag = ((.not. for_surface_build) .or. USE_SITE_LAI)
       readflag = readflag .and. ncio_var_exist(fsrfdata,'LAI_year',readflag)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (patchtypes(SITE_landtype) == 0) THEN
@@ -652,7 +652,7 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          DO iyear = start_year, end_year
             write(c,'(i2)') ntime
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -687,7 +687,7 @@ CONTAINS
 
 
       ! (6) lake depth
-      readflag = ((.not. mksrfdata) .or. USE_SITE_lakedepth)
+      readflag = ((.not. for_surface_build) .or. USE_SITE_lakedepth)
       u_site_lakedepth = readflag .and. ncio_var_exist(fsrfdata,'lakedepth',readflag)
 
       IF (u_site_lakedepth) THEN
@@ -700,13 +700,13 @@ CONTAINS
          SITE_lakedepth = lakedepth * 0.1
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,F8.2,3A)') 'Lake depth : ', SITE_lakedepth, ' (from ',trim(datasource(u_site_lakedepth)),')'
       ENDIF
 
 
       ! (7) soil brightness parameters
-      readflag = ((.not. mksrfdata) .or. USE_SITE_soilreflectance)
+      readflag = ((.not. for_surface_build) .or. USE_SITE_soilreflectance)
       u_site_soil_bright = readflag &
          .and. ncio_var_exist(fsrfdata,'soil_s_v_alb',readflag) &
          .and. ncio_var_exist(fsrfdata,'soil_d_v_alb',readflag) &
@@ -743,7 +743,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,F8.2,3A)') 'Soil brightness s_v : ', SITE_soil_s_v_alb, ' (from ',trim(datasource(u_site_soil_bright)),')'
          write(*,'(A,F8.2,3A)') 'Soil brightness d_v : ', SITE_soil_d_v_alb, ' (from ',trim(datasource(u_site_soil_bright)),')'
          write(*,'(A,F8.2,3A)') 'Soil brightness s_n : ', SITE_soil_s_n_alb, ' (from ',trim(datasource(u_site_soil_bright)),')'
@@ -755,7 +755,7 @@ CONTAINS
 
       CALL gridsoil%define_by_name ('colm_500m')
 
-      readflag = ((.not. mksrfdata) .or. USE_SITE_soilparameters)
+      readflag = ((.not. for_surface_build) .or. USE_SITE_soilparameters)
       u_site_vf_quartz_mineral = readflag &
          .and. ncio_var_exist(fsrfdata,'soil_vf_quartz_mineral',readflag)
       IF (u_site_vf_quartz_mineral) THEN
@@ -1124,7 +1124,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,8ES10.2,3A)') 'soil_vf_quartz_mineral : ', SITE_soil_vf_quartz_mineral(1:8), ' (from ',trim(datasource(u_site_vf_quartz_mineral)),')'
          write(*,'(A,8ES10.2,3A)') 'soil_vf_gravels        : ', SITE_soil_vf_gravels       (1:8), ' (from ',trim(datasource(u_site_vf_gravels       )),')'
          write(*,'(A,8ES10.2,3A)') 'soil_vf_sand           : ', SITE_soil_vf_sand          (1:8), ' (from ',trim(datasource(u_site_vf_sand          )),')'
@@ -1162,7 +1162,7 @@ CONTAINS
 
       ! (9) depth to bedrock
       IF (DEF_USE_BEDROCK) THEN
-         readflag = ((.not. mksrfdata) .or. USE_SITE_dbedrock)
+         readflag = ((.not. for_surface_build) .or. USE_SITE_dbedrock)
          u_site_dbedrock = readflag &
             .and. ncio_var_exist (fsrfdata, 'depth_to_bedrock',readflag)
          IF (u_site_dbedrock) THEN
@@ -1174,14 +1174,14 @@ CONTAINS
                SITE_lon_location, SITE_lat_location, SITE_dbedrock)
          ENDIF
 
-         IF (mksrfdata) THEN
+         IF (for_surface_build) THEN
             write(*,'(A,F8.2,3A)') 'Depth to bedrock : ', SITE_dbedrock, ' (from ',trim(datasource(u_site_dbedrock)),')'
          ENDIF
 
       ENDIF
 
       ! (10) topography
-      readflag = ((.not. mksrfdata) .or. USE_SITE_topography)
+      readflag = ((.not. for_surface_build) .or. USE_SITE_topography)
 
       u_site_elevation = readflag &
          .and. ncio_var_exist (fsrfdata, 'elevation',readflag)
@@ -1326,7 +1326,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,F8.2,3A)') 'Elevation : ', SITE_elevation , ' (from ',trim(datasource(u_site_elevation)),')'
          write(*,'(A,F8.2,3A)') 'Elv std   : ', SITE_elvstd    , ' (from ',trim(datasource(u_site_elvstd)),')'
          write(*,'(A,F8.2,3A)') 'SlopeRatio: ', SITE_sloperatio, ' (from ',trim(datasource(u_site_sloperatio)),')'
@@ -1346,7 +1346,7 @@ CONTAINS
       ENDIF
 
 
-      IF (.not. mksrfdata) THEN
+      IF (.not. for_surface_build) THEN
 
          landpatch%nset = numpatch
 
@@ -1414,7 +1414,7 @@ CONTAINS
    END SUBROUTINE read_surface_data_single
 
 !-----------------------------------------------------------------------
-   SUBROUTINE read_urban_surface_data_single (fsrfdata, mksrfdata, mkrun)
+   SUBROUTINE read_urban_surface_data_single (fsrfdata, for_surface_build, mkrun)
 
    USE MOD_TimeManager
    USE MOD_Grid
@@ -1433,7 +1433,7 @@ CONTAINS
    IMPLICIT NONE
 
    character(len=*), intent(in) :: fsrfdata
-   logical, intent(in) :: mksrfdata
+   logical, intent(in) :: for_surface_build
    logical, intent(in), optional :: mkrun
 
    ! Local Variables
@@ -1473,7 +1473,7 @@ CONTAINS
       u_site_tbmax = .false.; u_site_tbmin = .false.; u_site_thickr  = .false.; u_site_thickw  = .false.;
       u_site_pop   = .false.; u_site_lucy  = .false.;
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,*)
          write(*,*) '  ----------------  Make Single Point Surface Data  ----------------  '
       ENDIF
@@ -1502,7 +1502,7 @@ CONTAINS
          LocalLongitude = SITE_lon_location
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,F8.2)') 'Latitude  : ', SITE_lat_location
          write(*,'(A,F8.2)') 'Longitude : ', SITE_lon_location
       ENDIF
@@ -1530,12 +1530,12 @@ CONTAINS
       numpatch = 1
       numurban = 1
       u_site_landtype = (SITE_landtype >= 0)
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          write(*,'(A,A,3A)') 'Land cover type : ', trim(patchclassname(SITE_landtype)), &
             ' (from ',trim(datasource(u_site_landtype)),')'
       ENDIF
 
-      IF (mksrfdata) THEN
+      IF (for_surface_build) THEN
          ! (2) build/read "urban type" by using land cover type data
 IF (DEF_URBAN_type_scheme == 1) THEN
          u_site_utype = ncio_var_exist(fsrfdata,'URBAN_DENSITY_CLASS')
@@ -2725,7 +2725,7 @@ ENDIF
          ENDIF
       ENDIF
 
-      IF (.not. mksrfdata) THEN
+      IF (.not. for_surface_build) THEN
 
          landpatch%nset = numpatch
 

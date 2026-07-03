@@ -45,15 +45,7 @@
 #undef CatchLateralFlow
 #endif
 
-! 6. CaMa-Flood is not built in the MPAS-embedded CoLM package.
-#undef CaMa_Flood
-#if (defined SinglePoint)
-#undef CaMa_Flood
-#endif
-#ifndef USEMPI
-#undef CaMa_Flood
-#endif
-
+! 6. Embedded grid river-lake routing.
 #define GridRiverLakeFlow
 !    Conflicts :
 #if (defined CATCHMENT || defined SinglePoint)

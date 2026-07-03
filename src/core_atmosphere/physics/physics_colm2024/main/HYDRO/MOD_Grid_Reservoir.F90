@@ -283,7 +283,7 @@ CONTAINS
       IF (method == 1) THEN
          ! *** Reference ***
          ! [1] Mizuki Funato, Dai Yamazaki, Dung Trung Vu.
-         ! Development of an Improved Reservoir Operation Scheme for Global Flood Modeling (CaMa-Flood v4.20).
+         ! Development of an improved reservoir operation scheme for global flood modeling.
          ! ESS Open Archive . October 24, 2024.
 
          IF (vol > volresv_emerg(irsv)) THEN
