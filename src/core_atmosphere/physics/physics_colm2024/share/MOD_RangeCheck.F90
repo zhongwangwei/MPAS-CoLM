@@ -9,7 +9,7 @@ MODULE MOD_RangeCheck
 !
 !    Notice that:
 !    1. "check_block_data"  can only be called by IO     processes.
-!    2. "check_vector_data" can only be called by worker processes.
+!    2. "check_vector_data" can only be called by compute ranks.
 !
 !  Created by Shupeng Zhang, May 2023
 !-----------------------------------------------------------------------

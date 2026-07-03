@@ -503,8 +503,9 @@
 	    qfx(i) = real(evaporation, RKIND)
 	    ! CoLM fgrnd and MPAS/Noah-MP grdflx are positive into soil/snow.
 	    grdflx(i) = real(ground_heat, RKIND)
-	    sfcrunoff(i) = real(surface_runoff * dt, RKIND)
-    udrunoff(i) = real(subsurface_runoff * dt, RKIND)
+	    ! MPAS runoff diagnostics are accumulated depths, matching Noah/Noah-MP.
+	    sfcrunoff(i) = sfcrunoff(i) + real(surface_runoff * dt, RKIND)
+	    udrunoff(i) = udrunoff(i) + real(subsurface_runoff * dt, RKIND)
     skintemp(i) = real(skin_temp, RKIND)
     t2m(i) = real(t2m_colm, RKIND)
 	    qsfc(i) = real(qsfc_colm, RKIND)

@@ -11,8 +11,7 @@
 !
 !    CoLM read and write netCDF files mainly in three ways:
 !    1. Serial: read and write data by a single process;
-!    2. Vector: 1) read vector data by IO and scatter from IO to workers
-!               2) gather from workers to IO and write vectors by IO
+!    2. Vector: read/write data associated with CoLM pixelsets
 !    3. Block : read blocked data by IO
 !               Notice: input file is a single file.
 !
@@ -240,7 +239,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! unused on non-root ranks
                rbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER, &
                p_root, p_comm_group, p_err)
 
@@ -364,7 +363,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! unused on non-root ranks
                rbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER8, &
                p_root, p_comm_group, p_err)
 
@@ -492,7 +491,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER1, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER1, & ! unused on non-root ranks
                rbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER1, &
                p_root, p_comm_group, p_err)
 
@@ -617,7 +616,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                rbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
                p_root, p_comm_group, p_err)
 
@@ -743,7 +742,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                rbuff, ndim1 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
                p_root, p_comm_group, p_err)
 
@@ -869,7 +868,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                rbuff, ndim1 * ndim2 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
                p_root, p_comm_group, p_err)
 
@@ -995,7 +994,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                rbuff, ndim1 * ndim2 * ndim3 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
                p_root, p_comm_group, p_err)
 
@@ -1122,7 +1121,7 @@ CONTAINS
             ENDIF
 
             CALL mpi_scatterv ( &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                rbuff, ndim1 * ndim2 * ndim3 * ndim4 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
                p_root, p_comm_group, p_err)
 
@@ -1287,7 +1286,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER, &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1385,7 +1384,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER1, &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER1, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER1, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1474,7 +1473,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, ndim1*ndim2*pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER, &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1560,7 +1559,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_INTEGER8, &
-               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! insignificant on workers
+               MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1646,7 +1645,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1736,7 +1735,7 @@ CONTAINS
 
             CALL mpi_gatherv ( &
                sbuff, ndim1 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1825,7 +1824,7 @@ CONTAINS
 
             CALL mpi_gatherv ( sbuff, &
                ndim1 * ndim2 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -1914,7 +1913,7 @@ CONTAINS
 
             CALL mpi_gatherv ( sbuff, &
                ndim1 * ndim2 * ndim3 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)
@@ -2004,7 +2003,7 @@ CONTAINS
 
             CALL mpi_gatherv ( sbuff, &
                ndim1 * ndim2 * ndim3 * ndim4 * pixelset%vecgs%vlen(iblk,jblk), MPI_REAL8, &
-               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! insignificant on workers
+               MPI_RNULL_P, MPI_INULL_P, MPI_INULL_P, MPI_REAL8, & ! unused on non-root ranks
                p_root, p_comm_group, p_err)
 
             IF (allocated(sbuff)) deallocate (sbuff)

@@ -35,8 +35,8 @@ CONTAINS
 
    ! Local variables
    character(len=256) :: filename, fileblock, cyear
-   integer :: ie, je, nelm, totlen, tothis, iblk, jblk, iworker, i
-   integer,   allocatable :: nelm_worker(:), ndsp_worker(:)
+   integer :: ie, je, nelm, totlen, tothis, iblk, jblk, owner_rank, i
+   integer,   allocatable :: nelm_rank(:), ndsp_rank(:)
    integer*8, allocatable :: elmindx(:)
    integer,   allocatable :: npxlall(:)
    integer,   allocatable :: elmpixels(:,:)
@@ -106,11 +106,11 @@ CONTAINS
                      MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
 
                   CALL mpi_gatherv (elmindx, nelm, MPI_INTEGER8, &
-                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! insignificant on workers
+                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! unused on non-root ranks
                      p_root, p_comm_group, p_err)
 
                   CALL mpi_gatherv (npxlall, nelm, MPI_INTEGER, &
-                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! insignificant on workers
+                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! unused on non-root ranks
                      p_root, p_comm_group, p_err)
 
                   ndone = 0
@@ -130,44 +130,44 @@ CONTAINS
             IF (p_is_active) THEN
                IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
 
-                  allocate (nelm_worker (0:p_np_group-1))
-                  nelm_worker(0) = 0
+                  allocate (nelm_rank (0:p_np_group-1))
+                  nelm_rank(0) = 0
                   CALL mpi_gather (MPI_IN_PLACE, 0, MPI_INTEGER, &
-                     nelm_worker, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
+                     nelm_rank, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
 
-                  nelm = sum(nelm_worker)
+                  nelm = sum(nelm_rank)
 
-                  allocate (ndsp_worker(0:p_np_group-1))
-                  ndsp_worker(0) = 0
-                  DO iworker = 1, p_np_group-1
-                     ndsp_worker(iworker) = ndsp_worker(iworker-1) + nelm_worker(iworker-1)
+                  allocate (ndsp_rank(0:p_np_group-1))
+                  ndsp_rank(0) = 0
+                  DO owner_rank = 1, p_np_group-1
+                     ndsp_rank(owner_rank) = ndsp_rank(owner_rank-1) + nelm_rank(owner_rank-1)
                   ENDDO
 
                   allocate (elmindx (nelm))
                   CALL mpi_gatherv (MPI_IN_PLACE, 0, MPI_INTEGER8, &
-                     elmindx, nelm_worker(0:), ndsp_worker(0:), MPI_INTEGER8, &
+                     elmindx, nelm_rank(0:), ndsp_rank(0:), MPI_INTEGER8, &
                      p_root, p_comm_group, p_err)
 
                   allocate (npxlall (nelm))
                   CALL mpi_gatherv (MPI_IN_PLACE, 0, MPI_INTEGER, &
-                     npxlall, nelm_worker(0:), ndsp_worker(0:), MPI_INTEGER, &
+                     npxlall, nelm_rank(0:), ndsp_rank(0:), MPI_INTEGER, &
                      p_root, p_comm_group, p_err)
 
                   totlen = sum(npxlall)
                   allocate (elmpixels (2, totlen))
 
                   ndone = 0
-                  DO iworker = 1, p_np_group-1
+                  DO owner_rank = 1, p_np_group-1
 
-                     ndsp   = ndsp_worker(iworker)
-                     tothis = ndone + sum(npxlall(ndsp+1:ndsp+nelm_worker(iworker)))
+                     ndsp   = ndsp_rank(owner_rank)
+                     tothis = ndone + sum(npxlall(ndsp+1:ndsp+nelm_rank(owner_rank)))
 
                      DO WHILE (ndone < tothis)
 
                         CALL mpi_recv (nrecv, 1, &
-                           MPI_INTEGER, iworker, mpi_tag_size, p_comm_group, p_stat, p_err)
+                           MPI_INTEGER, owner_rank, mpi_tag_size, p_comm_group, p_stat, p_err)
                         CALL mpi_recv (elmpixels(:,ndone+1:ndone+nrecv), 2*nrecv, &
-                           MPI_INTEGER, iworker, mpi_tag_data, p_comm_group, p_stat, p_err)
+                           MPI_INTEGER, owner_rank, mpi_tag_data, p_comm_group, p_stat, p_err)
 
                         ndone = ndone + nrecv
                      ENDDO
@@ -198,8 +198,8 @@ CONTAINS
             IF (allocated (npxlall))   deallocate(npxlall)
             IF (allocated (elmpixels)) deallocate(elmpixels)
 
-            IF (allocated (nelm_worker)) deallocate(nelm_worker)
-            IF (allocated (ndsp_worker)) deallocate(ndsp_worker)
+            IF (allocated (nelm_rank)) deallocate(nelm_rank)
+            IF (allocated (ndsp_rank)) deallocate(ndsp_rank)
 
 #ifdef USEMPI
             CALL mpi_barrier (p_comm_group, p_err)
@@ -459,7 +459,7 @@ CONTAINS
 
 #ifdef USEMPI
 #ifndef MPAS_EMBEDDED_COLM
-      CALL scatter_mesh_from_io_to_worker
+      CALL scatter_mesh_legacy_roles
 #endif
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -551,7 +551,7 @@ CONTAINS
    integer :: nsend, nrecv
    integer*8, allocatable :: rbuff(:), sbuff(:)
    integer*8, allocatable :: subset_sorted(:)
-   integer,   allocatable :: iworker(:)
+   integer,   allocatable :: owner_rank(:)
    logical,   allocatable :: msk(:)
    logical,   allocatable :: keep_set(:)
    logical :: fexists, fexists_any
@@ -714,7 +714,7 @@ CONTAINS
 #if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
       IF (p_is_active) THEN
          IF (pixelset%nset > 0) THEN
-            allocate (iworker (pixelset%nset))
+            allocate (owner_rank (pixelset%nset))
             allocate (msk     (pixelset%nset))
 
             ie = 1
@@ -736,14 +736,14 @@ CONTAINS
                nres = mod(nelm_blk(iblk,jblk), p_np_group-1)
                left = (nave+1) * nres
                IF (je <= left) THEN
-                  iworker(iset) = (je-1) / (nave+1) + 1
+                  owner_rank(iset) = (je-1) / (nave+1) + 1
                ELSE
-                  iworker(iset) = (je-left-1) / nave + 1 + nres
+                  owner_rank(iset) = (je-left-1) / nave + 1 + nres
                ENDIF
             ENDDO
 
             DO iproc = 1, p_np_group-1
-               msk = (iworker == iproc)
+               msk = (owner_rank == iproc)
                nsend = count(msk)
                CALL mpi_send (nsend, 1, MPI_INTEGER, iproc, mpi_tag_size, p_comm_group, p_err)
 
@@ -796,7 +796,7 @@ CONTAINS
             ENDDO
 
          ELSE
-            write(*,*) 'Warning: 0 ',trim(psetname), ' on worker :', p_iam_glb
+            write(*,*) 'Warning: 0 ',trim(psetname), ' on rank :', p_iam_glb
          ENDIF
       ENDIF
 

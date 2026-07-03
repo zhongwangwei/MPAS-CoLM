@@ -63,7 +63,7 @@ CONTAINS
    integer,  allocatable :: icache (:)
 
    integer, parameter :: dam_seq_chunk_size = 1048576
-   integer :: i, iloc, irsv, nresv, iworker
+   integer :: i, iloc, irsv, nresv, irank
    integer :: istart, iend, local_index
 
 
@@ -144,22 +144,22 @@ CONTAINS
       IF (.not. allocated(resv_data_address)) allocate (resv_data_address (0:p_np_compute-1))
 
       IF (p_is_root) THEN
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
-            IF (p_address_compute(iworker) == p_iam_glb) THEN
+            IF (p_address_compute(irank) == p_iam_glb) THEN
                nresv = numresv
             ELSE
                CALL mpi_recv (nresv, 1, MPI_INTEGER, &
-                  p_address_compute(iworker), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+                  p_address_compute(irank), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
             ENDIF
 
             IF (nresv > 0) THEN
-               allocate (resv_data_address(iworker)%val (nresv))
-               IF (p_address_compute(iworker) == p_iam_glb) THEN
-                  resv_data_address(iworker)%val = resv_global_index(1:nresv)
+               allocate (resv_data_address(irank)%val (nresv))
+               IF (p_address_compute(irank) == p_iam_glb) THEN
+                  resv_data_address(irank)%val = resv_global_index(1:nresv)
                ELSE
-                  CALL mpi_recv (resv_data_address(iworker)%val, nresv, MPI_INTEGER, &
-                     p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_stat, p_err)
+                  CALL mpi_recv (resv_data_address(irank)%val, nresv, MPI_INTEGER, &
+                     p_address_compute(irank), mpi_tag_data, p_comm_glb, p_stat, p_err)
                ENDIF
             ENDIF
          ENDDO

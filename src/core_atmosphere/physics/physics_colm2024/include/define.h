@@ -113,7 +113,7 @@
 #endif
 #undef HYPERSPECTRAL
 #undef CoLMDEBUG
-! CoLM range diagnostics still assume standalone IO/worker roles.
+! CoLM range diagnostics still assume the standalone role split.
 #undef RangeCheck
 #endif
 

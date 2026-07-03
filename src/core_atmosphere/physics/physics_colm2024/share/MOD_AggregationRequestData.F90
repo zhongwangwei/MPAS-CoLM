@@ -7,10 +7,10 @@ MODULE MOD_AggregationRequestData
 !
 !    Aggregation Utilities.
 !
-!    On IO processes, a data daemon is running to provide data
-!       at fine resolutions for worker processes.
-!    On worker processes, request is sent to IO processes and
-!       data is returned from IO processes.
+!    On IO ranks, a data daemon is running to provide data
+!       at fine resolutions for rank processes.
+!    On rank processes, request is sent to IO ranks and
+!       data is returned from IO ranks.
 !
 !  Created by Shupeng Zhang, May 2023
 !-----------------------------------------------------------------------

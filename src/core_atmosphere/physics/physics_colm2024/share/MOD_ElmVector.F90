@@ -8,8 +8,8 @@ MODULE MOD_ElmVector
 !
 !    Address of Data associated with land element.
 !
-!    To output a vector, Data is gathered from worker processes directly to
-!    master.  "elm_data_address" stores information on how to reorganize data
+!    To output a vector, Data is gathered from compute ranks directly to
+!    root rank.  "elm_data_address" stores information on how to reorganize data
 !    gathered.  The output data in vector is sorted by global element index.
 !
 !  Created by Shupeng Zhang, May 2023
@@ -44,10 +44,10 @@ CONTAINS
 
    ! Local Variables
    integer   :: mesg(2), iwork, isrc, ndata
-   integer, allocatable :: numelm_worker (:)
+   integer, allocatable :: numelm_rank (:)
 
    integer :: i, idsp
-   integer, allocatable :: vec_worker_dsp (:)
+   integer, allocatable :: vec_rank_dsp (:)
 
    integer*8, allocatable :: indexelm (:)
    integer,   allocatable :: order    (:)
@@ -63,13 +63,13 @@ CONTAINS
             indexelm = landelm%eindex
          ENDIF
 
-         IF (p_iam_compute == p_root) allocate (numelm_worker (0:p_np_compute-1))
+         IF (p_iam_compute == p_root) allocate (numelm_rank (0:p_np_compute-1))
          CALL mpi_gather (numelm, 1, MPI_INTEGER, &
-            numelm_worker, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
+            numelm_rank, 1, MPI_INTEGER, p_root, p_comm_compute, p_err)
 
          IF (p_iam_compute == p_root) THEN
 #ifndef MPAS_EMBEDDED_COLM
-            CALL mpi_send (numelm_worker, p_np_compute, MPI_INTEGER, &
+            CALL mpi_send (numelm_rank, p_np_compute, MPI_INTEGER, &
                p_address_root, mpi_tag_size, p_comm_glb, p_err)
 #endif
          ENDIF
@@ -96,34 +96,34 @@ CONTAINS
       IF (p_is_root) THEN
 #ifdef USEMPI
 #ifndef MPAS_EMBEDDED_COLM
-         allocate (numelm_worker (0:p_np_compute-1))
-         CALL mpi_recv (numelm_worker, p_np_compute, MPI_INTEGER, p_address_compute(p_root), &
+         allocate (numelm_rank (0:p_np_compute-1))
+         CALL mpi_recv (numelm_rank, p_np_compute, MPI_INTEGER, p_address_compute(p_root), &
             mpi_tag_size, p_comm_glb, p_stat, p_err)
 #endif
 
-         allocate (vec_worker_dsp (0:p_np_compute-1))
-         vec_worker_dsp(0) = 0
+         allocate (vec_rank_dsp (0:p_np_compute-1))
+         vec_rank_dsp(0) = 0
          DO iwork = 1, p_np_compute-1
-            vec_worker_dsp(iwork) = vec_worker_dsp(iwork-1) + numelm_worker(iwork-1)
+            vec_rank_dsp(iwork) = vec_rank_dsp(iwork-1) + numelm_rank(iwork-1)
          ENDDO
 
-         totalnumelm = sum(numelm_worker)
+         totalnumelm = sum(numelm_rank)
 
          allocate (eindex_glb (totalnumelm))
 
          allocate (elm_data_address(0:p_np_compute-1))
          DO iwork = 0, p_np_compute-1
-            IF (numelm_worker(iwork) > 0) THEN
-               allocate (elm_data_address(iwork)%val (numelm_worker(iwork)))
+            IF (numelm_rank(iwork) > 0) THEN
+               allocate (elm_data_address(iwork)%val (numelm_rank(iwork)))
             ENDIF
          ENDDO
 
          DO iwork = 0, p_np_compute-1
 #ifdef MPAS_EMBEDDED_COLM
             IF (iwork == p_root) THEN
-               ndata = numelm_worker(iwork)
+               ndata = numelm_rank(iwork)
                IF (ndata > 0) THEN
-                  idsp = vec_worker_dsp(iwork)
+                  idsp = vec_rank_dsp(iwork)
                   eindex_glb(idsp+1:idsp+ndata) = indexelm(1:ndata)
                ENDIF
                CYCLE
@@ -135,7 +135,7 @@ CONTAINS
             isrc  = mesg(1)
             ndata = mesg(2)
             IF (ndata > 0) THEN
-               idsp = vec_worker_dsp(p_itis_compute(isrc))
+               idsp = vec_rank_dsp(p_itis_compute(isrc))
                CALL mpi_recv (eindex_glb(idsp+1:idsp+ndata), ndata, MPI_INTEGER8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
             ENDIF
@@ -159,16 +159,16 @@ CONTAINS
 
 #ifdef USEMPI
          DO i = 1, totalnumelm
-            iwork = findloc_ud(order(i) > vec_worker_dsp, back=.true.) - 1
-            elm_data_address(iwork)%val(order(i)-vec_worker_dsp(iwork)) = i
+            iwork = findloc_ud(order(i) > vec_rank_dsp, back=.true.) - 1
+            elm_data_address(iwork)%val(order(i)-vec_rank_dsp(iwork)) = i
          ENDDO
 #else
          elm_data_address(0)%val (order) = (/(i, i=1,totalnumelm)/)
 #endif
       ENDIF
 
-      IF (allocated(numelm_worker))  deallocate(numelm_worker)
-      IF (allocated(vec_worker_dsp)) deallocate(vec_worker_dsp)
+      IF (allocated(numelm_rank))  deallocate(numelm_rank)
+      IF (allocated(vec_rank_dsp)) deallocate(vec_rank_dsp)
       IF (allocated(indexelm))       deallocate(indexelm)
       IF (allocated(order))          deallocate(order)
 

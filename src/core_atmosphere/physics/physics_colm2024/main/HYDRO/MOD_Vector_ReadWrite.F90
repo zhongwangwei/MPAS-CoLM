@@ -16,7 +16,7 @@ MODULE MOD_Vector_ReadWrite
 CONTAINS
 
    ! -------
-   SUBROUTINE vector_gather_to_master ( &
+   SUBROUTINE vector_gather_to_root ( &
          vector, vlen, totalvlen, data_address, wdata)
 
    USE MOD_Precision
@@ -85,7 +85,7 @@ CONTAINS
       wdata(data_address(0)%val) = vector
 #endif
 
-   END SUBROUTINE vector_gather_to_master
+   END SUBROUTINE vector_gather_to_root
 
    ! -------
    SUBROUTINE vector_gather_and_write ( vector, vlen, totalvlen, data_address, &
@@ -118,7 +118,7 @@ CONTAINS
    logical :: write_attr
 
 
-      CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
+      CALL vector_gather_to_root (vector, vlen, totalvlen, data_address, wdata)
 
       IF (p_is_root) THEN
 
@@ -182,7 +182,7 @@ CONTAINS
    real(r8), allocatable :: wdata(:), wdata2d(:,:)
    logical :: write_attr
 
-      CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
+      CALL vector_gather_to_root (vector, vlen, totalvlen, data_address, wdata)
 
       IF (p_is_root) THEN
 

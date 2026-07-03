@@ -21,7 +21,7 @@ MODULE MOD_Grid_RiverLakeNetwork
    integer, allocatable :: y_ucat    (:)   !
    integer, allocatable :: ucat_gdid (:)   !
 
-   integer, allocatable :: numucat_wrk (:)
+   integer, allocatable :: numucat_rank (:)
    type(pointer_int32_1d), allocatable :: ucat_data_address (:)
 
    ! ----- Part 1: between runoff input elements and unit catchments -----
@@ -128,8 +128,8 @@ CONTAINS
    integer,  allocatable :: uc_up2down(:), order_ucat(:)
    integer,  allocatable :: addr_ucat (:)
 
-   integer , allocatable :: nuc_rs(:), iwrk_rs(:), nwrk_rs(:), nave_rs(:)
-   real(r8), allocatable :: wt_uc (:), wt_rs  (:), wt_wrk (:), nuc_wrk(:)
+   integer , allocatable :: nuc_rs(:), irank_rs(:), nrank_rs(:), nave_rs(:)
+   real(r8), allocatable :: wt_uc (:), wt_rs  (:), wt_rank (:), nuc_rank(:)
 
    integer,  allocatable :: grdindex(:)
 
@@ -147,7 +147,7 @@ CONTAINS
    integer  :: nlat_ucat, nlon_ucat
    integer  :: nucat, iriv, ngrdall, igrd, ngrd
    integer  :: p_np_rivsys, color
-	   integer  :: iworker, iwrkdsp, self_worker
+	   integer  :: irank, irankdsp, self_rank
    integer  :: iloc, i, j, ithis
    real(r8) :: sumwt
    logical  :: is_new
@@ -233,7 +233,7 @@ CONTAINS
       ENDIF
 
 #ifdef COLM_PARALLEL
-      ! divide unit catchments into groups and assign to workers
+      ! divide unit catchments into groups and assign to ranks
       IF (p_is_root) THEN
 
          allocate (wt_uc (totalnumucat));  wt_uc(:) = 1.
@@ -259,22 +259,22 @@ CONTAINS
 
          sumwt = sum(wt_rs)
 
-         allocate (iwrk_rs (numrivmth))
-         allocate (nwrk_rs (numrivmth))
+         allocate (irank_rs (numrivmth))
+         allocate (nrank_rs (numrivmth))
          allocate (nave_rs (numrivmth))
 
-         iwrkdsp = -1
+         irankdsp = -1
          DO i = 1, numrivmth
-            nwrk_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
-            IF (nwrk_rs(i) > 1) THEN
+            nrank_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
+            IF (nrank_rs(i) > 1) THEN
 
-               nave_rs(i) = nuc_rs(i) / nwrk_rs(i)
-               IF (mod(nuc_rs(i), nwrk_rs(i)) /= 0) THEN
+               nave_rs(i) = nuc_rs(i) / nrank_rs(i)
+               IF (mod(nuc_rs(i), nrank_rs(i)) /= 0) THEN
                   nave_rs(i) = nave_rs(i) + 1
                ENDIF
 
-               iwrk_rs(i) = iwrkdsp + 1
-               iwrkdsp = iwrkdsp + nwrk_rs(i)
+               irank_rs(i) = irankdsp + 1
+               irankdsp = irankdsp + nrank_rs(i)
             ENDIF
          ENDDO
 
@@ -289,8 +289,8 @@ CONTAINS
 
          allocate (addr_ucat (totalnumucat));  addr_ucat(:) = -1
 
-         allocate (wt_wrk (0:p_np_compute-1));  wt_wrk (:) = 0
-         allocate (nuc_wrk(0:p_np_compute-1));  nuc_wrk(:) = 0
+         allocate (wt_rank (0:p_np_compute-1));  wt_rank (:) = 0
+         allocate (nuc_rank(0:p_np_compute-1));  nuc_rank(:) = 0
 
          allocate (order_ucat (totalnumucat))
          order_ucat(uc_up2down) = (/(i, i = 1, totalnumucat)/)
@@ -315,15 +315,15 @@ CONTAINS
             ENDIF
 
             iriv = rivermouth(i)
-            IF (nwrk_rs(iriv) > 1) THEN
-               iworker = iwrk_rs(iriv)
-               IF (nups_all(i) <= nave_rs(iriv)-nuc_wrk(iworker)) THEN
+            IF (nrank_rs(iriv) > 1) THEN
+               irank = irank_rs(iriv)
+               IF (nups_all(i) <= nave_rs(iriv)-nuc_rank(irank)) THEN
 
-                  addr_ucat(i) = p_address_compute(iworker)
+                  addr_ucat(i) = p_address_compute(irank)
 
-                  nuc_wrk(iworker) = nuc_wrk(iworker) + nups_all(i)
-                  IF (nuc_wrk(iworker) == nave_rs(iriv)) THEN
-                     iwrk_rs(iriv) = iwrk_rs(iriv) + 1
+                  nuc_rank(irank) = nuc_rank(irank) + nups_all(i)
+                  IF (nuc_rank(irank) == nave_rs(iriv)) THEN
+                     irank_rs(iriv) = irank_rs(iriv) + 1
                   ENDIF
 
                   j = ucat_next(i)
@@ -340,11 +340,11 @@ CONTAINS
                   ithis = ithis - 1
                ENDIF
             ELSE
-               iworker = minloc(wt_wrk(iwrkdsp+1:p_np_compute-1), dim=1) + iwrkdsp
+               irank = minloc(wt_rank(irankdsp+1:p_np_compute-1), dim=1) + irankdsp
 
-               addr_ucat(i) = p_address_compute(iworker)
+               addr_ucat(i) = p_address_compute(irank)
 
-               wt_wrk(iworker) = wt_wrk(iworker) + wt_rs(iriv)
+               wt_rank(irank) = wt_rank(irank) + wt_rs(iriv)
                ithis = ithis - 1
             ENDIF
 
@@ -353,13 +353,13 @@ CONTAINS
          deallocate (order_ucat)
          deallocate (nups_all  )
          deallocate (nuc_rs    )
-         deallocate (iwrk_rs   )
-         deallocate (nwrk_rs   )
+         deallocate (irank_rs   )
+         deallocate (nrank_rs   )
          deallocate (nave_rs   )
          deallocate (wt_uc     )
          deallocate (wt_rs     )
-	         deallocate (wt_wrk    )
-	         deallocate (nuc_wrk   )
+	         deallocate (wt_rank    )
+	         deallocate (nuc_rank   )
 
 	      ENDIF
 
@@ -368,16 +368,16 @@ CONTAINS
 		         allocate(ucat_ucid (totalnumucat))
 		         ucat_ucid = (/(i, i = 1, totalnumucat)/)
 
-         allocate (numucat_wrk       (0:p_np_compute-1))
+         allocate (numucat_rank       (0:p_np_compute-1))
          allocate (ucat_data_address (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_compute-1
-            nucat = count(addr_ucat == p_address_compute(iworker))
-            numucat_wrk(iworker) = nucat
+         DO irank = 0, p_np_compute-1
+            nucat = count(addr_ucat == p_address_compute(irank))
+            numucat_rank(irank) = nucat
             IF (nucat > 0) THEN
-               allocate (ucat_data_address(iworker)%val (nucat))
-               ucat_data_address(iworker)%val = &
-                  pack(ucat_ucid, mask = (addr_ucat == p_address_compute(iworker)))
+               allocate (ucat_data_address(irank)%val (nucat))
+               ucat_data_address(irank)%val = &
+                  pack(ucat_ucid, mask = (addr_ucat == p_address_compute(irank)))
 	            ENDIF
 	         ENDDO
 
@@ -385,49 +385,49 @@ CONTAINS
 
 	      CALL mpi_bcast (totalnumucat, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
 
-	      ! send unit catchment index to workers
+	      ! send unit catchment index to ranks
 	      IF (p_is_root) THEN
 
-	         self_worker = -1
+	         self_rank = -1
 
-			         DO iworker = 0, p_np_compute-1
+			         DO irank = 0, p_np_compute-1
 
-			            nucat = numucat_wrk(iworker)
-			            IF (p_address_compute(iworker) == p_iam_glb) THEN
+			            nucat = numucat_rank(irank)
+			            IF (p_address_compute(irank) == p_iam_glb) THEN
 			               numucat = nucat
-			               self_worker = iworker
+			               self_rank = irank
 			               CYCLE
 			            ENDIF
 
-			            CALL mpi_send (nucat, 1, MPI_INTEGER, p_address_compute(iworker), &
+			            CALL mpi_send (nucat, 1, MPI_INTEGER, p_address_compute(irank), &
 		               mpi_tag_mesg, p_comm_glb, p_err)
 
 	            IF (nucat > 0) THEN
 
-	               CALL mpi_send (ucat_data_address(iworker)%val, nucat, MPI_INTEGER, &
-	                  p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_err)
+	               CALL mpi_send (ucat_data_address(irank)%val, nucat, MPI_INTEGER, &
+	                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
 
 #ifndef MPAS_EMBEDDED_COLM
                allocate (idata1d (nucat))
 
-               idata1d = x_ucat (ucat_data_address(iworker)%val)
+               idata1d = x_ucat (ucat_data_address(irank)%val)
                CALL mpi_send (idata1d, nucat, MPI_INTEGER, &
-                  p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_err)
+                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
 
-               idata1d = y_ucat (ucat_data_address(iworker)%val)
+               idata1d = y_ucat (ucat_data_address(irank)%val)
                CALL mpi_send (idata1d, nucat, MPI_INTEGER, &
-                  p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_err)
+                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
 
                deallocate (idata1d)
 #endif
 		            ENDIF
 		         ENDDO
 
-	         IF (self_worker >= 0) THEN
-	            nucat = numucat_wrk(self_worker)
+	         IF (self_rank >= 0) THEN
+	            nucat = numucat_rank(self_rank)
 	            IF (allocated(idata1d)) deallocate(idata1d)
 	            allocate (idata1d (nucat))
-	            IF (nucat > 0) idata1d = ucat_data_address(self_worker)%val
+	            IF (nucat > 0) idata1d = ucat_data_address(self_rank)%val
 
 	            IF (allocated(ucat_ucid)) deallocate(ucat_ucid)
 	            allocate (ucat_ucid (nucat))
@@ -483,8 +483,8 @@ CONTAINS
       allocate(ucat_ucid (totalnumucat))
       ucat_ucid = (/(i, i = 1, totalnumucat)/)
 
-      allocate (numucat_wrk (0:0))
-      numucat_wrk(0) = numucat
+      allocate (numucat_rank (0:0))
+      numucat_rank(0) = numucat
 
       allocate (ucat_data_address (0:0))
       allocate (ucat_data_address(0)%val (numucat))
@@ -621,30 +621,30 @@ CONTAINS
 
       IF (p_is_root) THEN
 
-         self_worker = -1
-		         DO iworker = 0, p_np_compute-1
+         self_rank = -1
+		         DO irank = 0, p_np_compute-1
 
-		            nucat = numucat_wrk(iworker)
+		            nucat = numucat_rank(irank)
 
 		            IF (nucat > 0) THEN
-		               IF (p_address_compute(iworker) == p_iam_glb) THEN
-		                  self_worker = iworker
+		               IF (p_address_compute(irank) == p_iam_glb) THEN
+		                  self_rank = irank
 		                  CYCLE
 		               ENDIF
 
 		               allocate (idata2d (inpn, nucat))
 		               DO i = 1, nucat
-		                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(iworker)%val(i))
+		                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(irank)%val(i))
 		               ENDDO
 
 		               allocate (rdata2d (inpn, nucat))
 		               DO i = 1, nucat
-		                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(iworker)%val(i))
+		                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(irank)%val(i))
 		               ENDDO
 
-		               CALL mpi_send (idata2d, inpn*nucat, MPI_INTEGER, p_address_compute(iworker), &
+		               CALL mpi_send (idata2d, inpn*nucat, MPI_INTEGER, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
-		               CALL mpi_send (rdata2d, inpn*nucat, MPI_REAL8, p_address_compute(iworker), &
+		               CALL mpi_send (rdata2d, inpn*nucat, MPI_REAL8, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
 
 		               deallocate (idata2d)
@@ -652,17 +652,17 @@ CONTAINS
 		            ENDIF
 		         ENDDO
 
-         IF (self_worker >= 0) THEN
-            nucat = numucat_wrk(self_worker)
+         IF (self_rank >= 0) THEN
+            nucat = numucat_rank(self_rank)
             IF (nucat > 0) THEN
                allocate (idata2d (inpn, nucat))
                DO i = 1, nucat
-                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(self_worker)%val(i))
+                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(self_rank)%val(i))
                ENDDO
 
                allocate (rdata2d (inpn, nucat))
                DO i = 1, nucat
-                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(self_worker)%val(i))
+                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(self_rank)%val(i))
                ENDDO
 
                IF (allocated(idmap_gd2uc)) deallocate(idmap_gd2uc)
@@ -708,13 +708,13 @@ CONTAINS
 
 	      IF (p_is_root) THEN
 
-	         DO iworker = 0, p_np_compute-1
+	         DO irank = 0, p_np_compute-1
 
-	            IF (p_address_compute(iworker) == p_iam_glb) THEN
+	            IF (p_address_compute(irank) == p_iam_glb) THEN
 	               ngrd = numinpm
 	            ELSE
 	               CALL mpi_recv (ngrd, 1, MPI_INTEGER, &
-	                  p_address_compute(iworker), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+	                  p_address_compute(irank), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 	            ENDIF
 
 	            IF (ngrd > 0) THEN
@@ -723,11 +723,11 @@ CONTAINS
 	               allocate (idata2d  (nucpart, ngrd));  idata2d(:,:) = 0
 	               allocate (rdata2d  (nucpart, ngrd));  rdata2d(:,:) = 0.
 
-	               IF (p_address_compute(iworker) == p_iam_glb) THEN
+	               IF (p_address_compute(irank) == p_iam_glb) THEN
 	                  grdindex = inpm_gdid
 	               ELSE
 	                  CALL mpi_recv (grdindex, ngrd, MPI_INTEGER, &
-	                     p_address_compute(iworker), mpi_tag_data, p_comm_glb, p_stat, p_err)
+	                     p_address_compute(irank), mpi_tag_data, p_comm_glb, p_stat, p_err)
 	               ENDIF
 
 	               DO i = 1, ngrd
@@ -738,7 +738,7 @@ CONTAINS
 	                  ENDIF
 	               ENDDO
 
-	               IF (p_address_compute(iworker) == p_iam_glb) THEN
+	               IF (p_address_compute(irank) == p_iam_glb) THEN
 	                  IF (allocated(idmap_uc2gd)) deallocate(idmap_uc2gd)
 	                  IF (allocated(area_uc2gd )) deallocate(area_uc2gd )
 	                  allocate (idmap_uc2gd (nucpart, ngrd))
@@ -746,9 +746,9 @@ CONTAINS
 	                  idmap_uc2gd = idata2d
 	                  area_uc2gd  = rdata2d
 	               ELSE
-	                  CALL mpi_send (idata2d, nucpart*ngrd, MPI_INTEGER, p_address_compute(iworker), &
+	                  CALL mpi_send (idata2d, nucpart*ngrd, MPI_INTEGER, p_address_compute(irank), &
 	                     mpi_tag_data, p_comm_glb, p_err)
-	                  CALL mpi_send (rdata2d, nucpart*ngrd, MPI_REAL8,   p_address_compute(iworker), &
+	                  CALL mpi_send (rdata2d, nucpart*ngrd, MPI_REAL8,   p_address_compute(irank), &
 	                     mpi_tag_data, p_comm_glb, p_err)
 	               ENDIF
 
@@ -856,28 +856,28 @@ CONTAINS
 
       IF (p_is_root) THEN
 
-         self_worker = -1
-         DO iworker = 0, p_np_compute-1
+         self_rank = -1
+         DO irank = 0, p_np_compute-1
 
-            nucat = numucat_wrk(iworker)
+            nucat = numucat_rank(irank)
 
 		            IF (nucat > 0) THEN
-		               IF (p_address_compute(iworker) == p_iam_glb) THEN
-		                  self_worker = iworker
+		               IF (p_address_compute(irank) == p_iam_glb) THEN
+		                  self_rank = irank
 		                  CYCLE
 		               ENDIF
 
 		               allocate (idata1d (nucat))
-		               idata1d = ucat_next(ucat_data_address(iworker)%val)
+		               idata1d = ucat_next(ucat_data_address(irank)%val)
 
 		               allocate (idata2d (upnmax,nucat))
 		               DO i = 1, nucat
-		                  idata2d(:,i) = ucat_ups(:,ucat_data_address(iworker)%val(i))
+		                  idata2d(:,i) = ucat_ups(:,ucat_data_address(irank)%val(i))
 		               ENDDO
 
-		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(iworker), &
+		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
-		               CALL mpi_send (idata2d, upnmax*nucat, MPI_INTEGER, p_address_compute(iworker), &
+		               CALL mpi_send (idata2d, upnmax*nucat, MPI_INTEGER, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
 
 		               deallocate (idata1d)
@@ -885,15 +885,15 @@ CONTAINS
 		            ENDIF
 		         ENDDO
 
-         IF (self_worker >= 0) THEN
-            nucat = numucat_wrk(self_worker)
+         IF (self_rank >= 0) THEN
+            nucat = numucat_rank(self_rank)
             IF (nucat > 0) THEN
                allocate (idata1d (nucat))
-               idata1d = ucat_next(ucat_data_address(self_worker)%val)
+               idata1d = ucat_next(ucat_data_address(self_rank)%val)
 
                allocate (idata2d (upnmax,nucat))
                DO i = 1, nucat
-                  idata2d(:,i) = ucat_ups(:,ucat_data_address(self_worker)%val(i))
+                  idata2d(:,i) = ucat_ups(:,ucat_data_address(self_rank)%val(i))
                ENDDO
 
                IF (allocated(ucat_next)) deallocate(ucat_next)
@@ -950,8 +950,8 @@ CONTAINS
 
 #ifdef CoLMDEBUG
       ! IF (p_is_compute) THEN
-      !    write(*,'(A,I0,A,I0,A,I0,A)') 'worker ', p_iam_compute, ' has ', numucat, &
-      !       ' unit catchment with ', sum(push_next2ucat%n_from_other), ' downstream to other workers'
+      !    write(*,'(A,I0,A,I0,A,I0,A)') 'rank ', p_iam_compute, ' has ', numucat, &
+      !       ' unit catchment with ', sum(push_next2ucat%n_from_other), ' downstream to other ranks'
       ! ENDIF
 #endif
 
@@ -959,27 +959,27 @@ CONTAINS
 
 #ifdef COLM_PARALLEL
 		      IF (p_is_root) THEN
-		         self_worker = -1
-		         DO iworker = 0, p_np_compute-1
-		            nucat = numucat_wrk(iworker)
+		         self_rank = -1
+		         DO irank = 0, p_np_compute-1
+		            nucat = numucat_rank(irank)
 		            IF (nucat > 0) THEN
-		               IF (p_address_compute(iworker) == p_iam_glb) THEN
-		                  self_worker = iworker
+		               IF (p_address_compute(irank) == p_iam_glb) THEN
+		                  self_rank = irank
 		                  CYCLE
 		               ENDIF
 
 		               allocate (idata1d (nucat))
-		               idata1d = rivermouth(ucat_data_address(iworker)%val)
-		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(iworker), &
+		               idata1d = rivermouth(ucat_data_address(irank)%val)
+		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
 		               deallocate (idata1d)
 		            ENDIF
 		         ENDDO
 
-		         IF (self_worker >= 0) THEN
-		            nucat = numucat_wrk(self_worker)
+		         IF (self_rank >= 0) THEN
+		            nucat = numucat_rank(self_rank)
 		            allocate (idata1d (nucat))
-		            IF (nucat > 0) idata1d = rivermouth(ucat_data_address(self_worker)%val)
+		            IF (nucat > 0) idata1d = rivermouth(ucat_data_address(self_rank)%val)
 		            IF (allocated(rivermouth)) deallocate(rivermouth)
 		            allocate (rivermouth (nucat))
 		            IF (nucat > 0) rivermouth = idata1d
@@ -1138,18 +1138,18 @@ CONTAINS
 
 	      IF (p_is_root) THEN
 
-	         DO iworker = 0, p_np_compute-1
-	            IF (numucat_wrk(iworker) > 0) THEN
+	         DO irank = 0, p_np_compute-1
+	            IF (numucat_rank(irank) > 0) THEN
 
-	               allocate (rdata1d (numucat_wrk(iworker)))
-	               IF (p_address_compute(iworker) == p_iam_glb) THEN
+	               allocate (rdata1d (numucat_rank(irank)))
+	               IF (p_address_compute(irank) == p_iam_glb) THEN
 	                  rdata1d = push_inpm2ucat%sum_area
 	               ELSE
-	                  CALL mpi_recv (rdata1d, numucat_wrk(iworker), MPI_REAL8, p_address_compute(iworker), &
+	                  CALL mpi_recv (rdata1d, numucat_rank(irank), MPI_REAL8, p_address_compute(irank), &
 	                     mpi_tag_data, p_comm_glb, p_stat, p_err)
 	               ENDIF
 
-	               ucat_area_all(ucat_data_address(iworker)%val) = rdata1d
+	               ucat_area_all(ucat_data_address(irank)%val) = rdata1d
 
                deallocate (rdata1d)
             ENDIF
@@ -1184,31 +1184,31 @@ CONTAINS
 
 #ifdef COLM_PARALLEL
       IF (p_is_root) THEN
-		         self_worker = -1
-		         DO iworker = 0, p_np_compute-1
-		            IF (numucat_wrk(iworker) > 0) THEN
-		               IF (p_address_compute(iworker) == p_iam_glb) THEN
-		                  self_worker = iworker
+		         self_rank = -1
+		         DO irank = 0, p_np_compute-1
+		            IF (numucat_rank(irank) > 0) THEN
+		               IF (p_address_compute(irank) == p_iam_glb) THEN
+		                  self_rank = irank
 		                  CYCLE
 		               ENDIF
 
-		               allocate (rdata1d (numucat_wrk(iworker)))
-		               rdata1d = allups_mask_ucat(ucat_data_address(iworker)%val)
+		               allocate (rdata1d (numucat_rank(irank)))
+		               rdata1d = allups_mask_ucat(ucat_data_address(irank)%val)
 
-		               CALL mpi_send (rdata1d, numucat_wrk(iworker), MPI_REAL8, p_address_compute(iworker), &
+		               CALL mpi_send (rdata1d, numucat_rank(irank), MPI_REAL8, p_address_compute(irank), &
 		                  mpi_tag_data, p_comm_glb, p_err)
 
 		               deallocate (rdata1d)
 		            ENDIF
 		         ENDDO
 
-		         IF (self_worker >= 0) THEN
-		            allocate (rdata1d (numucat_wrk(self_worker)))
-		            IF (numucat_wrk(self_worker) > 0) &
-		               rdata1d = allups_mask_ucat(ucat_data_address(self_worker)%val)
+		         IF (self_rank >= 0) THEN
+		            allocate (rdata1d (numucat_rank(self_rank)))
+		            IF (numucat_rank(self_rank) > 0) &
+		               rdata1d = allups_mask_ucat(ucat_data_address(self_rank)%val)
 		            IF (allocated(allups_mask_ucat)) deallocate(allups_mask_ucat)
-		            allocate (allups_mask_ucat (numucat_wrk(self_worker)))
-		            IF (numucat_wrk(self_worker) > 0) allups_mask_ucat = rdata1d
+		            allocate (allups_mask_ucat (numucat_rank(self_rank)))
+		            IF (numucat_rank(self_rank) > 0) allups_mask_ucat = rdata1d
 		            deallocate (rdata1d)
 		         ENDIF
 		      ENDIF
@@ -1608,7 +1608,7 @@ CONTAINS
 	   IMPLICIT NONE
 
 	   logical, allocatable :: id_found(:)
-	   integer :: i, iworker, ireq
+	   integer :: i, irank, ireq
 	   integer :: local_missing, global_missing
 	   integer :: first_missing, global_first_missing
 
@@ -1624,9 +1624,9 @@ CONTAINS
 	         IF (push_next2ucat%nself > 0) id_found(push_next2ucat%self_to) = .true.
 
 #ifdef COLM_PARALLEL
-	         DO iworker = 0, p_np_compute-1
-	            IF (push_next2ucat%n_from_other(iworker) > 0) THEN
-	               id_found(push_next2ucat%other_to(iworker)%val) = .true.
+	         DO irank = 0, p_np_compute-1
+	            IF (push_next2ucat%n_from_other(irank) > 0) THEN
+	               id_found(push_next2ucat%other_to(irank)%val) = .true.
 	            ENDIF
 	         ENDDO
 #endif
@@ -1797,7 +1797,7 @@ CONTAINS
    integer,  allocatable, intent(inout), optional :: idata1d (:)
 
    ! Local Variables
-   integer :: iworker, nucat, ndim1, i
+   integer :: irank, nucat, ndim1, i
    real(r8), allocatable :: rsend1d (:)
    real(r8), allocatable :: rsend2d (:,:)
    integer,  allocatable :: isend1d (:)
@@ -1828,24 +1828,24 @@ CONTAINS
          CALL mpi_bcast (ndim1, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
       ENDIF
 
-      ! send unit catchment index to workers
+      ! send unit catchment index to ranks
       IF (p_is_root) THEN
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
-            nucat = numucat_wrk(iworker)
+            nucat = numucat_rank(irank)
 
             IF (nucat > 0) THEN
 	               IF (present(rdata1d)) THEN
 	                  allocate (rsend1d (nucat))
 
-	                  rsend1d = rdata1d(ucat_data_address(iworker)%val)
-	                  IF (p_address_compute(iworker) == p_iam_glb) THEN
+	                  rsend1d = rdata1d(ucat_data_address(irank)%val)
+	                  IF (p_address_compute(irank) == p_iam_glb) THEN
 	                     IF (allocated(rdata1d)) deallocate(rdata1d)
 	                     allocate (rdata1d (nucat))
 	                     rdata1d = rsend1d
 	                  ELSE
-	                     CALL mpi_send (rsend1d, nucat, MPI_REAL8, p_address_compute(iworker), &
+	                     CALL mpi_send (rsend1d, nucat, MPI_REAL8, p_address_compute(irank), &
 	                        mpi_tag_data, p_comm_glb, p_err)
 	                  ENDIF
 
@@ -1856,14 +1856,14 @@ CONTAINS
                   allocate (rsend2d (ndim1,nucat))
 
 	                  DO i = 1, nucat
-	                     rsend2d(:,i) = rdata2d(:,ucat_data_address(iworker)%val(i))
+	                     rsend2d(:,i) = rdata2d(:,ucat_data_address(irank)%val(i))
 	                  ENDDO
-	                  IF (p_address_compute(iworker) == p_iam_glb) THEN
+	                  IF (p_address_compute(irank) == p_iam_glb) THEN
 	                     IF (allocated(rdata2d)) deallocate(rdata2d)
 	                     allocate (rdata2d (ndim1,nucat))
 	                     rdata2d = rsend2d
 	                  ELSE
-	                     CALL mpi_send (rsend2d, ndim1*nucat, MPI_REAL8, p_address_compute(iworker), &
+	                     CALL mpi_send (rsend2d, ndim1*nucat, MPI_REAL8, p_address_compute(irank), &
 	                        mpi_tag_data, p_comm_glb, p_err)
 	                  ENDIF
 
@@ -1873,13 +1873,13 @@ CONTAINS
 	               IF (present(idata1d)) THEN
 	                  allocate (isend1d (nucat))
 
-	                  isend1d = idata1d(ucat_data_address(iworker)%val)
-	                  IF (p_address_compute(iworker) == p_iam_glb) THEN
+	                  isend1d = idata1d(ucat_data_address(irank)%val)
+	                  IF (p_address_compute(irank) == p_iam_glb) THEN
 	                     IF (allocated(idata1d)) deallocate(idata1d)
 	                     allocate (idata1d (nucat))
 	                     idata1d = isend1d
 	                  ELSE
-	                     CALL mpi_send (isend1d, nucat, MPI_INTEGER, p_address_compute(iworker), &
+	                     CALL mpi_send (isend1d, nucat, MPI_INTEGER, p_address_compute(irank), &
 	                        mpi_tag_data, p_comm_glb, p_err)
 	                  ENDIF
 
@@ -2072,7 +2072,7 @@ CONTAINS
       IF (allocated(ucat_ucid        )) deallocate(ucat_ucid        )
       IF (allocated(ucat_gdid        )) deallocate(ucat_gdid        )
 
-      IF (allocated(numucat_wrk      )) deallocate(numucat_wrk      )
+      IF (allocated(numucat_rank      )) deallocate(numucat_rank      )
       IF (allocated(ucat_data_address)) deallocate(ucat_data_address)
 
       IF (allocated(inpm_gdid        )) deallocate(inpm_gdid        )

@@ -129,7 +129,7 @@ CONTAINS
    integer  :: nelm, ie, je, dsp
    integer  :: iblkme, iblk, jblk, xloc, yloc, xg, yg, ixloc, iyloc
    integer  :: xp, yp, xblk, yblk, npxl, ipxl, ix, iy
-   integer  :: iworker, iproc, idest, isrc, iloc, iloc_max(2)
+   integer  :: irank, iproc, idest, isrc, iloc, iloc_max(2)
    integer  :: ylg, yug, ysp, ynp, nyp
    integer  :: xlg, xug, xwp, xep, nxp
    real(r8) :: dlatp, dlonp
@@ -137,8 +137,8 @@ CONTAINS
    integer  :: smesg(6), rmesg(6), blktag, nsend, nrecv, irecv
    integer  :: iblk_p, jblk_p, nelm_max_blk, nelm_glb
 
-   integer, allocatable :: nelm_worker(:)
-   type(pointer_int64_1d), allocatable :: elist_worker(:)
+   integer, allocatable :: nelm_rank(:)
+   type(pointer_int64_1d), allocatable :: elist_rank(:)
 
    integer*8 :: elmid
    integer*8, allocatable :: elist(:), elist2(:,:), sbuf64(:), elist_recv(:)
@@ -178,12 +178,12 @@ CONTAINS
 
          nelm = 0
 
-         allocate (nelm_worker (0:p_np_compute-1))
-         nelm_worker(:) = 0
+         allocate (nelm_rank (0:p_np_compute-1))
+         nelm_rank(:) = 0
 
-         allocate (elist_worker (0:p_np_compute-1))
-         DO iworker = 0, p_np_compute-1
-            allocate (elist_worker(iworker)%val (1000))
+         allocate (elist_rank (0:p_np_compute-1))
+         DO irank = 0, p_np_compute-1
+            allocate (elist_rank(irank)%val (1000))
          ENDDO
 
          DO iblkme = 1, gblock%nblkme
@@ -214,12 +214,12 @@ CONTAINS
 
                   IF (elmid > 0) THEN
 
-                     iworker = mod(elmid, p_np_compute)
+                     irank = mod(elmid, p_np_compute)
                      CALL insert_into_sorted_list1 ( &
-                        elmid, nelm_worker(iworker), elist_worker(iworker)%val, iloc)
+                        elmid, nelm_rank(irank), elist_rank(irank)%val, iloc)
 
-                     IF (nelm_worker(iworker) == size(elist_worker(iworker)%val)) THEN
-                        CALL expand_list (elist_worker(iworker)%val, 0.2_r8)
+                     IF (nelm_rank(irank) == size(elist_rank(irank)%val)) THEN
+                        CALL expand_list (elist_rank(irank)%val, 0.2_r8)
                      ENDIF
 
                   ENDIF
@@ -228,10 +228,10 @@ CONTAINS
             ENDDO
 
 #ifdef USEMPI
-            DO iworker = 0, p_np_compute-1
-               IF (nelm_worker(iworker) > 0) THEN
-                  idest = p_address_compute(iworker)
-                  smesg(1:2) = (/p_iam_glb, nelm_worker(iworker)/)
+            DO irank = 0, p_np_compute-1
+               IF (nelm_rank(irank) > 0) THEN
+                  idest = p_address_compute(irank)
+                  smesg(1:2) = (/p_iam_glb, nelm_rank(irank)/)
                   ! send(01)
                   CALL mpi_send (smesg(1:2), 2, MPI_INTEGER, &
                      idest, mpi_tag_size, p_comm_glb, p_err)
@@ -239,13 +239,13 @@ CONTAINS
             ENDDO
 #endif
 
-            nelm = nelm + sum(nelm_worker)
-            nelm_worker(:) = 0
+            nelm = nelm + sum(nelm_rank)
+            nelm_rank(:) = 0
          ENDDO
 
 #ifdef USEMPI
-         DO iworker = 0, p_np_compute-1
-            idest = p_address_compute(iworker)
+         DO irank = 0, p_np_compute-1
+            idest = p_address_compute(irank)
             ! send(02)
             smesg(1:2) = (/p_iam_glb, 0/)
             CALL mpi_send (smesg(1:2), 2, MPI_INTEGER, &
@@ -253,11 +253,11 @@ CONTAINS
          ENDDO
 #endif
 
-         deallocate (nelm_worker)
-         DO iworker = 0, p_np_compute-1
-            deallocate (elist_worker(iworker)%val)
+         deallocate (nelm_rank)
+         DO irank = 0, p_np_compute-1
+            deallocate (elist_rank(irank)%val)
          ENDDO
-         deallocate (elist_worker)
+         deallocate (elist_rank)
 
       ENDIF
 
@@ -480,8 +480,8 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         DO iworker = 0, p_np_compute-1
-            idest = p_address_compute(iworker)
+         DO irank = 0, p_np_compute-1
+            idest = p_address_compute(irank)
             ! send(07)
             smesg(1:3) = (/p_iam_glb, 0, 0/)
             CALL mpi_send (smesg(1:3), 3, MPI_INTEGER, &
@@ -625,7 +625,7 @@ CONTAINS
          MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
 
-      ! Step 4: IF MPI is used, sending elms from worker to their IO processes.
+      ! Step 4: IF MPI is used, sending elms from rank to their IO processes.
 
       IF (p_is_active) THEN
 
@@ -865,10 +865,10 @@ CONTAINS
          deallocate (meshtmp )
       ENDIF
 
-      ! Step 5: IF MPI is used, scatter elms from IO to workers.
+      ! Step 5: IF MPI is used, scatter elms from IO to ranks.
 #ifdef USEMPI
 #ifndef MPAS_EMBEDDED_COLM
-      CALL scatter_mesh_from_io_to_worker ()
+      CALL scatter_mesh_legacy_roles ()
 #endif
 #endif
 
@@ -915,7 +915,7 @@ CONTAINS
 #ifdef USEMPI
 #ifndef MPAS_EMBEDDED_COLM
    ! --------------------------------
-   SUBROUTINE scatter_mesh_from_io_to_worker
+   SUBROUTINE scatter_mesh_legacy_roles
 
    USE MOD_SPMD_Task
    USE MOD_Block
@@ -924,7 +924,7 @@ CONTAINS
    ! Local variables
    integer :: iblk, jblk, nave, nres, iproc, ndsp, nsend, idest, ie
    integer :: smesg(4), rmesg(4)
-   integer, allocatable :: nelm_worker(:)
+   integer, allocatable :: nelm_rank(:)
    integer :: iblkme
    character(len=20) :: wfmt
 
@@ -932,8 +932,8 @@ CONTAINS
 
       IF (p_is_active) THEN
 
-         allocate (nelm_worker (1:p_np_group-1))
-         nelm_worker(:) = 0
+         allocate (nelm_rank (1:p_np_group-1))
+         nelm_rank(:) = 0
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -942,23 +942,23 @@ CONTAINS
             nave = nelm_blk(iblk,jblk) / (p_np_group-1)
             nres = mod(nelm_blk(iblk,jblk), p_np_group-1)
             DO iproc = 1, p_np_group-1
-               nelm_worker(iproc) = nelm_worker(iproc) + nave
-               IF (iproc <= nres)  nelm_worker(iproc) = nelm_worker(iproc) + 1
+               nelm_rank(iproc) = nelm_rank(iproc) + nave
+               IF (iproc <= nres)  nelm_rank(iproc) = nelm_rank(iproc) + 1
             ENDDO
          ENDDO
 
-         IF (any(nelm_worker == 0)) THEN
-            write(*,'(A,/,A)') 'Warning: there are idle workers, please use less processors ' // &
+         IF (any(nelm_rank == 0)) THEN
+            write(*,'(A,/,A)') 'Warning: there are idle ranks, please use less processors ' // &
                'OR larger working group ', '  (set by DEF_PIO_groupsize in CoLM namelist).'
             write(wfmt,'(A,I0,A)') '(A,I6,A,', p_np_group-1, '(X,I0))'
-            write(*,wfmt) 'Numbers of elements by workers in group ', p_iam_glb, ' are ', nelm_worker
+            write(*,wfmt) 'Numbers of elements by ranks in group ', p_iam_glb, ' are ', nelm_rank
          ENDIF
 
          DO iproc = 1, p_np_group-1
-            CALL mpi_send (nelm_worker(iproc), 1, MPI_INTEGER, &
+            CALL mpi_send (nelm_rank(iproc), 1, MPI_INTEGER, &
                iproc, mpi_tag_size, p_comm_group, p_err)
          ENDDO
-         deallocate (nelm_worker)
+         deallocate (nelm_rank)
 
          ndsp = 0
          DO iblkme = 1, gblock%nblkme
@@ -1022,7 +1022,7 @@ CONTAINS
 
       CALL mpi_barrier (p_comm_glb, p_err)
 
-   END SUBROUTINE scatter_mesh_from_io_to_worker
+   END SUBROUTINE scatter_mesh_legacy_roles
 
 #endif
 #endif

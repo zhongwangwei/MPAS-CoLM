@@ -51,7 +51,7 @@ CONTAINS
    character(len=256) :: hillslope_network_file
 
    integer :: maxnumhru, ie, nhru, hs, i, j
-   integer :: iworker, mesg(2), nrecv, irecv, isrc, idest
+   integer :: irank, mesg(2), nrecv, irecv, isrc, idest
 
    integer , allocatable :: eid (:)
 
@@ -98,7 +98,7 @@ CONTAINS
 
       IF (p_is_root) THEN
 #ifdef USEMPI
-         DO iworker = 1, p_np_compute
+         DO irank = 1, p_np_compute
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
             nrecv = mesg(2)

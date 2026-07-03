@@ -38,9 +38,8 @@ MODULE MOD_Pixelset
 !    "Vector" is a collection of data when each pixelset in a given level is associated
 !    with a value, representing its averaged physical, chemical or biological state.
 !
-!    "Vector" is usually defined on worker process, while its IO is through IO process.
-!    To read,  vector is first loaded from files by IO and then scattered from IO to worker.
-!    To write, vector is first gathered from worker to IO and then saved to files by IO.
+!    In standalone CoLM, vector data may be redistributed between ranks for IO.
+!    MPAS-embedded CoLM keeps land vectors on MPAS-owned cell subsets.
 !
 !  Created by Shupeng Zhang, May 2023
 !------------------------------------------------------------------------------------
@@ -52,14 +51,14 @@ MODULE MOD_Pixelset
    ! ---- data types ----
    type :: vec_gather_scatter_type
 
-      ! for worker and io
+      ! rank-local vector layout
       integer, allocatable :: vlen(:,:)
 
-      ! for worker
+      ! local vector offsets
       integer, allocatable :: vstt(:,:)
       integer, allocatable :: vend(:,:)
 
-      ! for io
+      ! gathered vector counts/displacements
       integer, allocatable :: vcnt(:,:,:)
       integer, allocatable :: vdsp(:,:,:)
 

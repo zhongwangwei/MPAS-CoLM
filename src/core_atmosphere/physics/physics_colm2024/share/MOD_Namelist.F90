@@ -48,8 +48,8 @@ MODULE MOD_Namelist
    integer  :: DEF_nx_blocks = 72
    integer  :: DEF_ny_blocks = 36
 
-   ! A group includes one "IO" process and several "worker" processes.
-   ! Its size determines number of IOs in a job.
+   ! Standalone CoLM used this to size its role-split groups.
+   ! MPAS-embedded CoLM maps all active ranks to MPAS compute ranks.
    integer  :: DEF_PIO_groupsize = 12
    logical  :: DEF_nIO_eq_nBlock = .false.
 
@@ -165,7 +165,7 @@ MODULE MOD_Namelist
    ! 2: Read a global soil color map from CLM
    integer :: DEF_SOIL_REFL_SCHEME = 2
 
-   ! ----- merge data in aggregation when send data from IO to worker -----
+   ! ----- merge data in aggregation when send data from IO to compute rank -----
    logical :: USE_zip_for_aggregation = .true.
 
    ! ----- compress level in writing aggregated surface data -----

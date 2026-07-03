@@ -45,7 +45,7 @@ CONTAINS
       acctime_rnof = 0.
 
       IF (p_is_compute) THEN
-         ! Allocate on all workers (zero-length if numucat/numpatch=0)
+         ! Allocate on all ranks (zero-length if numucat/numpatch=0)
          ! to avoid passing unallocated arrays to assumed-shape MPI wrappers.
          allocate (acc_rnof_uc (numucat))
          acc_rnof_uc = 0.
@@ -163,7 +163,7 @@ CONTAINS
 
 #ifdef GridRiverLakeSediment
          IF (DEF_USE_SEDIMENT) THEN
-            ! Allocate zero-length arrays on empty workers to avoid passing unallocated
+            ! Allocate zero-length arrays on empty ranks to avoid passing unallocated
             ! arrays to assumed-shape dummy arguments in MPI communication routines.
             IF (numpatch > 0) THEN
                allocate (prcp_pch (numpatch))
@@ -703,7 +703,7 @@ CONTAINS
 
 #ifdef GridRiverLakeSediment
       IF (DEF_USE_SEDIMENT .and. p_is_compute) THEN
-         ! All workers must participate (MPI point-to-point inside push_data).
+         ! All ranks must participate (MPI point-to-point inside push_data).
          ! fldfrc is now computed inside grid_sediment_calc from per-routing-period
          ! accumulators (sed_acc_floodarea), not from history-period averages.
          CALL grid_sediment_calc(acctime_rnof)

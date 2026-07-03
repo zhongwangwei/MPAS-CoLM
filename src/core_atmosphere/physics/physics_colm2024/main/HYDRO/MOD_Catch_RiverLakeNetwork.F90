@@ -118,7 +118,7 @@ CONTAINS
    logical :: use_calc_rivdpt
 
    integer :: totalnumbasin, ibasin, jbasin, inb, iloc, ielm, i, j, ilink
-   integer :: iworker, mesg(2), isrc, idest, nrecv
+   integer :: irank, mesg(2), isrc, idest, nrecv
 
 #ifdef USEMPI
    integer :: nblink_all
@@ -191,7 +191,7 @@ CONTAINS
 #ifdef USEMPI
       IF (p_is_root) THEN
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -295,7 +295,7 @@ CONTAINS
 
          allocate (addrbasin (totalnumbasin)); addrbasin(:) = -1
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)

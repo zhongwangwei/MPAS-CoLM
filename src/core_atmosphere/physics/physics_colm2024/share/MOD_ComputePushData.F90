@@ -11,7 +11,7 @@ MODULE MOD_ComputePushData
    USE MOD_Utils
    IMPLICIT NONE
 
-   ! -- Data Type : push data between workers --
+   ! -- Data Type : push data between ranks --
    type :: compute_pushdata_type
 
       integer :: num_req_uniq
@@ -38,7 +38,7 @@ MODULE MOD_ComputePushData
    END type compute_pushdata_type
 
 
-   ! -- Data Type : remap data on workers --
+   ! -- Data Type : remap data on ranks --
    type :: compute_remapdata_type
 
       integer :: num_grid
@@ -97,7 +97,7 @@ CONTAINS
    integer, allocatable :: ids(:), loc_from_me(:), loc_from_other(:)
    integer :: request(3)
 #endif
-   integer :: i, iloc, iworker, jworker, n_req_other
+   integer :: i, iloc, irank, jrank, n_req_other
 
 
       IF (p_is_compute) THEN
@@ -146,25 +146,25 @@ CONTAINS
 
          IF (n_req_uniq > 0) allocate (loc_from_other (n_req_uniq))
 
-         iworker = modulo(p_iam_compute+1, p_np_compute)
-         jworker = modulo(p_iam_compute-1, p_np_compute)
-         DO WHILE (iworker /= p_iam_compute)
+         irank = modulo(p_iam_compute+1, p_np_compute)
+         jrank = modulo(p_iam_compute-1, p_np_compute)
+         DO WHILE (irank /= p_iam_compute)
 
-            CALL mpi_isend (n_req_uniq, 1, MPI_INTEGER, jworker, 10, &
+            CALL mpi_isend (n_req_uniq, 1, MPI_INTEGER, jrank, 10, &
                p_comm_compute, request(1), p_err)
 
             IF (n_req_uniq > 0) THEN
-               CALL mpi_isend(ids_req_uniq, n_req_uniq, MPI_INTEGER, jworker, 11, &
+               CALL mpi_isend(ids_req_uniq, n_req_uniq, MPI_INTEGER, jrank, 11, &
                   p_comm_compute, request(2), p_err)
             ENDIF
 
-            CALL mpi_recv (n_req_other, 1, MPI_INTEGER, iworker, 10, &
+            CALL mpi_recv (n_req_other, 1, MPI_INTEGER, irank, 10, &
                p_comm_compute, p_stat, p_err)
 
             IF (n_req_other > 0) THEN
 
                allocate (ids (n_req_other))
-               CALL mpi_recv (ids, n_req_other, MPI_INTEGER, iworker, 11, &
+               CALL mpi_recv (ids, n_req_other, MPI_INTEGER, irank, 11, &
                   p_comm_compute, p_stat, p_err)
 
                allocate (loc_from_me (n_req_other))
@@ -179,13 +179,13 @@ CONTAINS
                   ENDDO
                ENDIF
 
-               pushdata%n_to_other(iworker) = count(loc_from_me > 0)
-               IF (pushdata%n_to_other(iworker) > 0) THEN
-                  allocate (pushdata%to_other(iworker)%val (pushdata%n_to_other(iworker)))
-                  pushdata%to_other(iworker)%val = pack(loc_from_me, loc_from_me > 0)
+               pushdata%n_to_other(irank) = count(loc_from_me > 0)
+               IF (pushdata%n_to_other(irank) > 0) THEN
+                  allocate (pushdata%to_other(irank)%val (pushdata%n_to_other(irank)))
+                  pushdata%to_other(irank)%val = pack(loc_from_me, loc_from_me > 0)
                ENDIF
 
-               CALL mpi_isend (loc_from_me, n_req_other, MPI_INTEGER, iworker, 12, &
+               CALL mpi_isend (loc_from_me, n_req_other, MPI_INTEGER, irank, 12, &
                   p_comm_compute, request(3), p_err)
 
             ENDIF
@@ -193,12 +193,12 @@ CONTAINS
             IF (n_req_uniq > 0) THEN
 
                CALL mpi_recv (loc_from_other, n_req_uniq, MPI_INTEGER, &
-                  jworker, 12, p_comm_compute, p_stat, p_err)
+                  jrank, 12, p_comm_compute, p_stat, p_err)
 
-               pushdata%n_from_other(jworker) = count(loc_from_other > 0)
-               IF (pushdata%n_from_other(jworker) > 0) THEN
-                  allocate (pushdata%other_to(jworker)%val (pushdata%n_from_other(jworker)))
-                  pushdata%other_to(jworker)%val = pack((/(i,i=1,n_req_uniq)/), loc_from_other > 0)
+               pushdata%n_from_other(jrank) = count(loc_from_other > 0)
+               IF (pushdata%n_from_other(jrank) > 0) THEN
+                  allocate (pushdata%other_to(jrank)%val (pushdata%n_from_other(jrank)))
+                  pushdata%other_to(jrank)%val = pack((/(i,i=1,n_req_uniq)/), loc_from_other > 0)
                ENDIF
 
             ENDIF
@@ -210,8 +210,8 @@ CONTAINS
             IF (allocated(ids        )) deallocate(ids        )
             IF (allocated(loc_from_me)) deallocate(loc_from_me)
 
-            iworker = modulo(iworker+1, p_np_compute)
-            jworker = modulo(jworker-1, p_np_compute)
+            irank = modulo(irank+1, p_np_compute)
+            jrank = modulo(jrank-1, p_np_compute)
          ENDDO
 
          IF (allocated (loc_from_other)) deallocate (loc_from_other)
@@ -280,7 +280,7 @@ CONTAINS
    type(compute_pushdata_type), intent(inout) :: pushdata
 
    ! Local Variables
-   integer :: ndim1, n_req_uniq, iloc, i, j, iworker
+   integer :: ndim1, n_req_uniq, iloc, i, j, irank
    integer, allocatable :: ids_req_uniq (:)
    logical, allocatable :: id_found     (:)
 
@@ -329,9 +329,9 @@ CONTAINS
 
             IF (pushdata%nself > 0) id_found(pushdata%self_to) = .true.
 #ifdef COLM_PARALLEL
-            DO iworker = 0, p_np_compute-1
-               IF (pushdata%n_from_other(iworker) > 0) THEN
-                  id_found(pushdata%other_to(iworker)%val) = .true.
+            DO irank = 0, p_np_compute-1
+               IF (pushdata%n_from_other(irank) > 0) THEN
+                  id_found(pushdata%other_to(irank)%val) = .true.
                ENDIF
             ENDDO
 #endif
@@ -373,7 +373,7 @@ CONTAINS
    integer, optional,           intent(inout) :: numsubset
 
    ! Local Variables
-   integer :: i, j, ii, jj, idsp, jdsp, kdsp, nsub, iworker
+   integer :: i, j, ii, jj, idsp, jdsp, kdsp, nsub, irank
    integer, allocatable :: nsub_me  (:), nsub_req(:), nsub_req_uniq(:)
    integer, allocatable :: subdsp_me(:), subdsp_req_uniq(:)
 
@@ -487,22 +487,22 @@ CONTAINS
          allocate (pushdata_out%n_to_other (0:p_np_compute-1))
          allocate (pushdata_out%to_other   (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
-            pushdata_out%n_to_other(iworker) = 0
-            DO i = 1, pushdata_in%n_to_other(iworker)
-               pushdata_out%n_to_other(iworker) = pushdata_out%n_to_other(iworker) &
-                  + nsub_me(pushdata_in%to_other(iworker)%val(i))
+            pushdata_out%n_to_other(irank) = 0
+            DO i = 1, pushdata_in%n_to_other(irank)
+               pushdata_out%n_to_other(irank) = pushdata_out%n_to_other(irank) &
+                  + nsub_me(pushdata_in%to_other(irank)%val(i))
             ENDDO
 
-            IF (pushdata_out%n_to_other(iworker) > 0) THEN
-               allocate (pushdata_out%to_other(iworker)%val (pushdata_out%n_to_other(iworker)))
+            IF (pushdata_out%n_to_other(irank) > 0) THEN
+               allocate (pushdata_out%to_other(irank)%val (pushdata_out%n_to_other(irank)))
                kdsp = 0
-               DO i = 1, pushdata_in%n_to_other(iworker)
-                  IF (nsub_me(pushdata_in%to_other(iworker)%val(i)) > 0) THEN
-                     nsub = nsub_me  (pushdata_in%to_other(iworker)%val(i))
-                     idsp = subdsp_me(pushdata_in%to_other(iworker)%val(i))
-                     pushdata_out%to_other(iworker)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
+               DO i = 1, pushdata_in%n_to_other(irank)
+                  IF (nsub_me(pushdata_in%to_other(irank)%val(i)) > 0) THEN
+                     nsub = nsub_me  (pushdata_in%to_other(irank)%val(i))
+                     idsp = subdsp_me(pushdata_in%to_other(irank)%val(i))
+                     pushdata_out%to_other(irank)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
                      kdsp = kdsp + nsub
                   ENDIF
                ENDDO
@@ -513,21 +513,21 @@ CONTAINS
          allocate (pushdata_out%n_from_other (0:p_np_compute-1))
          allocate (pushdata_out%other_to     (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_compute-1
-            pushdata_out%n_from_other(iworker) = 0
-            DO i = 1, pushdata_in%n_from_other(iworker)
-               pushdata_out%n_from_other(iworker) = pushdata_out%n_from_other(iworker) &
-                  + nsub_req_uniq(pushdata_in%other_to(iworker)%val(i))
+         DO irank = 0, p_np_compute-1
+            pushdata_out%n_from_other(irank) = 0
+            DO i = 1, pushdata_in%n_from_other(irank)
+               pushdata_out%n_from_other(irank) = pushdata_out%n_from_other(irank) &
+                  + nsub_req_uniq(pushdata_in%other_to(irank)%val(i))
             ENDDO
 
-            IF (pushdata_out%n_from_other(iworker) > 0) THEN
-               allocate (pushdata_out%other_to(iworker)%val (pushdata_out%n_from_other(iworker)))
+            IF (pushdata_out%n_from_other(irank) > 0) THEN
+               allocate (pushdata_out%other_to(irank)%val (pushdata_out%n_from_other(irank)))
                kdsp = 0
-               DO i = 1, pushdata_in%n_from_other(iworker)
-                  IF (nsub_req_uniq(pushdata_in%other_to(iworker)%val(i)) > 0) THEN
-                     nsub = nsub_req_uniq  (pushdata_in%other_to(iworker)%val(i))
-                     idsp = subdsp_req_uniq(pushdata_in%other_to(iworker)%val(i))
-                     pushdata_out%other_to(iworker)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
+               DO i = 1, pushdata_in%n_from_other(irank)
+                  IF (nsub_req_uniq(pushdata_in%other_to(irank)%val(i)) > 0) THEN
+                     nsub = nsub_req_uniq  (pushdata_in%other_to(irank)%val(i))
+                     idsp = subdsp_req_uniq(pushdata_in%other_to(irank)%val(i))
+                     pushdata_out%other_to(irank)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
                      kdsp = kdsp + nsub
                   ENDIF
                ENDDO
@@ -658,7 +658,7 @@ CONTAINS
    integer,  allocatable :: req_recv  (:)
    real(r8), allocatable :: recvcache (:)
 
-   integer :: iworker, iproc, idsp, istt, iend, i, i_to
+   integer :: irank, iproc, idsp, istt, iend, i, i_to
 
 
       IF (p_is_compute) THEN
@@ -680,15 +680,15 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_compute-1
-               IF (pushdata%n_to_other(iworker) > 0) THEN
+            DO irank = 0, p_np_compute-1
+               IF (pushdata%n_to_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
-                  iend  = idsp + pushdata%n_to_other(iworker)
+                  iend  = idsp + pushdata%n_to_other(irank)
 
-                  sendcache(istt:iend) = vec_send(pushdata%to_other(iworker)%val)
-                  CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(iworker), MPI_REAL8, &
-                     iworker, 101, p_comm_compute, req_send(iproc), p_err)
+                  sendcache(istt:iend) = vec_send(pushdata%to_other(irank)%val)
+                  CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(irank), MPI_REAL8, &
+                     irank, 101, p_comm_compute, req_send(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -703,14 +703,14 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_compute-1
-               IF (pushdata%n_from_other(iworker) > 0) THEN
+            DO irank = 0, p_np_compute-1
+               IF (pushdata%n_from_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
-                  iend  = idsp + pushdata%n_from_other(iworker)
+                  iend  = idsp + pushdata%n_from_other(irank)
 
-                  CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(iworker), MPI_REAL8, &
-                     iworker, 101, p_comm_compute, req_recv(iproc), p_err)
+                  CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(irank), MPI_REAL8, &
+                     irank, 101, p_comm_compute, req_recv(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -722,11 +722,11 @@ CONTAINS
             CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
 
             idsp = 0
-            DO iworker = 0, p_np_compute-1
-               DO i = 1, pushdata%n_from_other(iworker)
+            DO irank = 0, p_np_compute-1
+               DO i = 1, pushdata%n_from_other(irank)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
-                     i_to = pushdata%other_to(iworker)%val(i)
+                     i_to = pushdata%other_to(irank)%val(i)
                      IF (vec_recv(i_to) == fillvalue) THEN
                         vec_recv(i_to) = recvcache(idsp+i)
                      ELSE
@@ -735,7 +735,7 @@ CONTAINS
                   ENDIF
 
                ENDDO
-               idsp = idsp + pushdata%n_from_other(iworker)
+               idsp = idsp + pushdata%n_from_other(irank)
             ENDDO
 
          ENDIF
@@ -775,7 +775,7 @@ CONTAINS
    integer, allocatable :: req_recv  (:)
    integer, allocatable :: recvcache (:)
 
-   integer :: iworker, iproc, idsp, istt, iend, i, i_to
+   integer :: irank, iproc, idsp, istt, iend, i, i_to
 
 
       IF (p_is_compute) THEN
@@ -797,15 +797,15 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_compute-1
-               IF (pushdata%n_to_other(iworker) > 0) THEN
+            DO irank = 0, p_np_compute-1
+               IF (pushdata%n_to_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
-                  iend  = idsp + pushdata%n_to_other(iworker)
+                  iend  = idsp + pushdata%n_to_other(irank)
 
-                  sendcache(istt:iend) = vec_send(pushdata%to_other(iworker)%val)
-                  CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(iworker), MPI_INTEGER, &
-                     iworker, 101, p_comm_compute, req_send(iproc), p_err)
+                  sendcache(istt:iend) = vec_send(pushdata%to_other(irank)%val)
+                  CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(irank), MPI_INTEGER, &
+                     irank, 101, p_comm_compute, req_send(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -820,14 +820,14 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO iworker = 0, p_np_compute-1
-               IF (pushdata%n_from_other(iworker) > 0) THEN
+            DO irank = 0, p_np_compute-1
+               IF (pushdata%n_from_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
-                  iend  = idsp + pushdata%n_from_other(iworker)
+                  iend  = idsp + pushdata%n_from_other(irank)
 
-                  CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(iworker), MPI_INTEGER, &
-                     iworker, 101, p_comm_compute, req_recv(iproc), p_err)
+                  CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(irank), MPI_INTEGER, &
+                     irank, 101, p_comm_compute, req_recv(iproc), p_err)
 
                   idsp = iend
                ENDIF
@@ -839,11 +839,11 @@ CONTAINS
             CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
 
             idsp = 0
-            DO iworker = 0, p_np_compute-1
-               DO i = 1, pushdata%n_from_other(iworker)
+            DO irank = 0, p_np_compute-1
+               DO i = 1, pushdata%n_from_other(irank)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
-                     i_to = pushdata%other_to(iworker)%val(i)
+                     i_to = pushdata%other_to(irank)%val(i)
                      IF (vec_recv(i_to) == fillvalue) THEN
                         vec_recv(i_to) = recvcache(idsp+i)
                      ELSE
@@ -852,7 +852,7 @@ CONTAINS
                   ENDIF
 
                ENDDO
-               idsp = idsp + pushdata%n_from_other(iworker)
+               idsp = idsp + pushdata%n_from_other(irank)
             ENDDO
 
          ENDIF

@@ -112,7 +112,7 @@ CONTAINS
    integer  :: ie, iset, iblkme
    integer  :: ng, ig, ng_all, iloc
    integer  :: npxl, ipxl, ilat, ilon
-   integer  :: iworker, iproc, idest, isrc, nrecv
+   integer  :: irank, iproc, idest, isrc, nrecv
    integer  :: rmesg(2), smesg(2)
    integer  :: iy, ix, xblk, yblk, xloc, yloc
    integer  :: ipxstt, ipxend
@@ -473,7 +473,7 @@ CONTAINS
 
          allocate (this%glist (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -560,7 +560,7 @@ CONTAINS
 
    integer  :: iset, ilat, ilon, iwest, ieast, ie, ipxl
    integer  :: nglist, iloc, ng, ig
-   integer  :: iworker, iproc, iio, idest, isrc, nrecv
+   integer  :: irank, iproc, iio, idest, isrc, nrecv
    integer  :: rmesg(2), smesg(2)
    integer  :: iy, ix, xblk, yblk, xloc, yloc
    integer  :: ipxstt, ipxend
@@ -806,7 +806,7 @@ CONTAINS
 
          allocate (this%glist (0:p_np_compute-1))
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)

@@ -633,7 +633,7 @@ CONTAINS
 
       IF (.not. DEF_USE_SEDIMENT) RETURN
 
-      ! Allocate on ALL processes (zero-size on non-workers) to avoid
+      ! Allocate on ALL processes (zero-size on non-ranks) to avoid
       ! passing unallocated arrays to vector_gather_map2grid_and_write
       IF (p_is_compute .and. numucat > 0) THEN
          allocate (a_sedcon_avg  (nsed, numucat))

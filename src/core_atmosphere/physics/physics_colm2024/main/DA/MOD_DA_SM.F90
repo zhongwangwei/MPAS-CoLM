@@ -227,15 +227,15 @@ MODULE MOD_DA_SM
 !#############################################################################
 ! For SYNOP 2m temperature and humidity observations
 !#############################################################################
-   ! derived types of pixel index in each worker
+   ! derived types of pixel index in each rank
    ! firstly sorted by pixel latitude index (nlat) and record
    ! corresponding longitude index and patch id for each pixel
    type :: idx_type
       integer, allocatable :: ilon (:)
       integer, allocatable :: ipatch (:)
    END type idx_type
-   type(idx_type), allocatable :: idx (:)                    ! derived types of pixel index at each worker
-   integer, allocatable :: counter (:)                       ! counter of pixel longitude index of each latitude index at each worker
+   type(idx_type), allocatable :: idx (:)                    ! derived types of pixel index at each rank
+   integer, allocatable :: counter (:)                       ! counter of pixel longitude index of each latitude index at each rank
 
    ! file path
    character(len=256) :: file_synop                          ! SYNOP file path
@@ -246,8 +246,8 @@ MODULE MOD_DA_SM
    real(r8), allocatable :: synop_lon_all(:)                 ! latitude and longitude of all SYNOP sites
    integer :: nsite                                          ! number of all SYNOP sites
    integer, allocatable :: iloc_synop (:,:)                  ! global lat/lon index of pixel cover each site in all SYNOP sites
-   integer :: counter_worker_nsite                           ! number of all SYNOP sites located at each worker
-   integer, allocatable :: ip_worker (:,:)                   ! patch id of all SYNOP sites located at each worker
+   integer :: counter_rank_nsite                           ! number of all SYNOP sites located at each rank
+   integer, allocatable :: ip_rank (:,:)                   ! patch id of all SYNOP sites located at each rank
    integer, allocatable :: idx_lat(:), idx_lon(:), pos(:)    ! temporary array save global lat/lon index of each site
    integer, allocatable :: synop_lut (:,:)                   ! look-up-table of all SYNOP sites
 
@@ -261,10 +261,10 @@ MODULE MOD_DA_SM
    logical :: has_synop_obs                                  ! whether has SYNOP obs at current step
 
    ! info of SYNOP sites at each step
-   integer, allocatable :: synop_idx (:,:)                   ! index of SYNOP sites (worker/patch id) at each step
-   integer, allocatable :: site_id_worker (:)                ! site id of SYNOP sites at each step at each worker
-   real(r8), allocatable :: tref_ens_worker (:,:)            ! predicted 2m temperature of SYNOP sites at each step at each worker
-   real(r8), allocatable :: qref_ens_worker (:,:)            ! predicted 2m humidity of SYNOP sites at each step at each worker
+   integer, allocatable :: synop_idx (:,:)                   ! index of SYNOP sites (rank/patch id) at each step
+   integer, allocatable :: site_id_rank (:)                ! site id of SYNOP sites at each step at each rank
+   real(r8), allocatable :: tref_ens_rank (:,:)            ! predicted 2m temperature of SYNOP sites at each step at each rank
+   real(r8), allocatable :: qref_ens_rank (:,:)            ! predicted 2m humidity of SYNOP sites at each step at each rank
    real(r8), allocatable :: qref_ens_o (:,:)                 ! predicted 2m temperature of SYNOP sites at each step
    real(r8), allocatable :: tref_ens_o (:,:)                 ! predicted 2m humidity of SYNOP sites at each step
 
@@ -313,7 +313,7 @@ CONTAINS
       IMPLICIT NONE
 
       integer :: np, ie, ipxstt, ipxend, ipxl, i, ilat, isite, ilon, iwork, mesg(2), isrc, ndata, numpxl_lat, numpxl_lon, numpxl
-      integer, allocatable :: temp (:,:)                        ! temporary array for receiving data from workers
+      integer, allocatable :: temp (:,:)                        ! temporary array for receiving data from ranks
 
 !-----------------------------------------------------------------------------
 
@@ -339,7 +339,7 @@ CONTAINS
 
       IF (DEF_DA_SM_SYNOP) THEN
 !#############################################################################
-! Makeup derived types of pixel index for fast access at each worker
+! Makeup derived types of pixel index for fast access at each rank
 !#############################################################################
          IF (p_is_compute) THEN
             allocate (counter (pixel%nlat))
@@ -400,7 +400,7 @@ CONTAINS
          ENDIF
          nsite = size(synop_lat_all)
 
-         ! find the located pixel of each site & broadcast workers
+         ! find the located pixel of each site & broadcast ranks
          allocate (iloc_synop (2, nsite))
          iloc_synop(:,:) = -1
          IF (p_is_root) THEN
@@ -432,26 +432,26 @@ CONTAINS
 #endif
 
 !#############################################################################
-! Assess the patch id of pixel that cover each observation at each worker
+! Assess the patch id of pixel that cover each observation at each rank
 !#############################################################################
          IF (p_is_compute) THEN
-            ! count the number of site that located in pixels of each worker
-            counter_worker_nsite = 0
+            ! count the number of site that located in pixels of each rank
+            counter_rank_nsite = 0
             DO i = 1, nsite
                IF (iloc_synop(1, i) > 0) THEN
                   IF (counter(iloc_synop(1, i)) > 0) THEN
                      IF (any(idx(iloc_synop(1, i))%ilon == iloc_synop(2, i))) THEN
-                        counter_worker_nsite = counter_worker_nsite + 1
+                        counter_rank_nsite = counter_rank_nsite + 1
                      ENDIF
                   ENDIF
                ENDIF
             ENDDO
 
-            ! assess patch/site id of sites located at each worker
-            IF (counter_worker_nsite > 0) THEN
-               allocate (ip_worker (2, counter_worker_nsite))
-               counter_worker_nsite = 0
-               ip_worker(:,:) = -1
+            ! assess patch/site id of sites located at each rank
+            IF (counter_rank_nsite > 0) THEN
+               allocate (ip_rank (2, counter_rank_nsite))
+               counter_rank_nsite = 0
+               ip_rank(:,:) = -1
 
                DO i = 1, nsite
                   IF (iloc_synop(1, i) > 0) THEN
@@ -462,22 +462,22 @@ CONTAINS
                            allocate (pos(numpxl))
 
                            pos = pack([(ilon, ilon=1, counter(iloc_synop(1, i)))], (idx(iloc_synop(1, i))%ilon == iloc_synop(2, i)))
-                           counter_worker_nsite = counter_worker_nsite + 1
-                           ip_worker(1, counter_worker_nsite) = i
-                           ip_worker(2, counter_worker_nsite) = idx(iloc_synop(1, i))%ipatch(pos(1))
+                           counter_rank_nsite = counter_rank_nsite + 1
+                           ip_rank(1, counter_rank_nsite) = i
+                           ip_rank(2, counter_rank_nsite) = idx(iloc_synop(1, i))%ipatch(pos(1))
                         ENDIF
                      ENDIF
                   ENDIF
                ENDDO
             ENDIF
 
-            ! send the number of site and their patch id to master
+            ! send the number of site and their patch id to root
 #ifdef USEMPI
-            mesg = (/p_iam_glb, counter_worker_nsite/)
+            mesg = (/p_iam_glb, counter_rank_nsite/)
             CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
-            IF (counter_worker_nsite > 0) THEN
-               CALL mpi_send(ip_worker, 2*counter_worker_nsite, MPI_INTEGER, &
+            IF (counter_rank_nsite > 0) THEN
+               CALL mpi_send(ip_rank, 2*counter_rank_nsite, MPI_INTEGER, &
                   p_address_root, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
 #endif
@@ -490,11 +490,11 @@ CONTAINS
             ENDDO
             IF (allocated (idx)) deallocate (idx)
             IF (allocated (iloc_synop)) deallocate (iloc_synop)
-            IF (allocated (ip_worker)) deallocate (ip_worker)
+            IF (allocated (ip_rank)) deallocate (ip_rank)
          ENDIF
 
 !#############################################################################
-! Generate look-up-table (contains the worker/patch id of each site) at master
+! Generate look-up-table (contains the rank/patch id of each site) at root
 !#############################################################################
          IF (p_is_root) THEN
             allocate (synop_lut (2, nsite))
@@ -969,7 +969,7 @@ CONTAINS
                   ENDIF
                ENDDO
 
-               ! send data from io to masters
+               ! send data from io to roots
 #ifdef USEMPI
                smesg = (/p_iam_glb, ndata/)
                CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
@@ -989,7 +989,7 @@ CONTAINS
                deallocate (pred_smap_tb_h_wgrid_ens%blk, pred_smap_tb_v_wgrid_ens%blk)
             ENDIF
 
-            ! broadcast from master to all workers
+            ! broadcast from root to all ranks
 #ifdef USEMPI
             IF (p_is_root) THEN
                pred_smap_tb_h_ogrid_ens = -9999.0
@@ -1074,7 +1074,7 @@ CONTAINS
                   ENDIF
                ENDDO
 
-               ! send data from io to masters
+               ! send data from io to roots
 #ifdef USEMPI
                smesg = (/p_iam_glb, ndata/)
                CALL mpi_send(smesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
@@ -1094,7 +1094,7 @@ CONTAINS
                deallocate (pred_fy3d_tb_h_wgrid_ens%blk, pred_fy3d_tb_v_wgrid_ens%blk)
             ENDIF
 
-            ! broadcast from master to all workers
+            ! broadcast from root to all ranks
 #ifdef USEMPI
             IF (p_is_root) THEN
                pred_fy3d_tb_h_ogrid_ens = -9999.0
@@ -1126,7 +1126,7 @@ CONTAINS
       ENDIF
 
       IF (DEF_DA_SM_SYNOP) THEN
-         ! crop corresponding index (worker id and patch id) of each observation
+         ! crop corresponding index (rank id and patch id) of each observation
          IF (has_synop_obs) THEN
             synop_idx(:,:) = -1
             IF (p_is_root) THEN
@@ -1135,64 +1135,64 @@ CONTAINS
             CALL mpi_bcast(synop_idx, 2*num_synop_obs, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
          ENDIF
 
-         ! recount the number of observations at each worker
+         ! recount the number of observations at each rank
          IF (has_synop_obs) THEN
             IF (p_is_compute) THEN
-               counter_worker_nsite = 0
+               counter_rank_nsite = 0
                DO i = 1, num_synop_obs
                   IF (synop_idx(1, i) == p_iam_glb) THEN
-                     counter_worker_nsite = counter_worker_nsite + 1
+                     counter_rank_nsite = counter_rank_nsite + 1
                   ENDIF
                ENDDO
             ENDIF
          ENDIF
 
-         ! allocate memory for worker
+         ! allocate memory for rank
          IF (has_synop_obs) THEN
             IF (p_is_compute) THEN
-               IF (counter_worker_nsite > 0) THEN
-                  IF (allocated(tref_ens_worker)) deallocate (tref_ens_worker)
-                  IF (allocated(qref_ens_worker)) deallocate (qref_ens_worker)
-                  IF (allocated(site_id_worker)) deallocate (site_id_worker)
-                  allocate (tref_ens_worker (counter_worker_nsite, DEF_DA_ENS_NUM))
-                  allocate (qref_ens_worker (counter_worker_nsite, DEF_DA_ENS_NUM))
-                  allocate (site_id_worker  (counter_worker_nsite))
+               IF (counter_rank_nsite > 0) THEN
+                  IF (allocated(tref_ens_rank)) deallocate (tref_ens_rank)
+                  IF (allocated(qref_ens_rank)) deallocate (qref_ens_rank)
+                  IF (allocated(site_id_rank)) deallocate (site_id_rank)
+                  allocate (tref_ens_rank (counter_rank_nsite, DEF_DA_ENS_NUM))
+                  allocate (qref_ens_rank (counter_rank_nsite, DEF_DA_ENS_NUM))
+                  allocate (site_id_rank  (counter_rank_nsite))
                ENDIF
             ENDIF
          ENDIF
 
-         ! crop observations at each worker according index & send to master
+         ! crop observations at each rank according index & send to root
          IF (has_synop_obs) THEN
             IF (p_is_compute) THEN
-               counter_worker_nsite = 0
+               counter_rank_nsite = 0
                DO i = 1, num_synop_obs
                   IF (synop_idx(1, i) == p_iam_glb) THEN
-                     counter_worker_nsite = counter_worker_nsite + 1
-                     tref_ens_worker(counter_worker_nsite,:) = tref_ens(:, synop_idx(2, i))
-                     qref_ens_worker(counter_worker_nsite,:) = rhref_ens(:, synop_idx(2, i))
-                     site_id_worker (counter_worker_nsite)   = i
+                     counter_rank_nsite = counter_rank_nsite + 1
+                     tref_ens_rank(counter_rank_nsite,:) = tref_ens(:, synop_idx(2, i))
+                     qref_ens_rank(counter_rank_nsite,:) = rhref_ens(:, synop_idx(2, i))
+                     site_id_rank (counter_rank_nsite)   = i
                   ENDIF
                ENDDO
 
 #ifdef USEMPI
-               ! send the number of site and their patch id to master
-               mesg = (/p_iam_glb, counter_worker_nsite/)
+               ! send the number of site and their patch id to root
+               mesg = (/p_iam_glb, counter_rank_nsite/)
                CALL mpi_send(mesg, 2, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
 
-               IF (counter_worker_nsite > 0) THEN
-                  CALL mpi_send(tref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
-                  CALL mpi_send(qref_ens_worker, DEF_DA_ENS_NUM*counter_worker_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
-                  CALL mpi_send(site_id_worker, counter_worker_nsite, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+               IF (counter_rank_nsite > 0) THEN
+                  CALL mpi_send(tref_ens_rank, DEF_DA_ENS_NUM*counter_rank_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(qref_ens_rank, DEF_DA_ENS_NUM*counter_rank_nsite, MPI_REAL8, p_address_root, mpi_tag_data, p_comm_glb, p_err)
+                  CALL mpi_send(site_id_rank, counter_rank_nsite, MPI_INTEGER, p_address_root, mpi_tag_data, p_comm_glb, p_err)
                ENDIF
 #endif
 
-               IF (allocated(tref_ens_worker)) deallocate (tref_ens_worker)
-               IF (allocated(qref_ens_worker)) deallocate (qref_ens_worker)
-               IF (allocated(site_id_worker)) deallocate (site_id_worker)
+               IF (allocated(tref_ens_rank)) deallocate (tref_ens_rank)
+               IF (allocated(qref_ens_rank)) deallocate (qref_ens_rank)
+               IF (allocated(site_id_rank)) deallocate (site_id_rank)
             ENDIF
          ENDIF
 
-         ! concatenate all predicted observations at master & broadcast to all workers
+         ! concatenate all predicted observations at root & broadcast to all ranks
          IF (has_synop_obs) THEN
             qref_ens_o = spval
             tref_ens_o = spval
@@ -1204,21 +1204,21 @@ CONTAINS
                   ndata = mesg(2)
 
                   IF (ndata > 0) THEN
-                     allocate(tref_ens_worker(ndata, DEF_DA_ENS_NUM))
-                     allocate(qref_ens_worker(ndata, DEF_DA_ENS_NUM))
-                     allocate(site_id_worker (ndata))
+                     allocate(tref_ens_rank(ndata, DEF_DA_ENS_NUM))
+                     allocate(qref_ens_rank(ndata, DEF_DA_ENS_NUM))
+                     allocate(site_id_rank (ndata))
 
-                     CALL mpi_recv(tref_ens_worker, ndata*DEF_DA_ENS_NUM, MPI_REAL8, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-                     CALL mpi_recv(qref_ens_worker, ndata*DEF_DA_ENS_NUM, MPI_REAL8, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-                     CALL mpi_recv(site_id_worker, ndata, MPI_INTEGER, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
+                     CALL mpi_recv(tref_ens_rank, ndata*DEF_DA_ENS_NUM, MPI_REAL8, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
+                     CALL mpi_recv(qref_ens_rank, ndata*DEF_DA_ENS_NUM, MPI_REAL8, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
+                     CALL mpi_recv(site_id_rank, ndata, MPI_INTEGER, isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 
-                     qref_ens_o(site_id_worker,:) = qref_ens_worker
-                     tref_ens_o(site_id_worker,:) = tref_ens_worker
+                     qref_ens_o(site_id_rank,:) = qref_ens_rank
+                     tref_ens_o(site_id_rank,:) = tref_ens_rank
                   ENDIF
 
-                  IF (allocated(tref_ens_worker)) deallocate(tref_ens_worker)
-                  IF (allocated(qref_ens_worker)) deallocate(qref_ens_worker)
-                  IF (allocated(site_id_worker)) deallocate(site_id_worker)
+                  IF (allocated(tref_ens_rank)) deallocate(tref_ens_rank)
+                  IF (allocated(qref_ens_rank)) deallocate(qref_ens_rank)
+                  IF (allocated(site_id_rank)) deallocate(site_id_rank)
                ENDDO
 #endif
             ENDIF
@@ -1702,9 +1702,9 @@ CONTAINS
       IF (allocated (qref_ens_o)) deallocate (qref_ens_o)
 
       IF (allocated (synop_idx)) deallocate (synop_idx)
-      IF (allocated (site_id_worker)) deallocate (site_id_worker)
-      IF (allocated (tref_ens_worker)) deallocate (tref_ens_worker)
-      IF (allocated (qref_ens_worker)) deallocate (qref_ens_worker)
+      IF (allocated (site_id_rank)) deallocate (site_id_rank)
+      IF (allocated (tref_ens_rank)) deallocate (tref_ens_rank)
+      IF (allocated (qref_ens_rank)) deallocate (qref_ens_rank)
       IF (allocated (qref_ens_o)) deallocate (qref_ens_o)
       IF (allocated (tref_ens_o)) deallocate (tref_ens_o)
 
@@ -1773,9 +1773,9 @@ CONTAINS
       IF (allocated (qref_ens_o)) deallocate (qref_ens_o)
 
       IF (allocated (synop_idx)) deallocate (synop_idx)
-      IF (allocated (site_id_worker)) deallocate (site_id_worker)
-      IF (allocated (tref_ens_worker)) deallocate (tref_ens_worker)
-      IF (allocated (qref_ens_worker)) deallocate (qref_ens_worker)
+      IF (allocated (site_id_rank)) deallocate (site_id_rank)
+      IF (allocated (tref_ens_rank)) deallocate (tref_ens_rank)
+      IF (allocated (qref_ens_rank)) deallocate (qref_ens_rank)
       IF (allocated (qref_ens_o)) deallocate (qref_ens_o)
       IF (allocated (tref_ens_o)) deallocate (tref_ens_o)
 

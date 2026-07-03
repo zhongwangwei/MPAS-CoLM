@@ -56,11 +56,11 @@ CONTAINS
 
    integer, allocatable :: nups_nst(:), iups_nst(:), nups_all(:), b_up2down(:), orderbsn(:)
 
-   integer , allocatable :: nb_rs(:), iwrk_rs(:), nwrk_rs(:), nave_rs(:), nb_wrk(:)
-   real(r8), allocatable :: wtbsn(:), wt_rs  (:), wt_wrk (:)
+   integer , allocatable :: nb_rs(:), irank_rs(:), nrank_rs(:), nave_rs(:), nb_rank(:)
+   real(r8), allocatable :: wtbsn(:), wt_rs  (:), wt_rank (:)
 
    integer  :: totalnumbasin, ibasin, nbasin, iriv
-   integer  :: iworker, iwrkdsp, mesg(2), isrc, nrecv
+   integer  :: irank, irankdsp, mesg(2), isrc, nrecv
    integer  :: iloc, i, j, ithis
    real(r8) :: sumwt
 
@@ -87,7 +87,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      ! divide basins into groups and assign to workers
+      ! divide basins into groups and assign to ranks
       IF (p_is_root) THEN
 
          IF (ncio_var_exist(basin_file, 'weightbasin')) THEN
@@ -159,22 +159,22 @@ CONTAINS
 
          sumwt = sum(wt_rs)
 
-         allocate (iwrk_rs (numrivmth))
-         allocate (nwrk_rs (numrivmth))
+         allocate (irank_rs (numrivmth))
+         allocate (nrank_rs (numrivmth))
          allocate (nave_rs (numrivmth))
 
-         iwrkdsp = -1
+         irankdsp = -1
          DO i = 1, numrivmth
-            nwrk_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
-            IF (nwrk_rs(i) > 1) THEN
+            nrank_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
+            IF (nrank_rs(i) > 1) THEN
 
-               nave_rs(i) = nb_rs(i) / nwrk_rs(i)
-               IF (mod(nb_rs(i), nwrk_rs(i)) /= 0) THEN
+               nave_rs(i) = nb_rs(i) / nrank_rs(i)
+               IF (mod(nb_rs(i), nrank_rs(i)) /= 0) THEN
                   nave_rs(i) = nave_rs(i) + 1
                ENDIF
 
-               iwrk_rs(i) = iwrkdsp + 1
-               iwrkdsp = iwrkdsp + nwrk_rs(i)
+               irank_rs(i) = irankdsp + 1
+               irankdsp = irankdsp + nrank_rs(i)
             ENDIF
          ENDDO
 
@@ -189,8 +189,8 @@ CONTAINS
 
          allocate (addrbasin (totalnumbasin));  addrbasin(:) = -1
 
-         allocate (wt_wrk (0:p_np_compute-1));  wt_wrk(:) = 0
-         allocate (nb_wrk (0:p_np_compute-1));  nb_wrk(:) = 0
+         allocate (wt_rank (0:p_np_compute-1));  wt_rank(:) = 0
+         allocate (nb_rank (0:p_np_compute-1));  nb_rank(:) = 0
 
          allocate (orderbsn(totalnumbasin))
          orderbsn(b_up2down) = (/(i, i = 1, totalnumbasin)/)
@@ -215,15 +215,15 @@ CONTAINS
             ENDIF
 
             iriv = rivermouth(i)
-            IF (nwrk_rs(iriv) > 1) THEN
-               iworker = iwrk_rs(iriv)
-               IF (nups_all(i) <= nave_rs(iriv)-nb_wrk(iworker)) THEN
+            IF (nrank_rs(iriv) > 1) THEN
+               irank = irank_rs(iriv)
+               IF (nups_all(i) <= nave_rs(iriv)-nb_rank(irank)) THEN
 
-                  addrbasin(i) = p_address_compute(iworker)
+                  addrbasin(i) = p_address_compute(irank)
 
-                  nb_wrk(iworker) = nb_wrk(iworker) + nups_all(i)
-                  IF (nb_wrk(iworker) == nave_rs(iriv)) THEN
-                     iwrk_rs(iriv) = iwrk_rs(iriv) + 1
+                  nb_rank(irank) = nb_rank(irank) + nups_all(i)
+                  IF (nb_rank(irank) == nave_rs(iriv)) THEN
+                     irank_rs(iriv) = irank_rs(iriv) + 1
                   ENDIF
 
                   j = basindown(i)
@@ -240,11 +240,11 @@ CONTAINS
                   ithis = ithis - 1
                ENDIF
             ELSE
-               iworker = minloc(wt_wrk(iwrkdsp+1:p_np_compute-1), dim=1) + iwrkdsp
+               irank = minloc(wt_rank(irankdsp+1:p_np_compute-1), dim=1) + irankdsp
 
-               addrbasin(i) = p_address_compute(iworker)
+               addrbasin(i) = p_address_compute(irank)
 
-               wt_wrk(iworker) = wt_wrk(iworker) + wt_rs(iriv)
+               wt_rank(irank) = wt_rank(irank) + wt_rs(iriv)
                ithis = ithis - 1
             ENDIF
 
@@ -257,31 +257,31 @@ CONTAINS
          deallocate (orderbsn )
          deallocate (nb_rs    )
          deallocate (wt_rs    )
-         deallocate (iwrk_rs  )
-         deallocate (nwrk_rs  )
+         deallocate (irank_rs  )
+         deallocate (nrank_rs  )
          deallocate (nave_rs  )
-         deallocate (wt_wrk   )
-         deallocate (nb_wrk   )
+         deallocate (wt_rank   )
+         deallocate (nb_rank   )
 
       ENDIF
 
 
-      ! send basin index to workers
+      ! send basin index to ranks
       IF (p_is_root) THEN
 
          allocate(basinindex (totalnumbasin))
          basinindex = (/(i, i = 1, totalnumbasin)/)
 
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
-            nbasin = count(addrbasin == p_address_compute(iworker))
-            CALL mpi_send (nbasin, 1, MPI_INTEGER, p_address_compute(iworker), mpi_tag_mesg, p_comm_glb, p_err)
+            nbasin = count(addrbasin == p_address_compute(irank))
+            CALL mpi_send (nbasin, 1, MPI_INTEGER, p_address_compute(irank), mpi_tag_mesg, p_comm_glb, p_err)
 
             IF (nbasin > 0) THEN
                allocate (bindex (nbasin))
 
-               bindex = pack(basinindex, mask = (addrbasin == p_address_compute(iworker)))
-               CALL mpi_send (bindex, nbasin, MPI_INTEGER, p_address_compute(iworker), &
+               bindex = pack(basinindex, mask = (addrbasin == p_address_compute(irank)))
+               CALL mpi_send (bindex, nbasin, MPI_INTEGER, p_address_compute(irank), &
                   mpi_tag_data, p_comm_glb, p_err)
 
                deallocate (bindex)
@@ -400,7 +400,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_root) THEN
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)

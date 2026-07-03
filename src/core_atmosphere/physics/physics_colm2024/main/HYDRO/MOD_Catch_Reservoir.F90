@@ -63,7 +63,7 @@ CONTAINS
 
    ! Local variables
    character(len=256) :: basin_info_file, resv_info_file
-   integer :: maxlakeid, mesg(2), isrc, idest, iworker
+   integer :: maxlakeid, mesg(2), isrc, idest, irank
 
    integer,  allocatable :: lake_id_basin (:), ilat_outlet_basin(:), ilon_outlet_basin(:)
    integer,  allocatable :: lake_id_resv  (:), ilat_outlet_resv (:), ilon_outlet_resv (:)
@@ -183,7 +183,7 @@ CONTAINS
 
 #ifdef USEMPI
       IF (p_is_root) THEN
-         DO iworker = 0, p_np_compute-1
+         DO irank = 0, p_np_compute-1
 
             CALL mpi_recv (mesg(1:2), 2, MPI_INTEGER, &
                MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
@@ -403,7 +403,7 @@ CONTAINS
    real(r8), intent(out) :: varout (:)
 
    ! local variables
-   integer :: irsv, iworker
+   integer :: irsv, irank
    real(r8), allocatable :: varall (:,:)
 
       IF (numresv_uniq == 0) RETURN
@@ -430,13 +430,13 @@ CONTAINS
          IF (p_iam_compute == p_root) THEN
 
             DO irsv = 1, numresv_uniq
-               DO iworker = 0, p_np_compute-1
-                  IF (iworker /= p_root) THEN
-                     IF (varall(irsv,iworker) /= spval) THEN
+               DO irank = 0, p_np_compute-1
+                  IF (irank /= p_root) THEN
+                     IF (varall(irsv,irank) /= spval) THEN
                         IF (varout(irsv) /= spval) THEN
-                           varout(irsv) = varout(irsv) + varall(irsv,iworker)
+                           varout(irsv) = varout(irsv) + varall(irsv,irank)
                         ELSE
-                           varout(irsv) = varall(irsv,iworker)
+                           varout(irsv) = varall(irsv,irank)
                         ENDIF
                      ENDIF
                   ENDIF
