@@ -602,8 +602,6 @@ CONTAINS
    ! Local Variables
    integer :: isuperset, isubset, ielm, ipxl, istt, iend
 
-      IF (superset%nset <= 0) RETURN
-
       IF (superset%has_shared) THEN
          write(*,*) 'Warning: superset has shared area.'
       ENDIF
@@ -616,6 +614,13 @@ CONTAINS
 
       this%substt =  0
       this%subend = -1
+
+      IF (use_frac) THEN
+         IF (allocated(this%subfrc)) deallocate(this%subfrc)
+         allocate (this%subfrc (subset%nset))
+      ENDIF
+
+      IF (superset%nset <= 0 .or. subset%nset <= 0) RETURN
 
       isuperset = 1
       isubset   = 1
@@ -639,12 +644,6 @@ CONTAINS
       ENDDO
 
       IF (use_frac) THEN
-
-         IF (allocated(this%subfrc)) deallocate(this%subfrc)
-
-         IF (subset%nset <= 0) RETURN
-
-         allocate (this%subfrc (subset%nset))
 
          DO isubset = 1, subset%nset
             ielm = subset%ielm(isubset)

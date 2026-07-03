@@ -89,9 +89,6 @@
     n_mpas_cells = n_mpas_cells + nCellsSolve
     block_cursor => block_cursor % next
  enddo
- if(n_mpas_cells < 1) call physics_error_fatal("CoLM2024 MPAS embedded mode requires at least one solve cell " // &
-                                               "on every MPAS rank; reduce MPI ranks or repartition.")
-
  allocate(mpas_cell_id(n_mpas_cells), cell_to_element(n_mpas_cells))
 
  offset = 0

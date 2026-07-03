@@ -612,7 +612,7 @@ CONTAINS
          ENDDO
 
 #if (defined VectorInOneFileS || defined VectorInOneFileP)
-         fexists_any = pixelset%nset > 0
+         inquire(file=trim(filename), exist=fexists_any)
 #endif
 
 #ifdef USEMPI

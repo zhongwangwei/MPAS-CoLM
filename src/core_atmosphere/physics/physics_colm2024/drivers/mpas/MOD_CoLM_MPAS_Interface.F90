@@ -171,7 +171,7 @@ CONTAINS
          IF (.not. present(cell_to_element)) RETURN
 
          n_mpas = n_mpas_cells
-         IF (n_mpas < 1) RETURN
+         IF (n_mpas < 0) RETURN
          IF (size(mpas_cell_id) < n_mpas) RETURN
          IF (size(cell_to_element) < n_mpas) RETURN
 
@@ -184,6 +184,16 @@ CONTAINS
       CALL pixel%load_from_file(dir_landdata)
       CALL gblock%load_from_file(dir_landdata)
 
+#ifdef MPAS_EMBEDDED_COLM
+      CALL colm_mpas_claim_owned_blocks(dir_landdata, lc_year, mpas_cell_id_i8, n_mpas, ierr)
+      IF (ierr /= 0) RETURN
+
+      CALL mesh_load_from_file(dir_landdata, lc_year, subset_eindex=mpas_cell_id_i8)
+      CALL pixelset_load_from_file(dir_landdata, 'landelm', landelm, numelm, lc_year, &
+                                   subset_eindex=mpas_cell_id_i8)
+      CALL pixelset_load_from_file(dir_landdata, 'landpatch', landpatch, numpatch, lc_year, &
+                                   subset_eindex=mpas_cell_id_i8)
+#else
       IF (n_mpas > 0) THEN
          CALL colm_mpas_claim_owned_blocks(dir_landdata, lc_year, mpas_cell_id_i8, n_mpas, ierr)
          IF (ierr /= 0) RETURN
@@ -198,14 +208,20 @@ CONTAINS
          CALL pixelset_load_from_file(dir_landdata, 'landelm', landelm, numelm, lc_year)
          CALL pixelset_load_from_file(dir_landdata, 'landpatch', landpatch, numpatch, lc_year)
       ENDIF
+#endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+#ifdef MPAS_EMBEDDED_COLM
+      CALL pixelset_load_from_file(dir_landdata, 'landpft', landpft, numpft, lc_year, &
+                                   subset_eindex=mpas_cell_id_i8)
+#else
       IF (n_mpas > 0) THEN
          CALL pixelset_load_from_file(dir_landdata, 'landpft', landpft, numpft, lc_year, &
                                       subset_eindex=mpas_cell_id_i8)
       ELSE
          CALL pixelset_load_from_file(dir_landdata, 'landpft', landpft, numpft, lc_year)
       ENDIF
+#endif
 #endif
 
       IF (n_mpas > 0) THEN
@@ -328,16 +344,27 @@ CONTAINS
 	      integer*8, allocatable :: sorted_cell_id(:)
 
 	      ierr = 1
-	      IF (n_mpas_cells < 1) RETURN
+	      IF (n_mpas_cells < 0) RETURN
 	      IF (.not. allocated(gblock%pio)) RETURN
 	      IF (.not. allocated(gblock%lon_w)) RETURN
 	      IF (.not. allocated(gblock%lat_s)) RETURN
 	      IF (size(mpas_cell_id) < n_mpas_cells) RETURN
 
 	      allocate(keep_block(gblock%nxblk, gblock%nyblk))
+	      keep_block = .false.
+
+	      IF (n_mpas_cells == 0) THEN
+	         gblock%pio(:,:) = -1
+	         IF (allocated(gblock%xblkme)) deallocate(gblock%xblkme)
+	         IF (allocated(gblock%yblkme)) deallocate(gblock%yblkme)
+	         gblock%nblkme = 0
+	         deallocate(keep_block)
+	         ierr = 0
+	         RETURN
+	      ENDIF
+
 	      allocate(found_element(n_mpas_cells))
 	      allocate(sorted_cell_id(n_mpas_cells))
-	      keep_block = .false.
 	      found_element = .false.
 	      sorted_cell_id = mpas_cell_id(1:n_mpas_cells)
 
@@ -603,8 +630,13 @@ CONTAINS
       logical, intent(out) :: ready
       integer, intent(out), optional :: patch_count
 
-      ready = allocated(forc_t) .and. allocated(oroflag) .and. allocated(fsena) .and. allocated(t_grnd) &
-         .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subend) .and. allocated(elm_patch%subfrc)
+      IF (numpatch == 0) THEN
+         ready = colm_mpas_initialized .and. allocated(elm_patch%substt) .and. &
+            allocated(elm_patch%subend) .and. allocated(elm_patch%subfrc)
+      ELSE
+         ready = allocated(forc_t) .and. allocated(oroflag) .and. allocated(fsena) .and. allocated(t_grnd) &
+            .and. allocated(elm_patch%substt) .and. allocated(elm_patch%subend) .and. allocated(elm_patch%subfrc)
+      ENDIF
       IF (present(patch_count)) THEN
          IF (allocated(oroflag)) THEN
             patch_count = size(oroflag)
@@ -739,7 +771,7 @@ CONTAINS
       ierr = 1
       IF (.not. ready) RETURN
 
-	      CALL CoLMDRIVER(idate, deltim, dolai, doalb, dosst, oroflag)
+      IF (numpatch > 0) CALL CoLMDRIVER(idate, deltim, dolai, doalb, dosst, oroflag)
 #ifdef GridRiverLakeFlow
 	      CALL grid_riverlake_flow(idate(1), deltim)
 #endif
@@ -751,8 +783,12 @@ CONTAINS
 
 	   SUBROUTINE colm_mpas_write_restart_if_due(idate, deltim, force, ierr)
 	      USE MOD_Namelist, only: DEF_WRST_FREQ
+	      USE MOD_SPMD_Task, only: p_is_root
 	      USE MOD_TimeManager, only: adj2begin
 	      USE MOD_Vars_TimeVariables, only: save_to_restart, WRITE_TimeVariables
+#ifdef GridRiverLakeFlow
+	      USE MOD_Grid_RiverLakeTimeVars, only: WRITE_GridRiverLakeTimeVars
+#endif
 	      integer, intent(in) :: idate(3)
 	      real(r8), intent(in) :: deltim
 	      logical, intent(in) :: force
@@ -763,6 +799,11 @@ CONTAINS
 	      integer :: write_lc_year
 	      logical :: should_write
 	      character(len=256) :: wrst_freq
+#ifdef GridRiverLakeFlow
+	      character(len=14) :: cdate
+	      character(len=256) :: cyear
+	      character(len=256) :: file_restart
+#endif
 
 	      ierr = 0
 	      IF (.not. colm_mpas_restart_ready) RETURN
@@ -796,7 +837,20 @@ CONTAINS
 	      write_lc_year = colm_mpas_lc_year
 #endif
 
-	      CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
+#ifdef GridRiverLakeFlow
+	      IF (numpatch == 0) THEN
+	         write(cyear,'(i4.4)') write_lc_year
+	         write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') write_idate(1), write_idate(2), write_idate(3)
+	         IF (p_is_root) CALL system('mkdir -p ' // trim(colm_mpas_dir_restart)//'/'//trim(cdate))
+	         file_restart = trim(colm_mpas_dir_restart)// '/'//trim(cdate)//'/' // &
+	            trim(colm_mpas_casename) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	         CALL WRITE_GridRiverLakeTimeVars(file_restart)
+	      ELSE
+	         CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
+	      ENDIF
+#else
+	      IF (numpatch > 0) CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
+#endif
 	      colm_mpas_last_restart_idate(:) = write_idate(:)
 	   END SUBROUTINE colm_mpas_write_restart_if_due
 
