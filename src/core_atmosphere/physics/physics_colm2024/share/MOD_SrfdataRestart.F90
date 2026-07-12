@@ -466,10 +466,16 @@ CONTAINS
 
 
       IF (.true. .and. pixelset%nset > 0) THEN
-         IF (.not. allocated(mesh) .or. numelm < 1 .or. size(mesh) /= numelm) THEN
+         IF (.not. allocated(mesh)) THEN
             CALL CoLM_stop('Cannot map '//trim(psetname)//' because the local CoLM element mesh is empty or inconsistent.')
          ENDIF
-         IF (.not. allocated(pixelset%eindex) .or. size(pixelset%eindex) /= pixelset%nset) THEN
+         IF (numelm < 1 .or. size(mesh) /= numelm) THEN
+            CALL CoLM_stop('Cannot map '//trim(psetname)//' because the local CoLM element mesh is empty or inconsistent.')
+         ENDIF
+         IF (.not. allocated(pixelset%eindex)) THEN
+            CALL CoLM_stop('Invalid element-index vector while loading '//trim(psetname)//'.')
+         ENDIF
+         IF (size(pixelset%eindex) /= pixelset%nset) THEN
             CALL CoLM_stop('Invalid element-index vector while loading '//trim(psetname)//'.')
          ENDIF
 

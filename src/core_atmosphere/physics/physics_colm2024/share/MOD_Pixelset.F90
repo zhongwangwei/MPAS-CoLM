@@ -348,10 +348,16 @@ CONTAINS
       IF (.true.) THEN
 
          IF (this%nset > 0) THEN
-            IF (.not. allocated(this%eindex) .or. size(this%eindex) /= this%nset) THEN
+            IF (.not. allocated(this%eindex)) THEN
                CALL CoLM_stop('Invalid pixelset element-index vector in set_vecgs.')
             ENDIF
-            IF (.not. allocated(this%ielm) .or. size(this%ielm) /= this%nset) THEN
+            IF (size(this%eindex) /= this%nset) THEN
+               CALL CoLM_stop('Invalid pixelset element-index vector in set_vecgs.')
+            ENDIF
+            IF (.not. allocated(this%ielm)) THEN
+               CALL CoLM_stop('Pixelset element mapping must be established before set_vecgs.')
+            ENDIF
+            IF (size(this%ielm) /= this%nset) THEN
                CALL CoLM_stop('Pixelset element mapping must be established before set_vecgs.')
             ENDIF
             IF (.not. allocated(mesh)) THEN

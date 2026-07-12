@@ -55,7 +55,10 @@ CONTAINS
             CALL CoLM_stop('Embedded CoLM river state dimensions do not match local unit catchments.')
          ENDIF
          IF (DEF_Reservoir_Method > 0) THEN
-            IF (.not. allocated(volresv) .or. size(volresv) /= numresv) THEN
+            IF (.not. allocated(volresv)) THEN
+               CALL CoLM_stop('Embedded CoLM river state is missing local reservoir storage.')
+            ENDIF
+            IF (size(volresv) /= numresv) THEN
                CALL CoLM_stop('Embedded CoLM reservoir state dimensions do not match local reservoirs.')
             ENDIF
          ENDIF

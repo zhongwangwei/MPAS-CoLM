@@ -963,11 +963,9 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 		    t2m(i) = real(t2m_colm, RKIND)
 		    u10(i) = real(u10m_colm, RKIND)
 		    v10(i) = real(v10m_colm, RKIND)
-	    ! Noah-MP and the MPAS Registry keep qsfc as specific humidity, while q2 uses the WRF mixing-ratio convention.
+	    ! CoLM qref and MPAS q2/qsfc are specific humidity.
 	    qsfc(i) = real(qsfc_colm, RKIND)
-	    if(abs(q2m_colm) < colm_state_bad_value .and. q2m_colm >= 0._colm_r8 .and. q2m_colm < 1._colm_r8) then
-	       q2(i) = real(q2m_colm / (1._colm_r8 - q2m_colm), RKIND)
-	    endif
+	    q2(i) = real(q2m_colm, RKIND)
 	    sfc_emiss(i) = real(emissivity, RKIND)
 	    z0(i) = real(roughness, RKIND)
 	    znt(i) = real(roughness, RKIND)

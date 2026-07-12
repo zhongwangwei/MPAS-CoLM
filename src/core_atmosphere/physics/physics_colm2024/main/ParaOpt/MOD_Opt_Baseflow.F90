@@ -34,14 +34,17 @@ CONTAINS
 
       file_restart = trim(DEF_dir_restart) // '/ParaOpt/' // trim(DEF_CASE_NAME) //'_baseflow.nc'
       CALL ncio_read_vector (file_restart, 'scale_baseflow', landpatch, scale_baseflow, defval = 1.)
-	      IF (numpatch > 0) THEN
-	         IF (.not. allocated(scale_baseflow) .or. size(scale_baseflow) /= numpatch) THEN
-	            CALL CoLM_stop('Embedded CoLM baseflow scale does not match the local patch decomposition.')
-	         ENDIF
-	         IF (.not. all(ieee_is_finite(scale_baseflow)) .or. any(scale_baseflow <= 0._r8)) THEN
-	            CALL CoLM_stop('Embedded CoLM baseflow scale must contain finite positive values.')
-	         ENDIF
-	      ENDIF
+      IF (numpatch > 0) THEN
+         IF (.not. allocated(scale_baseflow)) THEN
+            CALL CoLM_stop('Embedded CoLM baseflow scale is not allocated.')
+         ENDIF
+         IF (size(scale_baseflow) /= numpatch) THEN
+            CALL CoLM_stop('Embedded CoLM baseflow scale does not match the local patch decomposition.')
+         ENDIF
+         IF (.not. all(ieee_is_finite(scale_baseflow)) .or. any(scale_baseflow <= 0._r8)) THEN
+            CALL CoLM_stop('Embedded CoLM baseflow scale must contain finite positive values.')
+         ENDIF
+      ENDIF
 
       IF (mpas_is_root) CALL make_directory(trim(DEF_dir_restart)//'/ParaOpt')
 #ifdef MPAS_MPI

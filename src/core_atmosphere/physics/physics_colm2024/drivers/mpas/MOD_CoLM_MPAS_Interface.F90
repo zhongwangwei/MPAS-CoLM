@@ -778,7 +778,8 @@ CONTAINS
 	      IF (n_mpas_cells < 1) RETURN
 	      IF (size(mpas_cell_id) < n_mpas_cells .or. size(mpas_cell_lat) < n_mpas_cells .or. &
 	          size(mpas_cell_lon) < n_mpas_cells .or. size(cell_to_element) < n_mpas_cells) RETURN
-	      IF (.not. allocated(mesh) .or. size(mesh) /= numelm) RETURN
+	      IF (.not. allocated(mesh)) RETURN
+	      IF (size(mesh) /= numelm) RETURN
 	      IF (.not. allocated(pixel%lat_s) .or. .not. allocated(pixel%lat_n) .or. &
 	          .not. allocated(pixel%lon_w) .or. .not. allocated(pixel%lon_e)) RETURN
 
@@ -903,8 +904,11 @@ CONTAINS
 	                  EXIT
 	               ENDIF
 	               total_fraction = total_fraction + fraction
-	               IF (.not. require_active_patch .or. patchmask(patch)) &
+	               IF (.not. require_active_patch) THEN
 	                  active_fraction = active_fraction + fraction
+	               ELSEIF (patchmask(patch)) THEN
+	                  active_fraction = active_fraction + fraction
+	               ENDIF
 	            ENDDO
 	         ENDIF
 	         IF (.not. ieee_is_finite(total_fraction) .or. &
@@ -958,7 +962,8 @@ CONTAINS
 	      IF (.not. allocated(patch_pft_s) .or. .not. allocated(patch_pft_e)) RETURN
 	      IF (size(patch_pft_s) /= numpatch .or. size(patch_pft_e) /= numpatch) RETURN
 	      IF (numpft > 0) THEN
-	         IF (.not. allocated(pftfrac) .or. size(pftfrac) /= numpft) RETURN
+	         IF (.not. allocated(pftfrac)) RETURN
+	         IF (size(pftfrac) /= numpft) RETURN
 	      ENDIF
 
 	      DO patch = 1, numpatch
@@ -1413,7 +1418,8 @@ CONTAINS
 	      IF (abs(air_density) < bad_value .and. air_density > 0._r8 .and. &
 	          abs(moisture_exchange_velocity) < bad_value .and. &
 	          moisture_exchange_velocity > tiny(1._r8)) THEN
-	         IF (.not. allocated(forc_q) .or. patch > size(forc_q)) RETURN
+	         IF (.not. allocated(forc_q)) RETURN
+	         IF (patch > size(forc_q)) RETURN
 	         IF (.not. ieee_is_finite(forc_q(patch)) .or. forc_q(patch) < 0._r8 .or. &
 	             forc_q(patch) >= 1._r8) RETURN
 	         ! The atmospheric boundary sees canopy-air humidity, not ground qg.
