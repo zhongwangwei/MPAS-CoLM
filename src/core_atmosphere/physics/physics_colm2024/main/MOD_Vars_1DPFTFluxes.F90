@@ -56,11 +56,11 @@ CONTAINS
    ! -------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
             allocate (taux_p       (numpft)) ; taux_p       (:) = spval !wind stress: E-W [kg/m/s2]
@@ -93,10 +93,10 @@ CONTAINS
    ! -------------------------------------------------------------------
    ! deallocates memory for CoLM PFT 1d [numpft] variables
    ! -------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
             deallocate (taux_p       )
@@ -131,14 +131,14 @@ CONTAINS
    ! -------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    IMPLICIT NONE
 
    real(r8),intent(in) :: Values
    real(r8),intent(in) :: Nan
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
             taux_p      (:) = Values  !wind stress: E-W [kg/m/s2]

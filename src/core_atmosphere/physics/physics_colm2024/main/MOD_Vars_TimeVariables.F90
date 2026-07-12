@@ -95,12 +95,12 @@ CONTAINS
    ! Allocates memory for CoLM 1d [numpft] variables
    !--------------------------------------------------------------------
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
             allocate (tleaf_p      (numpft)) ; tleaf_p      (:) = spval !leaf temperature [K]
             allocate (ldew_p       (numpft)) ; ldew_p       (:) = spval !depth of water on foliage [mm]
@@ -303,10 +303,10 @@ ENDIF
    !--------------------------------------------------------------------
    ! Deallocates memory for CoLM 1d [numpft/numpc] variables
    !--------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
             deallocate (tleaf_p        )  ! leaf temperature [K]
             deallocate (ldew_p         )  ! depth of water on foliage [mm]
@@ -639,12 +639,12 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Vars_Global
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -845,7 +845,7 @@ CONTAINS
 
    SUBROUTINE deallocate_TimeVariables ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
@@ -853,7 +853,7 @@ CONTAINS
    ! Deallocates memory for CoLM 1d [numpatch] variables
    !--------------------------------------------------------------------
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -1091,11 +1091,12 @@ CONTAINS
    ! Original version: Yongjiu Dai, September 15, 1999, 03/2014
    !====================================================================
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
                            DEF_USE_IRRIGATION, DEF_USE_Dynamic_Lake, SITE_landtype
-   USE MOD_LandPatch
-   USE MOD_NetCDFVector
+	   USE MOD_LandPatch
+	   USE MOD_NetCDFVector
+	   USE MOD_Utils, only: make_directory
    USE MOD_Vars_Global
    USE MOD_Vars_TimeInvariants, only: dz_lake
    USE MOD_Const_LC, only: patchtypes
@@ -1107,7 +1108,13 @@ CONTAINS
    character(len=*), intent(in) :: dir_restart
 
    ! Local variables
-   character(len=256) :: file_restart
+	   character(len=256) :: file_restart
+	   character(len=256) :: file_restart_vector
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+#ifdef MPAS_EMBEDDED_COLM
+	   character(len=256) :: file_restart_pft
+#endif
+#endif
    character(len=14)  :: cdate
    character(len=256) :: cyear         !character for lc_year
    integer :: compress
@@ -1118,14 +1125,24 @@ CONTAINS
       write(cyear,'(i4.4)') lc_year
       write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
 
-      IF (p_is_root) THEN
-         CALL system('mkdir -p ' // trim(dir_restart)//'/'//trim(cdate))
+      IF (mpas_is_root) THEN
+         CALL make_directory(trim(dir_restart)//'/'//trim(cdate))
       ENDIF
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-variable restart directory creation')
 #endif
 
 	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      file_restart_vector = file_restart
+	      CALL ncio_begin_distributed_write(file_restart_vector)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+#ifdef MPAS_EMBEDDED_COLM
+	      file_restart_pft = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'// &
+	                         trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      CALL ncio_begin_distributed_write(file_restart_pft)
+#endif
+#endif
 
 #ifdef MPAS_EMBEDDED_COLM
 	      IF (numpatch > 0) THEN
@@ -1266,11 +1283,19 @@ ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint
       IF (patchtypes(SITE_landtype) == 0) THEN
+#ifdef MPAS_EMBEDDED_COLM
+         file_restart = file_restart_pft
+#else
          file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+#endif
          CALL WRITE_PFTimeVariables (file_restart)
       ENDIF
 #else
+#ifdef MPAS_EMBEDDED_COLM
+      file_restart = file_restart_pft
+#else
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+#endif
       CALL WRITE_PFTimeVariables (file_restart)
 #endif
 #endif
@@ -1300,6 +1325,9 @@ ENDIF
 
 #ifdef MPAS_EMBEDDED_COLM
 	      ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+	      CALL ncio_complete_distributed_write(file_restart_pft)
+#endif
 #endif
 
 #ifdef GridRiverLakeFlow
@@ -1307,17 +1335,19 @@ ENDIF
 	      CALL WRITE_GridRiverLakeTimeVars (file_restart)
 #endif
 
+	      CALL ncio_complete_distributed_write(file_restart_vector)
+
 	   END SUBROUTINE WRITE_TimeVariables
 
 
-   SUBROUTINE READ_TimeVariables (idate, lc_year, site, dir_restart)
+   SUBROUTINE READ_TimeVariables (idate, lc_year, site, dir_restart, require_complete_restart)
 
    !====================================================================
    ! Original version: Yongjiu Dai, September 15, 1999, 03/2014
    !====================================================================
 
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFVector
 #ifdef RangeCheck
    USE MOD_RangeCheck
@@ -1333,16 +1363,22 @@ ENDIF
    integer, intent(in) :: lc_year      !year of land cover type data
    character(len=*), intent(in) :: site
    character(len=*), intent(in) :: dir_restart
+	   logical, intent(in) :: require_complete_restart
 
    ! Local variables
    character(len=256) :: file_restart
    character(len=14)  :: cdate, cyear
-
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_EMBEDDED_COLM
+	   character(len=512) :: complete_marker
+	   logical :: marker_exists
 #endif
 
-      IF (p_is_root) THEN
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-variable restart read entry')
+#endif
+
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading Time Variables ...'
       ENDIF
 
@@ -1351,6 +1387,16 @@ ENDIF
 
       write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (require_complete_restart) THEN
+	         complete_marker = trim(file_restart)//'.mpas_complete'
+	         inquire(file=trim(complete_marker), exist=marker_exists)
+	         IF (.not. marker_exists) THEN
+	            CALL CoLM_stop('MPAS restart requires a completed CoLM patch checkpoint: '//trim(complete_marker))
+	         ENDIF
+	      ENDIF
+#endif
 
 #ifdef MPAS_EMBEDDED_COLM
       IF (numpatch > 0) THEN
@@ -1478,6 +1524,15 @@ ENDIF
       ENDIF
 #else
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (require_complete_restart) THEN
+	         complete_marker = trim(file_restart)//'.mpas_complete'
+	         inquire(file=trim(complete_marker), exist=marker_exists)
+	         IF (.not. marker_exists) THEN
+	            CALL CoLM_stop('MPAS restart requires a completed CoLM PFT checkpoint: '//trim(complete_marker))
+	         ENDIF
+	      ENDIF
+#endif
       CALL READ_PFTimeVariables (file_restart)
 #endif
 #endif
@@ -1498,7 +1553,7 @@ ENDIF
 
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-      CALL READ_GridRiverLakeTimeVars (file_restart)
+	      CALL READ_GridRiverLakeTimeVars (file_restart, require_complete_restart)
 #endif
 
 #ifdef MPAS_EMBEDDED_COLM
@@ -1526,7 +1581,7 @@ ENDIF
       ENDIF
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading Time Variables done.'
       ENDIF
 
@@ -1536,7 +1591,7 @@ ENDIF
 #ifdef RangeCheck
    SUBROUTINE check_TimeVariables ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_RangeCheck
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, DEF_USE_IRRIGATION, &
                            DEF_USE_SNICAR, DEF_USE_Dynamic_Lake
@@ -1544,10 +1599,11 @@ ENDIF
 
    IMPLICIT NONE
 
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-variable range-check entry')
 #endif
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(/,A27)') 'Checking Time Variables ...'
       ENDIF
 
@@ -1667,8 +1723,9 @@ ENDIF
       IF (DEF_DA_ENS_NUM > 1) CALL check_DATimeVariables
 #endif
 
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-variable range-check completion')
 #endif
 
   END SUBROUTINE check_TimeVariables

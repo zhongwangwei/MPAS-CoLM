@@ -318,12 +318,12 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Vars_Global
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -611,7 +611,7 @@ CONTAINS
 
    SUBROUTINE deallocate_BGCTimeVariables ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
@@ -619,7 +619,7 @@ CONTAINS
 ! Deallocates memory for CoLM 1d [numpatch] variables
 ! --------------------------------------------------
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -1086,7 +1086,7 @@ CONTAINS
 !=======================================================================
 
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFVector
 #ifdef RangeCheck
    USE MOD_RangeCheck
@@ -1240,7 +1240,7 @@ CONTAINS
 #ifdef RangeCheck
    SUBROUTINE check_BGCTimeVariables ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_RangeCheck
    USE MOD_Namelist, only: DEF_USE_NITRIF, DEF_USE_SASU, DEF_USE_DiagMatrix
 

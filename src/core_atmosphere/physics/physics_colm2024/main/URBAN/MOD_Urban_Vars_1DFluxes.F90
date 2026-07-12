@@ -55,12 +55,12 @@ CONTAINS
    ! --------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
            !allocate (sabroof        (numurban))
            !allocate (sabwsun        (numurban))
@@ -87,10 +87,10 @@ CONTAINS
    ! --------------------------------------------------------------------
    ! deallocates memory for CLM 1d [numurban] variables
    ! --------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
 
            !deallocate (sabroof      )
@@ -121,13 +121,13 @@ CONTAINS
    ! --------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
    IMPLICIT NONE
    real(r8),intent(in) :: Values
    real(r8),intent(in) :: Nan
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
            !sabroof        (:) = Values
            !sabwsun        (:) = Values

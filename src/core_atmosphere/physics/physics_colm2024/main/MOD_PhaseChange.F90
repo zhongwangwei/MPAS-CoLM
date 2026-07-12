@@ -53,7 +53,7 @@ CONTAINS
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Hydro_SoilFunction
    USE MOD_Const_Physical, only: tfrz, hfus, grav
    USE MOD_Namelist
@@ -354,7 +354,7 @@ CONTAINS
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Hydro_SoilFunction
    USE MOD_Const_Physical, only: tfrz, hfus, grav
    USE MOD_Namelist
@@ -654,7 +654,7 @@ CONTAINS
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Const_Physical, only: tfrz, hfus
    IMPLICIT NONE
 

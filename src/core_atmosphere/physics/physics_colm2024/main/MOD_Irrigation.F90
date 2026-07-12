@@ -30,7 +30,7 @@ MODULE MOD_Irrigation
    USE MOD_Vars_1DForcing, only: forc_t, forc_frl, forc_psrf, forc_us, forc_vs
    USE MOD_Vars_1DFluxes, only: sabg, sabvsun, sabvsha, olrg, fgrnd
    USE MOD_Hydro_SoilFunction, only: soil_vliq_from_psi
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    PUBLIC :: CalIrrigationNeeded

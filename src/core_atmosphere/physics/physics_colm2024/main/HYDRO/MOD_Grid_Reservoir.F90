@@ -12,8 +12,8 @@ MODULE MOD_Grid_Reservoir
    USE MOD_Precision
    USE MOD_DataType
 
-   integer :: totalnumresv
-   integer :: numresv
+   integer :: totalnumresv = 0
+   integer :: numresv = 0
    integer,  allocatable :: ucat2resv   (:)
    integer,  allocatable :: resv_global_index(:)
    type(pointer_int32_1d), allocatable :: resv_data_address (:)
@@ -47,11 +47,12 @@ CONTAINS
    ! -------
    SUBROUTINE reservoir_init ( )
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_Utils
-   USE MOD_Namelist,              only: DEF_ReservoirPara_file
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_ucid, lake_type
+	   USE MOD_Namelist,              only: DEF_ReservoirPara_file
+	   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_ucid, lake_type
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
    IMPLICIT NONE
 
@@ -63,14 +64,17 @@ CONTAINS
    integer,  allocatable :: icache (:)
 
    integer, parameter :: dam_seq_chunk_size = 1048576
-   integer :: i, iloc, irsv, nresv, irank
-   integer :: istart, iend, local_index
+	   integer :: i, iloc, irsv
+#ifndef MPAS_EMBEDDED_COLM
+	   integer :: nresv, irank
+#endif
+   integer :: istart, iend, local_index, global_resv_index
 
 
       parafile = DEF_ReservoirPara_file
 
 #ifndef MPAS_EMBEDDED_COLM
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          CALL ncio_read_serial (parafile, 'dam_GRAND_ID', dam_GRAND_ID)
       ENDIF
 
@@ -81,7 +85,7 @@ CONTAINS
       CALL ncio_inquire_length (parafile, 'dam_seq', totalnumresv)
 #endif
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (ucat2resv (numucat))
          ucat2resv = 0
@@ -107,12 +111,14 @@ CONTAINS
                   iloc = find_in_sorted_list1 (dam_seq(i), numucat, local_ucid)
                   IF (iloc > 0) THEN
                      local_index = order(iloc)
-                     IF (ucat2resv(local_index) == 0) THEN
-                        numresv = numresv + 1
-                        lake_type(local_index) = 2
-                        ucat2resv(local_index) = numresv
-                        resv_global_index(numresv) = i
-                     ENDIF
+	                  global_resv_index = istart + i - lbound(dam_seq,1)
+	                  IF (ucat2resv(local_index) /= 0) THEN
+	                     CALL CoLM_stop('Duplicate dam_seq entry for a local embedded CoLM unit catchment.')
+	                  ENDIF
+	                  numresv = numresv + 1
+	                  lake_type(local_index) = 2
+	                  ucat2resv(local_index) = numresv
+	                  resv_global_index(numresv) = global_resv_index
                   ENDIF
                ENDDO
 
@@ -140,39 +146,39 @@ CONTAINS
       ENDIF
 
 #ifndef MPAS_EMBEDDED_COLM
-#ifdef COLM_PARALLEL
-      IF (.not. allocated(resv_data_address)) allocate (resv_data_address (0:p_np_compute-1))
+#ifdef MPAS_MPI
+      IF (.not. allocated(resv_data_address)) allocate (resv_data_address (0:mpas_size-1))
 
-      IF (p_is_root) THEN
-         DO irank = 0, p_np_compute-1
+      IF (mpas_is_root) THEN
+         DO irank = 0, mpas_size-1
 
-            IF (p_address_compute(irank) == p_iam_glb) THEN
+            IF (irank == mpas_rank) THEN
                nresv = numresv
             ELSE
                CALL mpi_recv (nresv, 1, MPI_INTEGER, &
-                  p_address_compute(irank), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+                  irank, mpi_tag_mesg, mpas_comm, mpas_status, mpas_mpi_ierr)
             ENDIF
 
             IF (nresv > 0) THEN
                allocate (resv_data_address(irank)%val (nresv))
-               IF (p_address_compute(irank) == p_iam_glb) THEN
+               IF (irank == mpas_rank) THEN
                   resv_data_address(irank)%val = resv_global_index(1:nresv)
                ELSE
                   CALL mpi_recv (resv_data_address(irank)%val, nresv, MPI_INTEGER, &
-                     p_address_compute(irank), mpi_tag_data, p_comm_glb, p_stat, p_err)
+                     irank, mpi_tag_data, mpas_comm, mpas_status, mpas_mpi_ierr)
                ENDIF
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute .and. (.not. p_is_root)) THEN
+      IF (.true. .and. (.not. mpas_is_root)) THEN
 
-         CALL mpi_send (numresv, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
+         CALL mpi_send (numresv, 1, MPI_INTEGER, mpas_root, mpi_tag_mesg, mpas_comm, mpas_mpi_ierr)
 
          IF (numresv > 0) THEN
-            CALL mpi_send (resv_global_index(1:numresv), numresv, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_err)
+            CALL mpi_send (resv_global_index(1:numresv), numresv, MPI_INTEGER, mpas_root, &
+               mpi_tag_data, mpas_comm, mpas_mpi_ierr)
          ENDIF
 
       ENDIF
@@ -185,7 +191,7 @@ CONTAINS
 #endif
 #endif
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numresv > 0) THEN
 
@@ -200,15 +206,17 @@ CONTAINS
             allocate (qresv_adjust   (numresv))
             allocate (qresv_normal   (numresv))
 
-            allocate (qresv_in       (numresv))
-            allocate (qresv_out      (numresv))
+	            allocate (qresv_in       (numresv))
+	            allocate (qresv_out      (numresv))
+	            qresv_in(:) = 0._r8
+	            qresv_out(:) = 0._r8
 
          ENDIF
 
       ENDIF
 
 #ifdef MPAS_EMBEDDED_COLM
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          CALL ncio_read_indexed_serial (parafile, 'dam_year', resv_global_index(1:numresv), icache)
          dam_build_year = icache
 
@@ -226,34 +234,51 @@ CONTAINS
       ENDIF
 #else
       CALL ncio_read_bcast_serial (parafile, 'dam_year', icache)
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          dam_build_year = icache(resv_global_index(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_TotalVol_mcm', rcache)
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          volresv_total = rcache(resv_global_index(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_ConVol_mcm', rcache)
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          volresv_normal = rcache(resv_global_index(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qn', rcache)
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          qresv_normal = rcache(resv_global_index(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qf', rcache)
-      IF (p_is_compute .and. (numresv > 0)) THEN
+      IF (.true. .and. (numresv > 0)) THEN
          qresv_flood = rcache(resv_global_index(1:numresv))
       ENDIF
 #endif
 
 
-      IF (p_is_compute) THEN
-         DO irsv = 1, numresv
+	      IF (.true.) THEN
+	         IF (numresv > 0) THEN
+	            IF (any(resv_global_index(1:numresv) < 1) .or. &
+	                any(resv_global_index(1:numresv) > totalnumresv)) THEN
+	               CALL CoLM_stop('Embedded CoLM reservoir index is outside the parameter file.')
+	            ENDIF
+	            IF (.not. all(ieee_is_finite(volresv_total)) .or. &
+	                .not. all(ieee_is_finite(volresv_normal)) .or. &
+	                .not. all(ieee_is_finite(qresv_normal)) .or. &
+	                .not. all(ieee_is_finite(qresv_flood))) THEN
+	               CALL CoLM_stop('Embedded CoLM reservoir parameters contain non-finite values.')
+	            ENDIF
+	            IF (any(dam_build_year <= 0) .or. any(volresv_total <= 0._r8) .or. &
+                any(volresv_normal <= 0._r8) .or. any(volresv_normal > volresv_total) .or. &
+                any(qresv_normal < 0._r8) .or. any(qresv_flood < qresv_normal)) THEN
+               CALL CoLM_stop('Embedded CoLM reservoir parameters are outside their physical ranges.')
+            ENDIF
+	         ENDIF
+	         DO irsv = 1, numresv
             volresv_emerg (irsv) = volresv_total(irsv) * 0.94
             volresv_adjust(irsv) = volresv_total(irsv) * 0.77
             volresv_normal(irsv) = min(volresv_total(irsv)*0.7, volresv_normal(irsv))
@@ -263,24 +288,37 @@ CONTAINS
 
       IF (allocated(dam_seq)) deallocate(dam_seq)
       IF (allocated(order  )) deallocate(order  )
+      IF (allocated(local_ucid)) deallocate(local_ucid)
       IF (allocated(rcache )) deallocate(rcache )
       IF (allocated(icache )) deallocate(icache )
 
    END SUBROUTINE reservoir_init
 
 
-   SUBROUTINE reservoir_operation (method, irsv, qin, vol, qout)
+	   SUBROUTINE reservoir_operation (method, irsv, qin, vol, qout)
 
-   IMPLICIT NONE
+	   USE MOD_MPAS_MPI, only: CoLM_stop
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+	   IMPLICIT NONE
    integer,  intent(in)  :: method
    integer,  intent(in)  :: irsv
    real(r8), intent(in)  :: qin, vol
    real(r8), intent(out) :: qout
 
    ! local variables
-   real(r8) :: q1
+	   real(r8) :: q1
 
-      IF (method == 1) THEN
+	      IF (irsv < 1 .or. irsv > numresv) THEN
+	         CALL CoLM_stop('Embedded CoLM reservoir operation received an invalid local reservoir index.')
+	      ENDIF
+	      IF (.not. ieee_is_finite(qin) .or. .not. ieee_is_finite(vol) .or. vol < 0._r8) THEN
+	         CALL CoLM_stop('Embedded CoLM reservoir operation received invalid state or forcing.')
+	      ENDIF
+	      IF (method /= 1) THEN
+	         CALL CoLM_stop('Unsupported embedded CoLM reservoir operation method.')
+	      ENDIF
+
+	      IF (method == 1) THEN
          ! *** Reference ***
          ! [1] Mizuki Funato, Dai Yamazaki, Dung Trung Vu.
          ! Development of an improved reservoir operation scheme for global flood modeling.
@@ -330,6 +368,9 @@ CONTAINS
 
       IF (allocated(qresv_in         )) deallocate (qresv_in         )
       IF (allocated(qresv_out        )) deallocate (qresv_out        )
+
+      totalnumresv = 0
+      numresv = 0
 
    END SUBROUTINE reservoir_final
 

@@ -12,6 +12,8 @@ MODULE MOD_Vars_1DForcing
    IMPLICIT NONE
    SAVE
 
+   character(len=*), parameter :: forc_height_mode = 'absolute'
+
 !-----------------------------------------------------------------------
    real(r8), allocatable :: forc_pco2m (:)   ! CO2 concentration in atmos. (pascals)
    real(r8), allocatable :: forc_po2m  (:)   ! O2 concentration in atmos. (pascals)
@@ -35,7 +37,7 @@ MODULE MOD_Vars_1DForcing
    real(r8), allocatable :: forc_hgt_t (:)   ! observational height of temperature [m]
    real(r8), allocatable :: forc_hgt_q (:)   ! observational height of humidity [m]
    real(r8), allocatable :: forc_rhoair(:)   ! air density [kg/m3]
-   real(r8), allocatable :: forc_ozone (:)   ! air density [kg/m3]
+   real(r8), allocatable :: forc_ozone (:)   ! ozone concentration [ppbv]
 #ifdef HYPERSPECTRAL
    real(r8), allocatable :: forc_solarin(:) ! incident solar radiation [W/m2]
 #endif
@@ -60,12 +62,13 @@ CONTAINS
    ! -------------------------------------------------------------------
    ! Allocates memory for CoLM 1d [numpatch] variables
    ! -------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Mesh
    USE MOD_LandPatch
+   USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -94,7 +97,7 @@ CONTAINS
             allocate (forc_hgt_t  (numpatch) ) ! observational height of temperature [m]
             allocate (forc_hgt_q  (numpatch) ) ! observational height of humidity [m]
             allocate (forc_rhoair (numpatch) ) ! air density [kg/m3]
-            allocate (forc_ozone  (numpatch) ) ! air density [kg/m3]
+            allocate (forc_ozone  (numpatch) ) ! ozone concentration [ppbv]
 
             allocate (forc_hpbl   (numpatch) ) ! atmospheric boundary layer height [m]
 
@@ -103,6 +106,36 @@ CONTAINS
             ENDIF
 
             allocate (forc_aerdep(14,numpatch) ) ! atmospheric aerosol deposition data [kg/m/s]
+
+            forc_pco2m  = spval
+            forc_po2m   = spval
+            forc_us     = spval
+            forc_vs     = spval
+            forc_t      = spval
+            forc_q      = spval
+            forc_prc    = spval
+            forc_prl    = spval
+            forc_rain   = spval
+            forc_snow   = spval
+            forc_psrf   = spval
+            forc_pbot   = spval
+#ifdef HYPERSPECTRAL
+            forc_solarin = spval
+#endif
+            forc_sols   = spval
+            forc_soll   = spval
+            forc_solsd  = spval
+            forc_solld  = spval
+            forc_frl    = spval
+            forc_swrad  = spval
+            forc_hgt_u  = spval
+            forc_hgt_t  = spval
+            forc_hgt_q  = spval
+            forc_rhoair = spval
+            forc_ozone  = spval
+            forc_hpbl   = spval
+            IF (allocated(forc_topo)) forc_topo = spval
+            forc_aerdep = spval
 
          ENDIF
 
@@ -113,12 +146,12 @@ CONTAINS
 
    SUBROUTINE deallocate_1D_Forcing ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Mesh
    USE MOD_LandPatch
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -147,7 +180,7 @@ CONTAINS
             deallocate ( forc_hgt_t  ) ! observational height of temperature [m]
             deallocate ( forc_hgt_q  ) ! observational height of humidity [m]
             deallocate ( forc_rhoair ) ! air density [kg/m3]
-            deallocate ( forc_ozone  ) ! Ozone partial pressure [mol/mol]
+            deallocate ( forc_ozone  ) ! ozone concentration [ppbv]
 
             deallocate ( forc_hpbl   ) ! atmospheric boundary layer height [m]
 

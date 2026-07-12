@@ -191,6 +191,9 @@
     return
  endif
 
+ sf_noahmp_in   = .false.
+ sf_colm2024_in = .false.
+
  if(config_lsm_scheme=='sf_noahmp') then
     sf_noahmp_in = .true.
  endif

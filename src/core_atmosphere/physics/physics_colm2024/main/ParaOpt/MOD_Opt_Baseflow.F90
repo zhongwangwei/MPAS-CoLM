@@ -3,7 +3,7 @@
 MODULE MOD_Opt_Baseflow
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
@@ -24,6 +24,8 @@ CONTAINS
    USE MOD_NetCDFVector
    USE MOD_Vars_TimeVariables, only: zwt
    USE MOD_LandPatch,          only: numpatch, landpatch
+	   USE MOD_Utils,              only: make_directory
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    ! Local Variables
@@ -32,17 +34,24 @@ CONTAINS
 
       file_restart = trim(DEF_dir_restart) // '/ParaOpt/' // trim(DEF_CASE_NAME) //'_baseflow.nc'
       CALL ncio_read_vector (file_restart, 'scale_baseflow', landpatch, scale_baseflow, defval = 1.)
+	      IF (numpatch > 0) THEN
+	         IF (.not. allocated(scale_baseflow) .or. size(scale_baseflow) /= numpatch) THEN
+	            CALL CoLM_stop('Embedded CoLM baseflow scale does not match the local patch decomposition.')
+	         ENDIF
+	         IF (.not. all(ieee_is_finite(scale_baseflow)) .or. any(scale_baseflow <= 0._r8)) THEN
+	            CALL CoLM_stop('Embedded CoLM baseflow scale must contain finite positive values.')
+	         ENDIF
+	      ENDIF
 
-      IF (p_is_root) THEN
-         CALL system('mkdir -p ' // trim(DEF_dir_restart)//'/ParaOpt')
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+      IF (mpas_is_root) CALL make_directory(trim(DEF_dir_restart)//'/ParaOpt')
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+	      CALL mpas_mpi_check('baseflow-scale initialization')
 #endif
 
       IF (DEF_Optimize_Baseflow) THEN
 
-         IF (p_is_compute) THEN
+         IF (.true.) THEN
             IF (numpatch > 0) THEN
                allocate (zwt_init  (numpatch));  zwt_init  (:) = zwt
                allocate (rchg_year (numpatch));  rchg_year (:) = spval
@@ -66,6 +75,7 @@ CONTAINS
    USE MOD_Vars_1DForcing,      only: forc_prc, forc_prl
    USE MOD_Vars_1DFluxes,       only: fevpa, rsur, rsub
    USE MOD_LandPatch,           only: numpatch, landpatch
+   USE MOD_Utils,               only: make_directory
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3)
@@ -80,7 +90,7 @@ CONTAINS
 
       IF (DEF_Optimize_Baseflow .and. is_spinup) THEN
 
-         IF (p_is_compute) THEN
+         IF (.true.) THEN
             IF (numpatch > 0) THEN
 
                allocate (recharge(numpatch));   recharge(:) = spval
@@ -102,11 +112,9 @@ CONTAINS
             iter_bf_opt = iter_bf_opt + 1
 
             write(strcyc,'(A1,I4.4)') 'c', iter_bf_opt
-            IF (p_is_root) THEN
-               CALL system('mkdir -p ' // trim(DEF_dir_restart)//'/ParaOpt/'//strcyc)
-            ENDIF
-#ifdef USEMPI
-            CALL mpi_barrier (p_comm_glb, p_err)
+            IF (mpas_is_root) CALL make_directory(trim(DEF_dir_restart)//'/ParaOpt/'//strcyc)
+#ifdef MPAS_MPI
+            CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
 #endif
             file_restart = trim(DEF_dir_restart)//'/ParaOpt/'//strcyc//'/'//trim(DEF_CASE_NAME)//'_baseflow.nc'
             CALL ncio_create_file_vector (file_restart, landpatch)
@@ -117,7 +125,7 @@ CONTAINS
             CALL ncio_write_vector (file_restart, 'total_recharge', 'patch', landpatch, rchg_year, 1)
             CALL ncio_write_vector (file_restart, 'total_subsurface_runoff', 'patch', landpatch, rsub_year, 1)
 
-            IF (p_is_compute) THEN
+            IF (.true.) THEN
                DO ipatch = 1, numpatch
                   IF (patchtype(ipatch) <= 1) THEN
 
@@ -148,7 +156,7 @@ CONTAINS
             CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
             CALL ncio_write_vector (file_restart, 'scale_baseflow', 'patch', landpatch, scale_baseflow, 1)
 
-            IF (p_is_compute) THEN
+            IF (.true.) THEN
                IF (numpatch > 0) THEN
                   rchg_year(:) = spval
                   rsub_year(:) = spval

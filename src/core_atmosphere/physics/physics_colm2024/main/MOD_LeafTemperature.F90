@@ -7,7 +7,7 @@ MODULE MOD_LeafTemperature
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
                            DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
                            DEF_VEG_SNOW
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
 
@@ -109,7 +109,7 @@ CONTAINS
    USE MOD_CanopyLayerProfile
    USE MOD_TurbulenceLEddy
    USE MOD_AssimStomataConductance
-   USE MOD_UserSpecifiedForcing, only: HEIGHT_mode
+   USE MOD_Vars_1DForcing, only: forc_height_mode
    USE MOD_Vars_TimeInvariants, only: patchclass
    USE MOD_Const_LC, only: z0mr, displar
    USE MOD_PlantHydraulic, only:PlantHydraulicStress_twoleaf, getvegwp_twoleaf
@@ -533,7 +533,7 @@ CONTAINS
 
       hu_ = hu; ht_ = ht; hq_ = hq;
 
-      IF (trim(HEIGHT_mode) == 'absolute') THEN
+      IF (forc_height_mode == 'absolute') THEN
 
          IF (hu <= htop+1) THEN
             hu_ = htop + 1.
@@ -563,7 +563,7 @@ CONTAINS
 
       IF(zldis <= 0.0) THEN
          write(6,*) 'the obs height of u less than the zero displacement heght'
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
       CALL moninobukini(ur,th,thm,thv,dth,dqh,dthv,zldis,z0mv,um,obu)
@@ -848,7 +848,7 @@ ENDIF
             etr = etrsun + etrsha
             IF(abs(etr - sum(rootflux)) .gt. 1.e-7)THEN
                write(6,*) 'Warning: water balance violation in vegetation PHS', &
-                  ipatch,p_iam_glb, etr, sum(rootflux), abs(etr-sum(rootflux))
+                  ipatch,mpas_rank, etr, sum(rootflux), abs(etr-sum(rootflux))
                CALL CoLM_stop()
             ENDIF
          ENDIF
@@ -1403,7 +1403,7 @@ ENDIF
             ldew = ldew_rain + ldew_snow
          ENDIF
       ELSE
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
       ! Bug fix: When DEF_VEG_SNOW is false, only ldew is updated above

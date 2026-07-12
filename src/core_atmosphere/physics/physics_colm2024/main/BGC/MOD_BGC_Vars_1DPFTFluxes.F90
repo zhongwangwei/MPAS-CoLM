@@ -339,11 +339,11 @@ CONTAINS
   ! --------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
  ! bgc variables
@@ -662,10 +662,10 @@ CONTAINS
   ! --------------------------------------------------------------------
   ! deallocates memory for CoLM PFT 1d [numpft] variables
   ! --------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
 ! bgc variables
@@ -985,13 +985,13 @@ CONTAINS
   ! --------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    IMPLICIT NONE
    real(r8),intent(in) :: Values
    real(r8),intent(in) :: Nan
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 
  ! bgc variables

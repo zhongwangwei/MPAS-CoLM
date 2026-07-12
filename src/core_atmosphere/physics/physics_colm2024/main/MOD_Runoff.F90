@@ -39,7 +39,7 @@ CONTAINS
 
    USE MOD_Namelist,        only: DEF_TOPMOD_method
    USE MOD_IncompleteGamma, only: GRATIO
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
 !-------------------------- Dummy Arguments ----------------------------

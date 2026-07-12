@@ -44,7 +44,7 @@ MODULE MOD_BGC_Soil_BiogeochemNStateUpdate1
               sminn_to_plant_fun_vr   , sminn_to_plant_fun_nh4_vr, sminn_to_plant_fun_no3_vr, &
               sminn_to_denit_excess_vr, f_nit_vr                 , f_denit_vr               , soyfixn_to_sminn, &
               ndep_to_sminn           , ffix_to_sminn            , nfix_to_sminn            , fert_to_sminn
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
 

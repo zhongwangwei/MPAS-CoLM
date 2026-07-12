@@ -3561,50 +3561,31 @@ CONTAINS
    ! -----
    SUBROUTINE print_VSF_iteration_stat_info ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    integer(8), SAVE :: count_implicit_accum = 0
    integer(8), SAVE :: count_explicit_accum = 0
    integer(8), SAVE :: count_wet2dry_accum  = 0
-   integer :: iwork
-
 #ifdef CoLMDEBUG
-      IF (p_is_compute) THEN
-#ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, count_implicit, 1, MPI_INTEGER8, MPI_SUM, p_comm_compute, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, count_explicit, 1, MPI_INTEGER8, MPI_SUM, p_comm_compute, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, count_wet2dry , 1, MPI_INTEGER8, MPI_SUM, p_comm_compute, p_err)
+	      IF (.true.) THEN
+#ifdef MPAS_MPI
+	         CALL mpi_allreduce (MPI_IN_PLACE, count_implicit, 1, MPI_INTEGER8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+	         CALL mpas_mpi_check('VSF implicit-iteration count reduction')
+	         CALL mpi_allreduce (MPI_IN_PLACE, count_explicit, 1, MPI_INTEGER8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+	         CALL mpas_mpi_check('VSF explicit-iteration count reduction')
+	         CALL mpi_allreduce (MPI_IN_PLACE, count_wet2dry , 1, MPI_INTEGER8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+	         CALL mpas_mpi_check('VSF wet-to-dry count reduction')
 #endif
-         IF (p_iam_compute == p_root) THEN
-            count_implicit_accum = count_implicit_accum + count_implicit
-            count_explicit_accum = count_explicit_accum + count_explicit
-            count_wet2dry_accum  = count_wet2dry_accum  + count_wet2dry
+	         IF (mpas_rank == mpas_root) THEN
+	            count_implicit_accum = count_implicit_accum + count_implicit
+	            count_explicit_accum = count_explicit_accum + count_explicit
+	            count_wet2dry_accum  = count_wet2dry_accum  + count_wet2dry
+	         ENDIF
+	      ENDIF
 
-#ifdef USEMPI
-            CALL mpi_send (count_implicit,       1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (count_explicit,       1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (count_wet2dry,        1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (count_implicit_accum, 1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (count_explicit_accum, 1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (count_wet2dry_accum,  1, MPI_INTEGER8, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-#endif
-         ENDIF
-      ENDIF
-
-      IF (p_is_root) THEN
-
-#ifdef USEMPI
-         iwork = p_address_compute(p_root)
-         CALL mpi_recv (count_implicit,       1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (count_explicit,       1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (count_wet2dry ,       1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (count_implicit_accum, 1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (count_explicit_accum, 1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (count_wet2dry_accum , 1, MPI_INTEGER8, iwork, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-#endif
-
-         write(*,"(/,A,I13,A,I13,A,I13,A)") 'VSF scheme this step: ',    &
+	      IF (mpas_is_root) THEN
+	         write(*,"(/,A,I13,A,I13,A,I13,A)") 'VSF scheme this step: ',    &
             count_implicit, ' (implicit)', count_explicit, ' (explicit)', count_wet2dry, ' (wet2dry)'
          write(*,"(A,I13,A,I13,A,I13,A)") 'VSF scheme all steps: ',      &
             count_implicit_accum, ' (implicit)', count_explicit_accum, ' (explicit)', &

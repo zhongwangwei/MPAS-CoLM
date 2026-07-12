@@ -16,6 +16,7 @@ MODULE MOD_BGC_Soil_BiogeochemVerticalProfile
 
 
    USE MOD_Precision
+   USE MOD_MPAS_MPI, only: CoLM_stop
    USE MOD_Const_PFT, only: rootfr_p
    USE MOD_BGC_Vars_TimeVariables, only: &
        nfixation_prof, ndep_prof, altmax_lastyear_indx, w_scalar
@@ -209,7 +210,7 @@ CONTAINS
          write(*,*) 'p, itype(p) : ', i, pftclass(ps:pe)
          write(*,*) 'cinput_rootfr(p,:): ', cinput_rootfr_p(:,ps:pe)
          write(*,*) 'ERROR: _prof_sum-1>delta'
-         CALL abort()
+         CALL CoLM_stop('BGC soil input profiles do not sum to one.')
       ENDIF
 
       DO m = ps , pe
@@ -227,7 +228,7 @@ CONTAINS
               ( abs(stem_prof_sum - 1._r8) > delta ) .or.  ( abs(leaf_prof_sum - 1._r8) > delta ) ) THEN
             write(*,*) 'profile sums: ', froot_prof_sum, croot_prof_sum, leaf_prof_sum, stem_prof_sum
             write(*,*) ' ERROR: sum-1 > delta'
-            CALL abort
+            CALL CoLM_stop('BGC vegetation input profiles do not sum to one.')
          ENDIF
       ENDDO
 

@@ -194,7 +194,7 @@ SUBROUTINE CoLMMAIN ( &
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
 #endif
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_Driver, only: external_lake

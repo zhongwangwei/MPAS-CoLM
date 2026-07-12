@@ -10,12 +10,11 @@ MODULE MOD_Grid_RiverLakeFlow
 !-------------------------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_Reservoir
-   USE MOD_Grid_RiverLakeHist
 #ifdef GridRiverLakeSediment
    USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
       grid_sediment_final, sediment_diag_accumulate, sediment_forcing_put, &
@@ -27,8 +26,6 @@ MODULE MOD_Grid_RiverLakeFlow
 
    real(r8), save :: acctime_rnof_max
 
-   real(r8) :: acctime_rnof
-   real(r8), allocatable :: acc_rnof_uc (:)
    logical,  allocatable :: filter_rnof (:)
 
 CONTAINS
@@ -37,29 +34,35 @@ CONTAINS
    SUBROUTINE grid_riverlake_flow_init ()
 
    USE MOD_LandPatch,           only: numpatch
-   USE MOD_Forcing,             only: forcmask_pch
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
-      acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
-      acctime_rnof = 0.
-
-      IF (p_is_compute) THEN
-         ! Allocate on all ranks (zero-length if numucat/numpatch=0)
-         ! to avoid passing unallocated arrays to assumed-shape MPI wrappers.
-         allocate (acc_rnof_uc (numucat))
-         acc_rnof_uc = 0.
+      IF (.not. ieee_is_finite(DEF_GRIDBASED_ROUTING_MAX_DT) .or. &
+          DEF_GRIDBASED_ROUTING_MAX_DT <= 0._r8) THEN
+         CALL CoLM_stop('DEF_GRIDBASED_ROUTING_MAX_DT must be finite and positive.')
       ENDIF
+      acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
 
       ! excluding (patchtype >= 99), virtual patches and those forcing missed
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+         IF (.not. allocated(wdsrf_ucat) .or. .not. allocated(veloc_riv) .or. &
+             .not. allocated(momen_riv) .or. .not. allocated(acc_rnof_uc)) THEN
+            CALL CoLM_stop('Embedded CoLM river state is not allocated.')
+         ENDIF
+         IF (size(wdsrf_ucat) /= numucat .or. size(veloc_riv) /= numucat .or. &
+             size(momen_riv) /= numucat .or. size(acc_rnof_uc) /= numucat) THEN
+            CALL CoLM_stop('Embedded CoLM river state dimensions do not match local unit catchments.')
+         ENDIF
+         IF (DEF_Reservoir_Method > 0) THEN
+            IF (.not. allocated(volresv) .or. size(volresv) /= numresv) THEN
+               CALL CoLM_stop('Embedded CoLM reservoir state dimensions do not match local reservoirs.')
+            ENDIF
+         ENDIF
          allocate (filter_rnof (numpatch))
          IF (numpatch > 0) THEN
             filter_rnof = patchtype < 99
             filter_rnof = filter_rnof .and. patchmask
-            IF (DEF_forcing%has_missing_value) THEN
-               filter_rnof = filter_rnof .and. forcmask_pch
-            ENDIF
          ENDIF
       ENDIF
 
@@ -78,23 +81,21 @@ CONTAINS
    USE MOD_Utils
    USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT
    USE MOD_Vars_1DFluxes,  only: rnof
-   USE MOD_Mesh,           only: numelm
    USE MOD_LandPatch,      only: elm_patch, numpatch
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
 #ifdef GridRiverLakeSediment
    USE MOD_Vars_1DForcing, only: forc_prc, forc_prl
 #endif
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    integer,  intent(in) :: year
    real(r8), intent(in) :: deltime
 
    ! Local Variables
-   integer  :: i, j, irsv, ntimestep
+   integer  :: i, irsv, ntimestep
    real(r8) :: dt_this
-   integer  :: sed_clock_start, sed_clock_end, sed_clock_rate
-   real(r8) :: sed_elapsed
 
    real(r8), allocatable :: rnof_gd(:)
    real(r8), allocatable :: rnof_uc(:)
@@ -114,6 +115,7 @@ CONTAINS
    real(r8), allocatable :: hflux_fc(:)
    real(r8), allocatable :: mflux_fc(:)
    real(r8), allocatable :: zgrad_dn(:)
+   real(r8), allocatable :: acc_discharge(:)
 
    real(r8), allocatable :: hflux_resv(:)
    real(r8), allocatable :: mflux_resv(:)
@@ -126,10 +128,10 @@ CONTAINS
    real(r8), allocatable :: sum_mflux_riv(:)
    real(r8), allocatable :: sum_zgrad_riv(:)
 
-   real(r8) :: veloct_fc, height_fc, momen_fc, zsurf_fc
+   real(r8) :: veloct_fc, height_fc
    real(r8) :: bedelv_fc, height_up, height_dn
    real(r8) :: vwave_up, vwave_dn, hflux_up, hflux_dn, mflux_up, mflux_dn
-   real(r8) :: volwater, friction, floodarea
+   real(r8) :: volwater, friction
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
    real(r8) :: global_dt_remaining(1)
@@ -137,13 +139,25 @@ CONTAINS
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
 #endif
 
+      IF (.not. ieee_is_finite(deltime) .or. deltime <= 0._r8) THEN
+         CALL CoLM_stop('Embedded CoLM river routing timestep must be finite and positive.')
+      ENDIF
+      IF (.not. ieee_is_finite(acctime_rnof) .or. acctime_rnof < 0._r8) THEN
+         CALL CoLM_stop('Embedded CoLM river routing accumulator time is invalid.')
+      ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (rnof_gd (numinpm))
          allocate (rnof_uc (numucat))
 
          IF (numpatch > 0) THEN
+            IF (size(filter_rnof) < numpatch .or. size(rnof) < numpatch) THEN
+               CALL CoLM_stop('Embedded CoLM runoff arrays do not match the local patch count.')
+            ENDIF
+            IF (any(filter_rnof(1:numpatch) .and. .not. ieee_is_finite(rnof(1:numpatch)))) THEN
+               CALL CoLM_stop('Embedded CoLM runoff contains non-finite values on active patches.')
+            ENDIF
             CALL compute_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
                fillvalue = 0., filter = filter_rnof)
          ELSE
@@ -160,7 +174,13 @@ CONTAINS
             fillvalue = 0., mode = 'sum')
 
          IF (numucat > 0) THEN
+            IF (.not. all(ieee_is_finite(rnof_uc))) THEN
+               CALL CoLM_stop('Embedded CoLM unit-catchment runoff contains non-finite values.')
+            ENDIF
             acc_rnof_uc = acc_rnof_uc + rnof_uc*1.e-3*deltime
+            IF (.not. all(ieee_is_finite(acc_rnof_uc))) THEN
+               CALL CoLM_stop('Embedded CoLM accumulated runoff contains non-finite values.')
+            ENDIF
          ENDIF
 
          deallocate(rnof_gd)
@@ -220,12 +240,15 @@ CONTAINS
 
 
       acctime_rnof = acctime_rnof + deltime
+      IF (.not. ieee_is_finite(acctime_rnof)) THEN
+         CALL CoLM_stop('Embedded CoLM river routing accumulator time overflowed.')
+      ENDIF
 
       IF (acctime_rnof+0.01 < acctime_rnof_max) THEN
          RETURN
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (is_built_resv (numucat))
          allocate (wdsrf_next    (numucat))
@@ -233,6 +256,7 @@ CONTAINS
          allocate (hflux_fc      (numucat))
          allocate (mflux_fc      (numucat))
          allocate (zgrad_dn      (numucat))
+         allocate (acc_discharge (numucat))
          allocate (sum_hflux_riv (numucat))
          allocate (sum_mflux_riv (numucat))
          allocate (sum_zgrad_riv (numucat))
@@ -250,6 +274,19 @@ CONTAINS
          allocate (dt_res (max(1,numrivsys)))
          allocate (dt_all (max(1,numrivsys)))
 
+         hflux_fc(:) = 0._r8
+         mflux_fc(:) = 0._r8
+         zgrad_dn(:) = 0._r8
+         acc_discharge(:) = 0._r8
+         sum_hflux_riv(:) = 0._r8
+         sum_mflux_riv(:) = 0._r8
+         sum_zgrad_riv(:) = 0._r8
+         hflux_sumups(:) = 0._r8
+         mflux_sumups(:) = 0._r8
+         zgrad_sumups(:) = 0._r8
+         IF (allocated(hflux_resv)) hflux_resv(:) = 0._r8
+         IF (allocated(mflux_resv)) mflux_resv(:) = 0._r8
+
 #ifdef CoLMDEBUG
          totalrnof = sum(acc_rnof_uc)
          totalvol_bef = 0.
@@ -262,7 +299,9 @@ CONTAINS
                irsv = ucat2resv(i)
                IF (year >= dam_build_year(irsv)) THEN
                   is_built_resv(i) = .true.
-                  IF (volresv(irsv) == spval) THEN
+                  IF (.not. ieee_is_finite(volresv(irsv))) THEN
+                     CALL CoLM_stop('Embedded CoLM river routing received a non-finite reservoir volume.')
+                  ELSEIF (abs(volresv(irsv)) >= 0.5_r8 * abs(spval)) THEN
                      volresv(irsv) = floodplain_curve(i)%volume (wdsrf_ucat(i))
                   ELSE
                      wdsrf_ucat(i) = floodplain_curve(i)%depth (volresv(irsv))
@@ -311,11 +350,13 @@ CONTAINS
          ENDDO
 
          global_dt_remaining(1) = maxval(dt_res)
-#ifdef COLM_PARALLEL
-         IF (rivsys_by_multiple_procs) THEN
-            CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, p_comm_rivsys, p_err)
-         ENDIF
+#ifdef MPAS_MPI
+         CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, mpas_comm, mpas_mpi_ierr)
+         IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_stop('Embedded CoLM river routing failed to synchronize remaining time.')
 #endif
+         IF (.not. ieee_is_finite(global_dt_remaining(1)) .or. global_dt_remaining(1) < 0._r8) THEN
+            CALL CoLM_stop('Embedded CoLM river routing has invalid remaining integration time.')
+         ENDIF
 
          DO WHILE (global_dt_remaining(1) > 0._r8)
 
@@ -330,15 +371,20 @@ CONTAINS
                dt_all = min(dt_res, 60._r8)
             END WHERE
 
+            hflux_fc(:) = 0._r8
+            mflux_fc(:) = 0._r8
+            zgrad_dn(:) = 0._r8
+            sum_hflux_riv(:) = 0._r8
+            sum_mflux_riv(:) = 0._r8
+            sum_zgrad_riv(:) = 0._r8
+            IF (allocated(hflux_resv)) hflux_resv(:) = 0._r8
+            IF (allocated(mflux_resv)) mflux_resv(:) = 0._r8
+
             DO i = 1, numucat
 
                ucatfilter(i) = dt_res(irivsys(i)) > 0._r8
 
                IF (.not. ucatfilter(i)) CYCLE
-
-               sum_hflux_riv(i) = 0.
-               sum_mflux_riv(i) = 0.
-               sum_zgrad_riv(i) = 0.
 
                ! reservoir
                IF (is_built_resv(i)) THEN
@@ -527,6 +573,13 @@ CONTAINS
 
             ENDIF
 
+            IF (numucat > 0) THEN
+               IF (any(ucatfilter .and. (.not. ieee_is_finite(sum_hflux_riv) .or. &
+                   .not. ieee_is_finite(sum_mflux_riv) .or. .not. ieee_is_finite(sum_zgrad_riv)))) THEN
+                  CALL CoLM_stop('Embedded CoLM river routing produced non-finite fluxes.')
+               ENDIF
+            ENDIF
+
             DO i = 1, numucat
 
                IF (.not. ucatfilter(i)) CYCLE
@@ -535,7 +588,7 @@ CONTAINS
 
                ! constraint 1: CFL condition (only for rivers)
                IF (.not. is_built_resv(i)) THEN
-                  IF ((veloc_riv(i) /= 0.) .or. (wdsrf_ucat(i) > 0.)) THEN
+                  IF ((abs(veloc_riv(i)) > 0._r8) .or. (wdsrf_ucat(i) > 0._r8)) THEN
                      dt_this = min(dt_this, topo_rivlen(i)/(abs(veloc_riv(i))+sqrt(grav*wdsrf_ucat(i)))*0.8)
                   ENDIF
                ENDIF
@@ -567,11 +620,22 @@ CONTAINS
 
             ENDDO
 
-#ifdef COLM_PARALLEL
-            IF (rivsys_by_multiple_procs) THEN
-               CALL mpi_allreduce (MPI_IN_PLACE, dt_all, size(dt_all), MPI_REAL8, MPI_MIN, p_comm_rivsys, p_err)
-            ENDIF
+#ifdef MPAS_MPI
+            CALL synchronize_river_system_min(dt_all)
 #endif
+
+            DO i = 1, numrivsys
+               IF (dt_res(i) > 0._r8) THEN
+                  IF (.not. ieee_is_finite(dt_all(i)) .or. dt_all(i) <= 0._r8 .or. dt_all(i) > dt_res(i)) THEN
+                     CALL CoLM_stop('Embedded CoLM river routing produced an invalid integration substep.')
+                  ENDIF
+	                  IF (dt_all(i) < dt_res(i)) THEN
+	                     IF (dt_res(i) - dt_all(i) >= dt_res(i)) THEN
+	                        CALL CoLM_stop('Embedded CoLM river routing substep cannot advance floating-point time.')
+	                     ENDIF
+	                  ENDIF
+               ENDIF
+            ENDDO
 
             DO i = 1, numucat
 
@@ -619,40 +683,19 @@ CONTAINS
 
                veloc_riv(i) = min(veloc_riv(i),  20.)
                veloc_riv(i) = max(veloc_riv(i), -20.)
+               momen_riv(i) = wdsrf_ucat(i) * veloc_riv(i)
 
             ENDDO
 
             DO i = 1, numucat
-               IF (ucatfilter(i)) THEN
+	               IF (ucatfilter(i)) THEN
+	                  acc_discharge(i) = acc_discharge(i) + hflux_fc(i) * dt_all(irivsys(i))
 
 #ifdef CoLMDEBUG
                   IF (ucat_next(i) <= 0) THEN
                      totaldis = totaldis + hflux_fc(i)*dt_all(irivsys(i))
                   ENDIF
 #endif
-
-	                  IF (allocated(acctime_ucat) .and. allocated(a_wdsrf_ucat) .and. &
-	                      allocated(a_veloc_riv) .and. allocated(a_discharge) .and. &
-	                      allocated(a_floodarea)) THEN
-	                     acctime_ucat(i) = acctime_ucat(i) + dt_all(irivsys(i))
-
-	                     a_wdsrf_ucat(i) = a_wdsrf_ucat(i) + wdsrf_ucat(i) * dt_all(irivsys(i))
-	                     a_veloc_riv (i) = a_veloc_riv (i) + veloc_riv (i) * dt_all(irivsys(i))
-	                     a_discharge (i) = a_discharge (i) + hflux_fc  (i) * dt_all(irivsys(i))
-
-	                     floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
-	                     a_floodarea (i) = a_floodarea (i) + floodarea * dt_all(irivsys(i))
-
-	                     IF (is_built_resv(i) .and. allocated(acctime_resv) .and. &
-	                         allocated(a_volresv) .and. allocated(a_qresv_in) .and. &
-	                         allocated(a_qresv_out)) THEN
-	                        irsv = ucat2resv(i)
-	                        acctime_resv(irsv) = acctime_resv(irsv) + dt_all(irivsys(i))
-	                        a_volresv   (irsv) = a_volresv  (irsv) + volresv  (irsv) * dt_all(irivsys(i))
-	                        a_qresv_in  (irsv) = a_qresv_in (irsv) + qresv_in (irsv) * dt_all(irivsys(i))
-	                        a_qresv_out (irsv) = a_qresv_out(irsv) + qresv_out(irsv) * dt_all(irivsys(i))
-	                     ENDIF
-	                  ENDIF
 
 	               ENDIF
             ENDDO
@@ -662,11 +705,13 @@ CONTAINS
             END WHERE
 
             global_dt_remaining(1) = maxval(dt_res)
-#ifdef COLM_PARALLEL
-            IF (rivsys_by_multiple_procs) THEN
-               CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, p_comm_rivsys, p_err)
-            ENDIF
+#ifdef MPAS_MPI
+            CALL mpi_allreduce (MPI_IN_PLACE, global_dt_remaining, 1, MPI_REAL8, MPI_MAX, mpas_comm, mpas_mpi_ierr)
+            IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_stop('Embedded CoLM river routing failed to synchronize remaining time.')
 #endif
+            IF (.not. ieee_is_finite(global_dt_remaining(1)) .or. global_dt_remaining(1) < 0._r8) THEN
+               CALL CoLM_stop('Embedded CoLM river routing has invalid remaining integration time.')
+            ENDIF
 
 #ifdef GridRiverLakeSediment
             IF (DEF_USE_SEDIMENT) THEN
@@ -703,21 +748,21 @@ CONTAINS
       ENDIF
 
 #ifdef CoLMDEBUG
-#ifdef COLM_PARALLEL
-      IF (.not. p_is_compute) ntimestep = 0
-      CALL mpi_allreduce (MPI_IN_PLACE, ntimestep, 1, MPI_INTEGER, MPI_MAX, p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      IF (.not. .true.) ntimestep = 0
+      CALL mpi_allreduce (MPI_IN_PLACE, ntimestep, 1, MPI_INTEGER, MPI_MAX, mpas_comm, mpas_mpi_ierr)
 
-      IF (.not. p_is_compute) totalvol_bef = 0.
-      IF (.not. p_is_compute) totalvol_aft = 0.
-      IF (.not. p_is_compute) totalrnof    = 0.
-      IF (.not. p_is_compute) totaldis     = 0.
+      IF (.not. .true.) totalvol_bef = 0.
+      IF (.not. .true.) totalvol_aft = 0.
+      IF (.not. .true.) totalrnof    = 0.
+      IF (.not. .true.) totaldis     = 0.
 
-      CALL mpi_allreduce (MPI_IN_PLACE, totalvol_bef, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, totalvol_aft, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, totalrnof,    1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, totaldis,     1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, totalvol_bef, 1, MPI_REAL8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+      CALL mpi_allreduce (MPI_IN_PLACE, totalvol_aft, 1, MPI_REAL8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+      CALL mpi_allreduce (MPI_IN_PLACE, totalrnof,    1, MPI_REAL8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+      CALL mpi_allreduce (MPI_IN_PLACE, totaldis,     1, MPI_REAL8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
 #endif
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(/,A)') 'Checking River Routing Flow ...'
          write(*,'(A,F12.5,A)') 'River Lake Flow minimum average timestep: ', acctime_rnof/ntimestep, ' seconds'
          write(*,'(A,ES8.1,A)') 'Total water before :  ', totalvol_bef,  ' m^3'
@@ -729,7 +774,7 @@ CONTAINS
 #endif
 
 #ifdef GridRiverLakeSediment
-      IF (DEF_USE_SEDIMENT .and. p_is_compute) THEN
+      IF (DEF_USE_SEDIMENT .and. .true.) THEN
          ! All ranks must participate (MPI point-to-point inside push_data).
          ! fldfrc is now computed inside grid_sediment_calc from per-routing-period
          ! accumulators (sed_acc_floodarea), not from history-period averages.
@@ -737,9 +782,22 @@ CONTAINS
       ENDIF
 #endif
 
+	      IF (.true.) THEN
+	         IF (acctime_rnof <= 0._r8) THEN
+	            CALL CoLM_stop('Embedded CoLM river routing cannot form diagnostics over a non-positive period.')
+	         ENDIF
+	         IF (numucat > 0) THEN
+	            discharge_riv = acc_discharge / acctime_rnof
+	            IF (.not. all(ieee_is_finite(discharge_riv))) THEN
+	               CALL CoLM_stop('Embedded CoLM river routing produced non-finite period-mean discharge.')
+	            ENDIF
+	         ENDIF
+	      ENDIF
+	      CALL update_GridRiverLakeElementDiagnostics()
+
       acctime_rnof = 0.
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numucat > 0) THEN
             acc_rnof_uc = 0.
          ENDIF
@@ -751,6 +809,7 @@ CONTAINS
       IF (allocated(hflux_fc     )) deallocate(hflux_fc     )
       IF (allocated(mflux_fc     )) deallocate(mflux_fc     )
       IF (allocated(zgrad_dn     )) deallocate(zgrad_dn     )
+      IF (allocated(acc_discharge)) deallocate(acc_discharge)
       IF (allocated(hflux_resv   )) deallocate(hflux_resv   )
       IF (allocated(mflux_resv   )) deallocate(mflux_resv   )
       IF (allocated(hflux_sumups )) deallocate(hflux_sumups )
@@ -778,7 +837,6 @@ CONTAINS
       CALL grid_sediment_final()
 #endif
 
-      IF (allocated(acc_rnof_uc)) deallocate(acc_rnof_uc)
       IF (allocated(filter_rnof)) deallocate(filter_rnof)
 
    END SUBROUTINE grid_riverlake_flow_final

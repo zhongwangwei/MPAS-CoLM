@@ -108,7 +108,7 @@ CONTAINS
 
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global
    USE MOD_Const_Physical, only: denh2o,roverg,hvap,hsub,rgas,cpair,&
                                  stefnc,denice,tfrz,vonkar,grav

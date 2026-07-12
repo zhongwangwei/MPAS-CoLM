@@ -1027,13 +1027,19 @@
 			<var name="xland"/>
 			<var name="skintemp"/>
 			<var name="snow"/>
+			<var name="snowc"/>
 			<var name="snowh"/>
 			<var name="sst"/>
 			<var name="vegfra"/>
+			<var name="lai"/>
+			<var name="canwat"/>
+			<var name="smstav"/>
+			<var name="smstot"/>
 			<var name="xice"/>
 			<var name="sh2o"/>
 			<var name="smois"/>
 			<var name="tslb"/>
+			<var_struct name="diag_physics_colm2024"/>
 #endif
 		</stream>
 
@@ -2235,8 +2241,8 @@
 
                 <nml_option name="num_soil_layers" type="integer" default_value="4" in_defaults="false"
                      units="-"
-                     description="number of soil layers in Noah land surface scheme"
-                     possible_values="Positive integers. For Noah LSM, must be set to 4."/>
+                     description="number of soil layers in the selected land surface scheme"
+                     possible_values="For Noah and Noah-MP use 4; for CoLM2024 use its 10 native soil layers."/>
 
                 <nml_option name="months" type="integer" default_value="12" in_defaults="false"
                      units="-"
@@ -3004,8 +3010,8 @@
                      description="flag indicating the PBL regime (stable,unstable,...)"
                      packages="sfclayer"/>
 
-                <var name="rmol" type="real" dimensions="nCells Time" units="unitless"
-                     description="1./L Monin Obukhov length"
+                <var name="rmol" type="real" dimensions="nCells Time" units="m^{-1}"
+                     description="inverse Monin-Obukhov length"
                      packages="sfclayer"/>
 
                 <var name="wspd" type="real" dimensions="nCells Time" units="m s^{-1}"
@@ -3479,8 +3485,8 @@
                 <var name="smstav" type="real" dimensions="nCells Time" units="unitless"
                      description="surface moisture availability"/>
 
-                <var name="smstot" type="real" dimensions="nCells Time" units="m^{3} m^{-3}"
-                     description="total soil mositure"/>
+		<var name="smstot" type="real" dimensions="nCells Time" units="mm"
+		     description="total frozen and unfrozen water in the soil column"/>
 
                 <var name="snopcx" type="real" dimensions="nCells Time" units="W m^{-2}"
                      description="snow phase change heat flux"/>
@@ -4045,5 +4051,6 @@
 
 #ifdef DO_PHYSICS
 #include "physics/Registry_noahmp.xml"
+#include "physics/Registry_colm2024.xml"
 #endif
 </registry>

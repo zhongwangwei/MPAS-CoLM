@@ -424,7 +424,7 @@ use mpas_derived_types, only: block_type
     elseif(config_lsm_scheme .eq. 'sf_noahmp') then
        call init_lsm_noahmp(configs,mesh,clock,diag_physics,diag_physics_noahmp,output_noahmp,sfc_input)
     elseif(config_lsm_scheme .eq. 'sf_colm2024') then
-       call init_lsm_colm2024(dminfo,configs,block,diag_physics,sfc_input)
+	       call init_lsm_colm2024(dminfo,configs,clock,block)
     endif
  endif
 

@@ -88,12 +88,12 @@ CONTAINS
 ! Allocates memory for CLM 1d [numurban] variants
 ! ------------------------------------------------------
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
             allocate (fveg_urb             (numurban))
             allocate (htop_urb             (numurban))
@@ -283,12 +283,12 @@ CONTAINS
 
    SUBROUTINE deallocate_UrbanTimeInvariants
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
 
       ! deallocate (urbclass  )
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
             deallocate (fveg_urb     )
             deallocate (htop_urb     )

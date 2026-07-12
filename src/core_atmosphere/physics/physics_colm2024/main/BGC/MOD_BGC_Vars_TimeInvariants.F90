@@ -143,11 +143,11 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Vars_Global, only: nl_soil, ndecomp_transitions, ndecomp_pools, spval_i4, spval
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
     ! bgc variables
@@ -180,7 +180,7 @@ CONTAINS
      !=======================================================================
 
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFVector
    USE MOD_NetCDFSerial
 #ifdef RangeCheck
@@ -298,8 +298,8 @@ CONTAINS
       CALL check_BGCTimeInvariants ()
 #endif
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
 #endif
 
    END SUBROUTINE READ_BGCTimeInvariants
@@ -312,7 +312,7 @@ CONTAINS
      !=======================================================================
 
    USE MOD_Namelist, only: DEF_REST_CompressLevel
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_NetCDFVector
    USE MOD_LandPatch
@@ -342,11 +342,11 @@ CONTAINS
  !     CALL ncio_write_vector       (file_restart, 'peatf_lf       ',  'patch', landpatch, peatf_lf       , compress)
       CALL ncio_write_vector       (file_restart, 'rice2pdt       ',  'patch', landpatch, rice2pdt       , compress)
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
 
 #if (!defined(VectorInOneFileS) && !defined(VectorInOneFileP))
          CALL ncio_create_file (file_restart)
@@ -456,7 +456,7 @@ CONTAINS
 
    SUBROUTINE deallocate_BGCTimeInvariants ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
@@ -464,7 +464,7 @@ CONTAINS
      ! Deallocates memory for CoLM 1d [numpatch] variables
      ! --------------------------------------------------
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -493,7 +493,7 @@ CONTAINS
    !---------------------------------------
    SUBROUTINE check_BGCTimeInvariants ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_RangeCheck
 
    IMPLICIT NONE

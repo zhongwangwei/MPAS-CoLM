@@ -72,7 +72,7 @@ CONTAINS
    USE MOD_Namelist, only: DEF_USE_SNICAR, DEF_SPLIT_SOILSNOW
    USE MOD_PhaseChange
    USE MOD_SoilThermalParameters
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Utils
 
    IMPLICIT NONE

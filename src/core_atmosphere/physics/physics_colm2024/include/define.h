@@ -1,8 +1,8 @@
 ! 1. Spatial structure:
 !    Select one of the following options.
-#define GRIDBASED
+#undef GRIDBASED
 #undef CATCHMENT
-#undef UNSTRUCTURED
+#define UNSTRUCTURED
 #undef SinglePoint
 
 ! 2. Land subgrid type classification:
@@ -23,16 +23,13 @@
 #undef LULC_IGBP_PC
 #endif
 
-! 3. If defined, debug information is output.
-#define CoLMDEBUG
-! 3.1 If defined, range of variables is checked.
-#define RangeCheck
-! 3.1 If defined, surface data in vector is mapped to gridded data for checking.
+! 3. Embedded diagnostics are written through MPAS streams.
+#undef CoLMDEBUG
+! If defined, surface data in vector is mapped to gridded data for checking.
 #undef SrfdataDiag
 
-! 4. CoLM uses MPI collectives through MPAS-owned communicators.  The legacy
-!    CoLM process-pool decomposition is disabled in MOD_SPMD_Task.
-#define USEMPI
+! 4. CoLM uses MPI exclusively through the MPAS-owned communicator.
+#define MPAS_MPI
 
 ! 5. Hydrological process options.
 ! 5.1 Two soil hydraulic models can be used.
@@ -94,22 +91,8 @@
 ! 12. Hyperspectral scheme.
 #define HYPERSPECTRAL
 
-! MPAS embeds CoLM as a local land-surface physics package on each MPAS rank.
-! Reusing the legacy CoLM process split inside MPAS leaves some
-! ranks without patch forcing/flux arrays, so the embedded library keeps CoLM
-! land state on MPAS-owned cells. MPAS also supplies broadband shortwave forcing.
+! MPAS embeds CoLM as a land-surface physics package on every MPAS rank.
+! CoLM keeps patch/PFT state below MPAS-owned cells and communicates through the
+! MPAS communicator. MPAS supplies CoLM VIS/NIR direct/diffuse forcing.
 #define MPAS_EMBEDDED_COLM
-#ifdef MPAS_EMBEDDED_COLM
-#ifndef USEMPI
-#define USEMPI
-#endif
 #undef HYPERSPECTRAL
-#undef CoLMDEBUG
-! CoLM range diagnostics still assume the standalone role split.
-#undef RangeCheck
-#endif
-
-#undef COLM_PARALLEL
-#if defined(USEMPI)
-#define COLM_PARALLEL
-#endif

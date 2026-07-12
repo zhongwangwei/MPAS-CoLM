@@ -14,37 +14,29 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    type(grid_type) :: griducat
 
-   integer :: totalnumucat
-   integer :: numucat
+   integer :: totalnumucat = 0
+   integer :: numucat = 0
    integer, allocatable :: ucat_ucid (:)   ! index in unit catchment numbering
-   integer, allocatable :: x_ucat    (:)   !
-   integer, allocatable :: y_ucat    (:)   !
-   integer, allocatable :: ucat_gdid (:)   !
-
-   integer, allocatable :: numucat_rank (:)
-   type(pointer_int32_1d), allocatable :: ucat_data_address (:)
 
    ! ----- Part 1: between runoff input elements and unit catchments -----
-   integer :: numinpm
+   integer :: numinpm = 0
    integer,  allocatable :: inpm_gdid (:)
 
-   integer :: inpn
+   integer :: inpn = 0
    integer,  allocatable :: idmap_gd2uc (:,:)
    real(r8), allocatable :: area_gd2uc  (:,:)
 
-   integer :: nucpart
+   integer :: nucpart = 0
    integer,  allocatable :: idmap_uc2gd (:,:)
    real(r8), allocatable :: area_uc2gd  (:,:)
 
    type(compute_remapdata_type) :: remap_patch2inpm
    type(compute_pushdata_type)  :: push_inpm2ucat
    type(compute_pushdata_type)  :: push_ucat2inpm
-   type(compute_pushdata_type)  :: push_ucat2grid
-   type(compute_pushdata_type)  :: allreduce_inpm
 
    ! ----- Part 2: between upstream and downstream unit catchments -----
    integer,  allocatable :: ucat_next (:)  ! next unit catchment
-   integer :: upnmax
+   integer :: upnmax = 0
    integer,  allocatable :: ucat_ups (:,:) ! upstream unit catchments
    real(r8), allocatable :: wts_ups  (:,:)
 
@@ -52,11 +44,16 @@ MODULE MOD_Grid_RiverLakeNetwork
    type(compute_pushdata_type) :: push_ups2ucat
 
    ! ----- Part 3: river systems -----
-   integer :: numrivsys
-   logical :: rivsys_by_multiple_procs
+   integer :: numrivsys = 0
    integer, allocatable :: irivsys (:)
-#ifdef COLM_PARALLEL
-   integer :: p_comm_rivsys
+#ifdef MPAS_MPI
+   integer :: num_owned_rivsys = 0
+   integer, allocatable :: rivsys_send_counts (:)
+   integer, allocatable :: rivsys_send_displs (:)
+   integer, allocatable :: rivsys_recv_counts (:)
+   integer, allocatable :: rivsys_recv_displs (:)
+   integer, allocatable :: rivsys_send_local  (:)
+   integer, allocatable :: rivsys_recv_owner  (:)
 #endif
 
 
@@ -97,1141 +94,17 @@ MODULE MOD_Grid_RiverLakeNetwork
    type(vol_dep_curve_type), allocatable :: floodplain_curve (:)
 
 
-   ! ----- Mask of Grids with all upstream area in the simulation region -----
-   real(r8), allocatable :: allups_mask_ucat (:)
-
 CONTAINS
 
    ! ----------
    SUBROUTINE build_riverlake_network ()
 
-   USE MOD_SPMD_Task
-   USE MOD_Namelist
-   USE MOD_NetCDFSerial
-   USE MOD_Mesh
-   USE MOD_Utils
-   USE MOD_LandPatch
-   USE MOD_Vars_Global, only: spval
+   USE MOD_MPAS_MPI, only: mpas_comm, mpas_mpi_ierr, mpas_mpi_check
    IMPLICIT NONE
 
-   ! Local Variables
-   character(len=256)    :: parafile
-
-   integer,  allocatable :: idmap_x(:,:), idmap_y(:,:)
-   integer,  allocatable :: varsize(:)
-
-   integer :: numrivmth
-   integer,  allocatable :: rivermouth(:)
-
-	   integer,  allocatable :: nups_nst  (:), iups_nst  (:), nups_all(:)
-	   integer,  allocatable :: ucat_next_all(:)
-   integer,  allocatable :: uc_up2down(:), order_ucat(:)
-   integer,  allocatable :: addr_ucat (:)
-
-   integer , allocatable :: nuc_rs(:), irank_rs(:), nrank_rs(:), nave_rs(:)
-   real(r8), allocatable :: wt_uc (:), wt_rs  (:), wt_rank (:), nuc_rank(:)
-
-   integer,  allocatable :: grdindex(:)
-
-
-   integer,  allocatable :: idata1d(:), idata2d(:,:)
-   real(r8), allocatable :: rdata1d(:), rdata2d(:,:)
-
-   integer,  allocatable :: allgrd_in_inp (:), nucat_g2d(:,:), iucat_g(:)
-
-   integer,  allocatable :: idmap_uc2gd_all(:,:)
-   real(r8), allocatable :: area_uc2gd_all (:,:)
-
-   real(r8), allocatable :: ucat_area_all (:)
-
-   integer  :: nlat_ucat, nlon_ucat
-   integer  :: nucat, iriv, ngrdall, igrd, ngrd
-   integer  :: p_np_rivsys, color
-	   integer  :: irank, irankdsp, self_rank
-   integer  :: iloc, i, j, ithis
-   real(r8) :: sumwt
-   logical  :: is_new
-
-
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-#ifdef MPAS_EMBEDDED_COLM
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('river-network construction entry')
       CALL build_riverlake_network_mpas_embedded()
-      RETURN
-#endif
-
-      ! read in parameters from file.
-      parafile = DEF_UnitCatchment_file
-      IF (p_is_root) THEN
-
-#ifdef MPAS_EMBEDDED_COLM
-         CALL ncio_inquire_length (parafile, 'seq_next', totalnumucat)
-#else
-         CALL ncio_read_serial (parafile, 'seq_x', x_ucat)
-         CALL ncio_read_serial (parafile, 'seq_y', y_ucat)
-         totalnumucat = size(x_ucat)
-#endif
-
-         CALL ncio_read_serial (parafile, 'seq_next', ucat_next)
-
-         CALL ncio_inquire_length (parafile, 'lon', nlon_ucat)
-         CALL ncio_inquire_length (parafile, 'lat', nlat_ucat)
-
-#ifndef MPAS_EMBEDDED_COLM
-         CALL ncio_read_serial (parafile, 'inpmat_x', idmap_x)
-         CALL ncio_read_serial (parafile, 'inpmat_y', idmap_y)
-         CALL ncio_read_serial (parafile, 'inpmat_area', area_gd2uc)
-#endif
-
-      ENDIF
-
-      IF (p_is_root) THEN
-
-         allocate (nups_nst (totalnumucat))
-         allocate (iups_nst (totalnumucat))
-
-         nups_nst(:) = 0
-         DO i = 1, totalnumucat
-            j = ucat_next(i)
-            IF (j > 0) THEN
-               nups_nst(j) = nups_nst(j) + 1
-            ENDIF
-         ENDDO
-
-         ! sort unit catchment from upstream to downstream, recorded by "uc_up2down"
-         allocate (uc_up2down (totalnumucat))
-
-         ithis = 0
-         iups_nst(:) = 0
-         DO i = 1, totalnumucat
-            IF (iups_nst(i) == nups_nst(i)) THEN
-
-               ithis = ithis + 1
-               uc_up2down(ithis) = i
-               iups_nst(i) = -1
-
-               j = ucat_next(i)
-               DO WHILE (j > 0)
-
-                  iups_nst(j) = iups_nst(j) + 1
-
-                  IF (iups_nst(j) == nups_nst(j)) THEN
-                     ithis = ithis + 1
-                     uc_up2down(ithis) = j
-                     iups_nst(j) = -1
-
-                     j = ucat_next(j)
-                  ELSE
-                     EXIT
-                  ENDIF
-               ENDDO
-            ENDIF
-         ENDDO
-
-      ENDIF
-
-#ifdef COLM_PARALLEL
-      ! divide unit catchments into groups and assign to ranks
-      IF (p_is_root) THEN
-
-         allocate (wt_uc (totalnumucat));  wt_uc(:) = 1.
-
-         allocate (rivermouth (totalnumucat))
-         numrivmth = 0
-         DO i = totalnumucat, 1, -1
-            j = ucat_next(uc_up2down(i))
-            IF (j <= 0) THEN
-               numrivmth = numrivmth + 1
-               rivermouth(uc_up2down(i)) = numrivmth
-            ELSE
-               rivermouth(uc_up2down(i)) = rivermouth(j)
-            ENDIF
-         ENDDO
-
-         allocate (nuc_rs (numrivmth)); nuc_rs(:) = 0
-         allocate (wt_rs  (numrivmth)); wt_rs (:) = 0.
-         DO i = 1, totalnumucat
-            nuc_rs(rivermouth(i)) = nuc_rs(rivermouth(i)) + 1
-            wt_rs (rivermouth(i)) = wt_rs (rivermouth(i)) + wt_uc(i)
-         ENDDO
-
-         sumwt = sum(wt_rs)
-
-         allocate (irank_rs (numrivmth))
-         allocate (nrank_rs (numrivmth))
-         allocate (nave_rs (numrivmth))
-
-         irankdsp = -1
-         DO i = 1, numrivmth
-            nrank_rs(i) = floor(wt_rs(i)/sumwt * p_np_compute)
-            IF (nrank_rs(i) > 1) THEN
-
-               nave_rs(i) = nuc_rs(i) / nrank_rs(i)
-               IF (mod(nuc_rs(i), nrank_rs(i)) /= 0) THEN
-                  nave_rs(i) = nave_rs(i) + 1
-               ENDIF
-
-               irank_rs(i) = irankdsp + 1
-               irankdsp = irankdsp + nrank_rs(i)
-            ENDIF
-         ENDDO
-
-         allocate (nups_all (totalnumucat));  nups_all(:) = 1
-
-         DO i = 1, totalnumucat
-            j = ucat_next(uc_up2down(i))
-            IF (j > 0) THEN
-               nups_all(j) = nups_all(j) + nups_all(uc_up2down(i))
-            ENDIF
-         ENDDO
-
-         allocate (addr_ucat (totalnumucat));  addr_ucat(:) = -1
-
-         allocate (wt_rank (0:p_np_compute-1));  wt_rank (:) = 0
-         allocate (nuc_rank(0:p_np_compute-1));  nuc_rank(:) = 0
-
-         allocate (order_ucat (totalnumucat))
-         order_ucat(uc_up2down) = (/(i, i = 1, totalnumucat)/)
-
-         ithis = totalnumucat
-         DO WHILE (ithis > 0)
-
-            i = uc_up2down(ithis)
-
-            IF (addr_ucat(i) >= 0) THEN
-               ithis = ithis - 1
-               CYCLE
-            ENDIF
-
-            j = ucat_next(i)
-            IF (j > 0) THEN
-               IF (addr_ucat(j) >= 0) THEN
-                  addr_ucat(i) = addr_ucat(j)
-                  ithis = ithis - 1
-                  CYCLE
-               ENDIF
-            ENDIF
-
-            iriv = rivermouth(i)
-            IF (nrank_rs(iriv) > 1) THEN
-               irank = irank_rs(iriv)
-               IF (nups_all(i) <= nave_rs(iriv)-nuc_rank(irank)) THEN
-
-                  addr_ucat(i) = p_address_compute(irank)
-
-                  nuc_rank(irank) = nuc_rank(irank) + nups_all(i)
-                  IF (nuc_rank(irank) == nave_rs(iriv)) THEN
-                     irank_rs(iriv) = irank_rs(iriv) + 1
-                  ENDIF
-
-                  j = ucat_next(i)
-                  IF (j > 0) THEN
-                     DO WHILE (j > 0)
-                        nups_all(j) = nups_all(j) - nups_all(i)
-                        ithis = order_ucat(j)
-                        j = ucat_next(j)
-                     ENDDO
-                  ELSE
-                     ithis = ithis - 1
-                  ENDIF
-               ELSE
-                  ithis = ithis - 1
-               ENDIF
-            ELSE
-               irank = minloc(wt_rank(irankdsp+1:p_np_compute-1), dim=1) + irankdsp
-
-               addr_ucat(i) = p_address_compute(irank)
-
-               wt_rank(irank) = wt_rank(irank) + wt_rs(iriv)
-               ithis = ithis - 1
-            ENDIF
-
-         ENDDO
-
-         deallocate (order_ucat)
-         deallocate (nups_all  )
-         deallocate (nuc_rs    )
-         deallocate (irank_rs   )
-         deallocate (nrank_rs   )
-         deallocate (nave_rs   )
-         deallocate (wt_uc     )
-         deallocate (wt_rs     )
-	         deallocate (wt_rank    )
-	         deallocate (nuc_rank   )
-
-	      ENDIF
-
-		      IF (p_is_root) THEN
-
-		         allocate(ucat_ucid (totalnumucat))
-		         ucat_ucid = (/(i, i = 1, totalnumucat)/)
-
-         allocate (numucat_rank       (0:p_np_compute-1))
-         allocate (ucat_data_address (0:p_np_compute-1))
-
-         DO irank = 0, p_np_compute-1
-            nucat = count(addr_ucat == p_address_compute(irank))
-            numucat_rank(irank) = nucat
-            IF (nucat > 0) THEN
-               allocate (ucat_data_address(irank)%val (nucat))
-               ucat_data_address(irank)%val = &
-                  pack(ucat_ucid, mask = (addr_ucat == p_address_compute(irank)))
-	            ENDIF
-	         ENDDO
-
-	      ENDIF
-
-	      CALL mpi_bcast (totalnumucat, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-
-	      ! send unit catchment index to ranks
-	      IF (p_is_root) THEN
-
-	         self_rank = -1
-
-			         DO irank = 0, p_np_compute-1
-
-			            nucat = numucat_rank(irank)
-			            IF (p_address_compute(irank) == p_iam_glb) THEN
-			               numucat = nucat
-			               self_rank = irank
-			               CYCLE
-			            ENDIF
-
-			            CALL mpi_send (nucat, 1, MPI_INTEGER, p_address_compute(irank), &
-		               mpi_tag_mesg, p_comm_glb, p_err)
-
-	            IF (nucat > 0) THEN
-
-	               CALL mpi_send (ucat_data_address(irank)%val, nucat, MPI_INTEGER, &
-	                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
-
-#ifndef MPAS_EMBEDDED_COLM
-               allocate (idata1d (nucat))
-
-               idata1d = x_ucat (ucat_data_address(irank)%val)
-               CALL mpi_send (idata1d, nucat, MPI_INTEGER, &
-                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
-
-               idata1d = y_ucat (ucat_data_address(irank)%val)
-               CALL mpi_send (idata1d, nucat, MPI_INTEGER, &
-                  p_address_compute(irank), mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (idata1d)
-#endif
-		            ENDIF
-		         ENDDO
-
-	         IF (self_rank >= 0) THEN
-	            nucat = numucat_rank(self_rank)
-	            IF (allocated(idata1d)) deallocate(idata1d)
-	            allocate (idata1d (nucat))
-	            IF (nucat > 0) idata1d = ucat_data_address(self_rank)%val
-
-	            IF (allocated(ucat_ucid)) deallocate(ucat_ucid)
-	            allocate (ucat_ucid (nucat))
-	            IF (nucat > 0) ucat_ucid = idata1d
-
-#ifndef MPAS_EMBEDDED_COLM
-	            IF (allocated(x_ucat)) THEN
-	               IF (nucat > 0) idata1d = x_ucat(ucat_ucid)
-	               deallocate (x_ucat)
-	               allocate (x_ucat (nucat))
-	               IF (nucat > 0) x_ucat = idata1d
-	            ENDIF
-
-	            IF (allocated(y_ucat)) THEN
-	               IF (nucat > 0) idata1d = y_ucat(ucat_ucid)
-	               deallocate (y_ucat)
-	               allocate (y_ucat (nucat))
-	               IF (nucat > 0) y_ucat = idata1d
-	            ENDIF
-#endif
-
-	            deallocate (idata1d)
-	         ENDIF
-
-		      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         CALL mpi_recv (numucat, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-
-         IF (numucat > 0) THEN
-            allocate (ucat_ucid (numucat))
-#ifndef MPAS_EMBEDDED_COLM
-            allocate (x_ucat    (numucat))
-            allocate (y_ucat    (numucat))
-#endif
-            CALL mpi_recv (ucat_ucid, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-#ifndef MPAS_EMBEDDED_COLM
-            CALL mpi_recv (x_ucat, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-            CALL mpi_recv (y_ucat, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-#endif
-	      ENDIF
-
-      ENDIF
-
-	      CALL mpi_barrier (p_comm_glb, p_err)
-#else
-      numucat = totalnumucat
-
-      allocate(ucat_ucid (totalnumucat))
-      ucat_ucid = (/(i, i = 1, totalnumucat)/)
-
-      allocate (numucat_rank (0:0))
-      numucat_rank(0) = numucat
-
-      allocate (ucat_data_address (0:0))
-      allocate (ucat_data_address(0)%val (numucat))
-	      ucat_data_address(0)%val = ucat_ucid
-#endif
-
-#ifdef MPAS_EMBEDDED_COLM
-	      IF (p_is_compute) THEN
-	         IF (numucat > 0) THEN
-	            CALL ncio_read_indexed_serial (parafile, 'seq_x', ucat_ucid, x_ucat)
-	            CALL ncio_read_indexed_serial (parafile, 'seq_y', ucat_ucid, y_ucat)
-	         ELSE
-	            IF (.not. allocated(x_ucat)) allocate (x_ucat (0))
-	            IF (.not. allocated(y_ucat)) allocate (y_ucat (0))
-	         ENDIF
-	      ENDIF
-#endif
-
-	      IF (p_is_compute .and. numucat == 0) THEN
-	         IF (.not. allocated(ucat_ucid)) allocate (ucat_ucid (0))
-	         IF (.not. allocated(x_ucat    )) allocate (x_ucat    (0))
-	         IF (.not. allocated(y_ucat    )) allocate (y_ucat    (0))
-	      ENDIF
-
-	      IF (allocated(addr_ucat)) deallocate(addr_ucat)
-
-      ! ----- Part 1: between runoff input elements and unit catchments -----
-
-#ifdef COLM_PARALLEL
-      CALL mpi_bcast (nlon_ucat, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-      CALL mpi_bcast (nlat_ucat, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-#endif
-
-      CALL griducat%define_by_ndims (nlon_ucat, nlat_ucat)
-
-      CALL build_compute_remapdata (landpatch, griducat, remap_patch2inpm)
-
-      IF (p_is_compute) THEN
-	         numinpm = remap_patch2inpm%num_grid
-	         IF (numinpm > 0) THEN
-	            allocate (inpm_gdid (numinpm))
-	            inpm_gdid = remap_patch2inpm%ids_me
-	         ELSE
-	            allocate (inpm_gdid (0))
-	         ENDIF
-	      ENDIF
-
-#ifdef MPAS_EMBEDDED_COLM
-      CALL ncio_inquire_varsize (parafile, 'inpmat_x', varsize)
-      inpn = varsize(1)
-      deallocate (varsize)
-
-      IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-            CALL ncio_read_indexed_serial (parafile, 'inpmat_x',    ucat_ucid, idmap_x)
-            CALL ncio_read_indexed_serial (parafile, 'inpmat_y',    ucat_ucid, idmap_y)
-            CALL ncio_read_indexed_serial (parafile, 'inpmat_area', ucat_ucid, area_gd2uc)
-
-            allocate(idmap_gd2uc (inpn,numucat))
-            idmap_gd2uc = (idmap_y-1)*nlon_ucat + idmap_x
-
-            WHERE ((area_gd2uc <= 0) .or. (idmap_gd2uc <= 0))
-               idmap_gd2uc = 0
-               area_gd2uc  = 0.
-            END WHERE
-         ELSE
-            allocate(idmap_gd2uc (inpn,0))
-            allocate(area_gd2uc  (inpn,0))
-         ENDIF
-
-         CALL build_mpas_embedded_uc2gd (parafile, nlon_ucat, inpn, numinpm, inpm_gdid, &
-            nucpart, idmap_uc2gd, area_uc2gd)
-      ENDIF
-#else
-      IF (p_is_root) THEN
-
-         inpn = size(idmap_x,1)
-
-         allocate(idmap_gd2uc (inpn,totalnumucat))
-
-         idmap_gd2uc = (idmap_y-1)*nlon_ucat + idmap_x
-
-         WHERE ((area_gd2uc <= 0) .or. (idmap_gd2uc <= 0))
-            idmap_gd2uc = 0
-            area_gd2uc  = 0.
-         END WHERE
-
-         allocate (nucat_g2d (nlon_ucat,nlat_ucat))
-         nucat_g2d(:,:) = 0
-
-         DO i = 1, totalnumucat
-            DO j = 1, inpn
-               IF (idmap_gd2uc(j,i) > 0) THEN
-                  nucat_g2d(idmap_x(j,i),idmap_y(j,i)) = nucat_g2d(idmap_x(j,i),idmap_y(j,i)) + 1
-               ENDIF
-            ENDDO
-         ENDDO
-
-         nucpart = maxval(nucat_g2d)
-         ngrdall = count(nucat_g2d > 0)
-
-         allocate (allgrd_in_inp (ngrdall))
-
-         igrd = 0
-         DO i = 1, nlat_ucat
-            DO j = 1, nlon_ucat
-               IF (nucat_g2d(j,i) > 0) THEN
-                  igrd = igrd + 1
-                  allgrd_in_inp(igrd) = (i-1)*nlon_ucat + j
-               ENDIF
-            ENDDO
-         ENDDO
-
-         allocate (idmap_uc2gd_all (nucpart, ngrdall));  idmap_uc2gd_all(:,:) = 0
-         allocate (area_uc2gd_all  (nucpart, ngrdall));  area_uc2gd_all (:,:) = 0.
-
-         allocate (iucat_g (ngrdall)); iucat_g(:) = 0
-
-         DO i = 1, totalnumucat
-            DO j = 1, inpn
-               IF (idmap_gd2uc(j,i) > 0) THEN
-                  iloc = find_in_sorted_list1 (idmap_gd2uc(j,i), ngrdall, allgrd_in_inp(1:ngrdall))
-                  iucat_g(iloc) = iucat_g(iloc) + 1
-                  idmap_uc2gd_all(iucat_g(iloc),iloc) = i
-                  area_uc2gd_all (iucat_g(iloc),iloc) = area_gd2uc(j,i)
-               ENDIF
-            ENDDO
-         ENDDO
-
-      ENDIF
-
-#ifdef COLM_PARALLEL
-      CALL mpi_bcast (inpn, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-
-      IF (p_is_root) THEN
-
-         self_rank = -1
-		         DO irank = 0, p_np_compute-1
-
-		            nucat = numucat_rank(irank)
-
-		            IF (nucat > 0) THEN
-		               IF (p_address_compute(irank) == p_iam_glb) THEN
-		                  self_rank = irank
-		                  CYCLE
-		               ENDIF
-
-		               allocate (idata2d (inpn, nucat))
-		               DO i = 1, nucat
-		                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(irank)%val(i))
-		               ENDDO
-
-		               allocate (rdata2d (inpn, nucat))
-		               DO i = 1, nucat
-		                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(irank)%val(i))
-		               ENDDO
-
-		               CALL mpi_send (idata2d, inpn*nucat, MPI_INTEGER, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-		               CALL mpi_send (rdata2d, inpn*nucat, MPI_REAL8, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-
-		               deallocate (idata2d)
-		               deallocate (rdata2d)
-		            ENDIF
-		         ENDDO
-
-         IF (self_rank >= 0) THEN
-            nucat = numucat_rank(self_rank)
-            IF (nucat > 0) THEN
-               allocate (idata2d (inpn, nucat))
-               DO i = 1, nucat
-                  idata2d(:,i) = idmap_gd2uc(:,ucat_data_address(self_rank)%val(i))
-               ENDDO
-
-               allocate (rdata2d (inpn, nucat))
-               DO i = 1, nucat
-                  rdata2d(:,i) = area_gd2uc(:,ucat_data_address(self_rank)%val(i))
-               ENDDO
-
-               IF (allocated(idmap_gd2uc)) deallocate(idmap_gd2uc)
-               IF (allocated(area_gd2uc )) deallocate(area_gd2uc )
-               allocate (idmap_gd2uc (inpn, nucat))
-               allocate (area_gd2uc  (inpn, nucat))
-               idmap_gd2uc = idata2d
-               area_gd2uc  = rdata2d
-
-               deallocate (idata2d)
-               deallocate (rdata2d)
-            ENDIF
-         ENDIF
-
-		         IF (.not. (p_is_compute .and. numucat > 0)) THEN
-		            IF (allocated(idmap_gd2uc)) deallocate (idmap_gd2uc)
-		            IF (allocated(area_gd2uc )) deallocate (area_gd2uc )
-	            IF (p_is_compute) THEN
-	               allocate (idmap_gd2uc (inpn,0))
-	               allocate (area_gd2uc  (inpn,0))
-	            ENDIF
-	         ENDIF
-
-	      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         IF (numucat > 0) THEN
-
-	            allocate (idmap_gd2uc (inpn, numucat))
-            CALL mpi_recv (idmap_gd2uc, inpn*numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-            allocate (area_gd2uc (inpn, numucat))
-            CALL mpi_recv (area_gd2uc, inpn*numucat, MPI_REAL8, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-	         ENDIF
-
-	      ENDIF
-
-	      CALL mpi_bcast (nucpart, 1, mpi_integer, p_address_root, p_comm_glb, p_err)
-
-	      IF (p_is_root) THEN
-
-	         DO irank = 0, p_np_compute-1
-
-	            IF (p_address_compute(irank) == p_iam_glb) THEN
-	               ngrd = numinpm
-	            ELSE
-	               CALL mpi_recv (ngrd, 1, MPI_INTEGER, &
-	                  p_address_compute(irank), mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-	            ENDIF
-
-	            IF (ngrd > 0) THEN
-
-	               allocate (grdindex (ngrd))
-	               allocate (idata2d  (nucpart, ngrd));  idata2d(:,:) = 0
-	               allocate (rdata2d  (nucpart, ngrd));  rdata2d(:,:) = 0.
-
-	               IF (p_address_compute(irank) == p_iam_glb) THEN
-	                  grdindex = inpm_gdid
-	               ELSE
-	                  CALL mpi_recv (grdindex, ngrd, MPI_INTEGER, &
-	                     p_address_compute(irank), mpi_tag_data, p_comm_glb, p_stat, p_err)
-	               ENDIF
-
-	               DO i = 1, ngrd
-	                  iloc = find_in_sorted_list1 (grdindex(i), ngrdall, allgrd_in_inp(1:ngrdall))
-                  IF (iloc > 0) THEN
-                     idata2d(:,i) = idmap_uc2gd_all(:,iloc)
-                     rdata2d(:,i) = area_uc2gd_all (:,iloc)
-	                  ENDIF
-	               ENDDO
-
-	               IF (p_address_compute(irank) == p_iam_glb) THEN
-	                  IF (allocated(idmap_uc2gd)) deallocate(idmap_uc2gd)
-	                  IF (allocated(area_uc2gd )) deallocate(area_uc2gd )
-	                  allocate (idmap_uc2gd (nucpart, ngrd))
-	                  allocate (area_uc2gd  (nucpart, ngrd))
-	                  idmap_uc2gd = idata2d
-	                  area_uc2gd  = rdata2d
-	               ELSE
-	                  CALL mpi_send (idata2d, nucpart*ngrd, MPI_INTEGER, p_address_compute(irank), &
-	                     mpi_tag_data, p_comm_glb, p_err)
-	                  CALL mpi_send (rdata2d, nucpart*ngrd, MPI_REAL8,   p_address_compute(irank), &
-	                     mpi_tag_data, p_comm_glb, p_err)
-	               ENDIF
-
-	               deallocate (grdindex)
-	               deallocate (idata2d )
-               deallocate (rdata2d )
-	            ENDIF
-	         ENDDO
-
-	      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         CALL mpi_send (numinpm, 1, MPI_INTEGER, p_address_root, mpi_tag_mesg, p_comm_glb, p_err)
-
-         IF (numinpm > 0) THEN
-
-            CALL mpi_send (inpm_gdid, numinpm, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_err)
-
-            allocate (idmap_uc2gd (nucpart,numinpm))
-            CALL mpi_recv (idmap_uc2gd, nucpart*numinpm, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-            allocate (area_uc2gd (nucpart,numinpm))
-            CALL mpi_recv (area_uc2gd, nucpart*numinpm, MPI_REAL8, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-         ENDIF
-
-      ENDIF
-
-	      CALL mpi_barrier (p_comm_glb, p_err)
-#else
-	      allocate (idmap_uc2gd (nucpart,numinpm))
-	      allocate (area_uc2gd  (nucpart,numinpm))
-      idmap_uc2gd = 0
-      area_uc2gd  = 0.
-
-      DO i = 1, numinpm
-         iloc = find_in_sorted_list1 (inpm_gdid(i), ngrdall, allgrd_in_inp(1:ngrdall))
-         IF (iloc > 0) THEN
-            idmap_uc2gd(:,i) = idmap_uc2gd_all(:,iloc)
-            area_uc2gd (:,i) = area_uc2gd_all (:,iloc)
-         ENDIF
-	      ENDDO
-#endif
-#endif
-
-	      IF (p_is_compute) THEN
-	         IF (.not. allocated(idmap_gd2uc)) allocate (idmap_gd2uc (inpn,0))
-	         IF (.not. allocated(area_gd2uc )) allocate (area_gd2uc  (inpn,0))
-	         IF (.not. allocated(idmap_uc2gd)) allocate (idmap_uc2gd (nucpart,0))
-	         IF (.not. allocated(area_uc2gd )) allocate (area_uc2gd  (nucpart,0))
-	      ENDIF
-
-	      IF (p_is_compute) THEN
-	         IF (numucat > 0) THEN
-	            allocate (ucat_gdid (numucat))
-	            ucat_gdid = (y_ucat-1)*nlon_ucat + x_ucat
-	         ELSE
-	            allocate (ucat_gdid (0))
-	         ENDIF
-	      ENDIF
-
-      CALL build_compute_pushdata (numinpm, inpm_gdid, numucat, idmap_gd2uc, area_gd2uc, push_inpm2ucat)
-      CALL build_compute_pushdata (numucat, ucat_ucid, numinpm, idmap_uc2gd, area_uc2gd, push_ucat2inpm)
-      CALL build_compute_pushdata (numucat, ucat_gdid, numinpm, inpm_gdid, push_ucat2grid)
-      CALL build_compute_pushdata (numinpm, inpm_gdid, numinpm, inpm_gdid, allreduce_inpm)
-
-      IF (allocated(idmap_x)) deallocate (idmap_x)
-      IF (allocated(idmap_y)) deallocate (idmap_y)
-      IF (p_is_root) THEN
-         IF (allocated(allgrd_in_inp  )) deallocate (allgrd_in_inp  )
-         IF (allocated(nucat_g2d      )) deallocate (nucat_g2d      )
-         IF (allocated(iucat_g        )) deallocate (iucat_g        )
-         IF (allocated(idmap_uc2gd_all)) deallocate (idmap_uc2gd_all)
-         IF (allocated(area_uc2gd_all )) deallocate (area_uc2gd_all )
-      ENDIF
-
-      ! ----- Part 2: between upstream and downstream unit catchments -----
-
-	      IF (p_is_root) THEN
-
-	         upnmax = maxval(nups_nst)
-	         allocate (ucat_ups (upnmax,totalnumucat))
-	         ucat_ups(:,:) = 0
-	         allocate (ucat_next_all (totalnumucat))
-	         ucat_next_all = ucat_next
-
-	         iups_nst(:) = 0
-	         DO i = 1, totalnumucat
-            j = ucat_next(i)
-            IF (j > 0) THEN
-               iups_nst(j) = iups_nst(j) + 1
-               ucat_ups(iups_nst(j),j) = i
-            ENDIF
-         ENDDO
-
-      ENDIF
-
-
-#ifdef COLM_PARALLEL
-      CALL mpi_bcast (upnmax, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-
-      IF (p_is_root) THEN
-
-         self_rank = -1
-         DO irank = 0, p_np_compute-1
-
-            nucat = numucat_rank(irank)
-
-		            IF (nucat > 0) THEN
-		               IF (p_address_compute(irank) == p_iam_glb) THEN
-		                  self_rank = irank
-		                  CYCLE
-		               ENDIF
-
-		               allocate (idata1d (nucat))
-		               idata1d = ucat_next(ucat_data_address(irank)%val)
-
-		               allocate (idata2d (upnmax,nucat))
-		               DO i = 1, nucat
-		                  idata2d(:,i) = ucat_ups(:,ucat_data_address(irank)%val(i))
-		               ENDDO
-
-		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-		               CALL mpi_send (idata2d, upnmax*nucat, MPI_INTEGER, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-
-		               deallocate (idata1d)
-		               deallocate (idata2d)
-		            ENDIF
-		         ENDDO
-
-         IF (self_rank >= 0) THEN
-            nucat = numucat_rank(self_rank)
-            IF (nucat > 0) THEN
-               allocate (idata1d (nucat))
-               idata1d = ucat_next(ucat_data_address(self_rank)%val)
-
-               allocate (idata2d (upnmax,nucat))
-               DO i = 1, nucat
-                  idata2d(:,i) = ucat_ups(:,ucat_data_address(self_rank)%val(i))
-               ENDDO
-
-               IF (allocated(ucat_next)) deallocate(ucat_next)
-               IF (allocated(ucat_ups )) deallocate(ucat_ups )
-               allocate (ucat_next (nucat))
-               allocate (ucat_ups  (upnmax,nucat))
-               ucat_next = idata1d
-               ucat_ups  = idata2d
-
-               deallocate (idata1d)
-               deallocate (idata2d)
-            ELSE
-               IF (allocated(ucat_next)) deallocate(ucat_next)
-               IF (allocated(ucat_ups )) deallocate(ucat_ups )
-               allocate (ucat_next (0))
-               allocate (ucat_ups  (upnmax,0))
-            ENDIF
-         ENDIF
-
-		         IF (.not. (p_is_compute .and. numucat > 0)) THEN
-		            IF (allocated(ucat_ups)) deallocate (ucat_ups)
-		         ENDIF
-
-	      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         IF (numucat > 0) THEN
-
-            allocate (ucat_next (numucat))
-            CALL mpi_recv (ucat_next, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-            allocate (ucat_ups (upnmax, numucat))
-            CALL mpi_recv (ucat_ups, upnmax*numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-
-         ENDIF
-
-      ENDIF
-
-	      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-	      IF (p_is_compute) THEN
-	         IF (.not. allocated(ucat_next)) allocate (ucat_next (0))
-	         IF (.not. allocated(ucat_ups )) allocate (ucat_ups  (upnmax,0))
-	         allocate (wts_ups (upnmax,numucat))
-	         IF (numucat > 0) wts_ups(:,:) = 1.
-	      ENDIF
-
-      CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_next, push_next2ucat)
-      CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
-
-#ifdef CoLMDEBUG
-      ! IF (p_is_compute) THEN
-      !    write(*,'(A,I0,A,I0,A,I0,A)') 'rank ', p_iam_compute, ' has ', numucat, &
-      !       ' unit catchment with ', sum(push_next2ucat%n_from_other), ' downstream to other ranks'
-      ! ENDIF
-#endif
-
-      ! ----- Part 3: river systems -----
-
-#ifdef COLM_PARALLEL
-		      IF (p_is_root) THEN
-		         self_rank = -1
-		         DO irank = 0, p_np_compute-1
-		            nucat = numucat_rank(irank)
-		            IF (nucat > 0) THEN
-		               IF (p_address_compute(irank) == p_iam_glb) THEN
-		                  self_rank = irank
-		                  CYCLE
-		               ENDIF
-
-		               allocate (idata1d (nucat))
-		               idata1d = rivermouth(ucat_data_address(irank)%val)
-		               CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-		               deallocate (idata1d)
-		            ENDIF
-		         ENDDO
-
-		         IF (self_rank >= 0) THEN
-		            nucat = numucat_rank(self_rank)
-		            allocate (idata1d (nucat))
-		            IF (nucat > 0) idata1d = rivermouth(ucat_data_address(self_rank)%val)
-		            IF (allocated(rivermouth)) deallocate(rivermouth)
-		            allocate (rivermouth (nucat))
-		            IF (nucat > 0) rivermouth = idata1d
-		            deallocate (idata1d)
-		         ENDIF
-		      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-	         IF (numucat > 0) THEN
-	            allocate (rivermouth (numucat))
-            CALL mpi_recv (rivermouth, numucat, MPI_INTEGER, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-         ENDIF
-      ENDIF
-
-      IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-            color = maxval(rivermouth)
-            CALL mpi_comm_split (p_comm_compute, color, p_iam_compute, p_comm_rivsys, p_err)
-         ELSE
-            CALL mpi_comm_split (p_comm_compute, MPI_UNDEFINED, p_iam_compute, p_comm_rivsys, p_err)
-         ENDIF
-
-         rivsys_by_multiple_procs = .false.
-         IF (p_comm_rivsys /= MPI_COMM_NULL) THEN
-            CALL mpi_comm_size (p_comm_rivsys, p_np_rivsys, p_err)
-            IF (p_np_rivsys > 1) THEN
-               rivsys_by_multiple_procs = .true.
-            ENDIF
-         ENDIF
-      ENDIF
-#else
-      rivsys_by_multiple_procs = .false.
-#endif
-
-      IF (p_is_compute) THEN
-
-         IF (numucat > 0) allocate (irivsys (numucat))
-
-         IF (.not. rivsys_by_multiple_procs) THEN
-            IF (numucat > 0) THEN
-
-               allocate (order_ucat (numucat))
-               order_ucat = (/(i, i = 1, numucat)/)
-
-               CALL quicksort (numucat, rivermouth, order_ucat)
-
-               numrivsys = 1
-               irivsys(order_ucat(1)) = numrivsys
-               DO i = 2, numucat
-                  IF (rivermouth(i) /= rivermouth(i-1)) THEN
-                     numrivsys = numrivsys + 1
-                  ENDIF
-                  irivsys(order_ucat(i)) = numrivsys
-               ENDDO
-
-            ENDIF
-         ELSE
-            numrivsys  = 1
-            irivsys(:) = 1
-         ENDIF
-
-      ENDIF
-
-      IF (allocated(rivermouth)) deallocate(rivermouth)
-      IF (allocated(order_ucat)) deallocate(order_ucat)
-
-      ! ----- Parameters for River and Lake -----
-
-      CALL readin_riverlake_parameter (parafile, 'topo_rivelv',    rdata1d = topo_rivelv   )
-      CALL readin_riverlake_parameter (parafile, 'topo_rivhgt',    rdata1d = topo_rivhgt   )
-      CALL readin_riverlake_parameter (parafile, 'topo_rivlen',    rdata1d = topo_rivlen   )
-      CALL readin_riverlake_parameter (parafile, 'topo_rivman',    rdata1d = topo_rivman   )
-      CALL readin_riverlake_parameter (parafile, 'topo_rivwth',    rdata1d = topo_rivwth   )
-      CALL readin_riverlake_parameter (parafile, 'topo_rivstomax', rdata1d = topo_rivstomax)
-      CALL readin_riverlake_parameter (parafile, 'topo_area',      rdata1d = topo_area     )
-      CALL readin_riverlake_parameter (parafile, 'topo_fldhgt',    rdata2d = topo_fldhgt   )
-
-      IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-
-            allocate (lake_type (numucat))
-            lake_type(:) = 0
-
-            allocate (topo_rivare (numucat))
-            topo_rivare = topo_rivstomax / topo_rivhgt
-
-            allocate (floodplain_curve (numucat))
-
-            DO i = 1, numucat
-               floodplain_curve(i)%nlfp      = size(topo_fldhgt,1)
-               floodplain_curve(i)%rivhgt    = topo_rivhgt(i)
-               floodplain_curve(i)%rivstomax = topo_rivstomax(i)
-               floodplain_curve(i)%rivare    = topo_rivare(i)
-
-               allocate (floodplain_curve(i)%flphgt    (0:floodplain_curve(i)%nlfp))
-               allocate (floodplain_curve(i)%flparea   (0:floodplain_curve(i)%nlfp))
-               allocate (floodplain_curve(i)%flpaccare (0:floodplain_curve(i)%nlfp))
-               allocate (floodplain_curve(i)%flpstomax (0:floodplain_curve(i)%nlfp))
-
-               floodplain_curve(i)%flphgt(0)  = 0.
-               floodplain_curve(i)%flphgt(1:) = topo_fldhgt(:,i)
-
-               floodplain_curve(i)%flparea(0)  = 0.
-               floodplain_curve(i)%flparea(1:) = topo_area(i) / floodplain_curve(i)%nlfp
-
-               floodplain_curve(i)%flpaccare(0) = 0.
-               DO j = 1, floodplain_curve(i)%nlfp
-                  floodplain_curve(i)%flpaccare(j) = &
-                     floodplain_curve(i)%flpaccare(j-1) + floodplain_curve(i)%flparea(j)
-               ENDDO
-
-               floodplain_curve(i)%flpstomax(0) = 0.
-               DO j = 1, floodplain_curve(i)%nlfp
-                  floodplain_curve(i)%flpstomax(j) = floodplain_curve(i)%flpstomax(j-1)        &
-                     + 0.5 * (floodplain_curve(i)%flparea(j) + floodplain_curve(i)%flparea(j-1)) &
-                           * (floodplain_curve(i)%flphgt(j)  - floodplain_curve(i)%flphgt(j-1))
-               ENDDO
-            ENDDO
-
-	            allocate (bedelv_next (numucat))
-	            allocate (outletwth   (numucat))
-
-	         ELSE
-	            allocate (bedelv_next (0))
-	            allocate (outletwth   (0))
-	         ENDIF
-	      ENDIF
-
-      CALL compute_push_data (push_next2ucat, topo_rivelv, bedelv_next, fillvalue = spval)
-      CALL compute_push_data (push_next2ucat, topo_rivwth, outletwth  , fillvalue = spval)
-
-      IF (p_is_compute) THEN
-         IF (numucat > 0) THEN
-            WHERE (ucat_next > 0)
-               outletwth = (outletwth + topo_rivwth) * 0.5
-            ELSEWHERE
-               outletwth = topo_rivwth
-            END WHERE
-         ENDIF
-      ENDIF
-
-      ! ----- Mask of Grids with all upstream area in the simulation region -----
-
-      IF (p_is_root) allocate (ucat_area_all (totalnumucat))
-
-#ifdef COLM_PARALLEL
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         IF (numucat > 0) THEN
-	            CALL mpi_send (push_inpm2ucat%sum_area, numucat, MPI_REAL8, p_address_root, &
-	               mpi_tag_data, p_comm_glb, p_err)
-	         ENDIF
-
-	      ENDIF
-
-	      IF (p_is_root) THEN
-
-	         DO irank = 0, p_np_compute-1
-	            IF (numucat_rank(irank) > 0) THEN
-
-	               allocate (rdata1d (numucat_rank(irank)))
-	               IF (p_address_compute(irank) == p_iam_glb) THEN
-	                  rdata1d = push_inpm2ucat%sum_area
-	               ELSE
-	                  CALL mpi_recv (rdata1d, numucat_rank(irank), MPI_REAL8, p_address_compute(irank), &
-	                     mpi_tag_data, p_comm_glb, p_stat, p_err)
-	               ENDIF
-
-	               ucat_area_all(ucat_data_address(irank)%val) = rdata1d
-
-               deallocate (rdata1d)
-            ENDIF
-
-         ENDDO
-      ENDIF
-#else
-      ucat_area_all = push_inpm2ucat%sum_area
-#endif
-
-      IF (p_is_root) THEN
-
-         allocate (allups_mask_ucat (totalnumucat))
-         allups_mask_ucat (:) = 0
-
-         iups_nst(:) = 0
-         DO i = 1, totalnumucat
-            j = uc_up2down(i)
-            IF (ucat_area_all(j) > 0.) THEN
-               IF (iups_nst(j) == nups_nst(j)) THEN
-
-                  allups_mask_ucat(j) = 1
-
-	                  IF (ucat_next_all(j) > 0) THEN
-	                     iups_nst(ucat_next_all(j)) = iups_nst(ucat_next_all(j)) + 1
-	                  ENDIF
-               ENDIF
-            ENDIF
-         ENDDO
-
-      ENDIF
-
-#ifdef COLM_PARALLEL
-      IF (p_is_root) THEN
-		         self_rank = -1
-		         DO irank = 0, p_np_compute-1
-		            IF (numucat_rank(irank) > 0) THEN
-		               IF (p_address_compute(irank) == p_iam_glb) THEN
-		                  self_rank = irank
-		                  CYCLE
-		               ENDIF
-
-		               allocate (rdata1d (numucat_rank(irank)))
-		               rdata1d = allups_mask_ucat(ucat_data_address(irank)%val)
-
-		               CALL mpi_send (rdata1d, numucat_rank(irank), MPI_REAL8, p_address_compute(irank), &
-		                  mpi_tag_data, p_comm_glb, p_err)
-
-		               deallocate (rdata1d)
-		            ENDIF
-		         ENDDO
-
-		         IF (self_rank >= 0) THEN
-		            allocate (rdata1d (numucat_rank(self_rank)))
-		            IF (numucat_rank(self_rank) > 0) &
-		               rdata1d = allups_mask_ucat(ucat_data_address(self_rank)%val)
-		            IF (allocated(allups_mask_ucat)) deallocate(allups_mask_ucat)
-		            allocate (allups_mask_ucat (numucat_rank(self_rank)))
-		            IF (numucat_rank(self_rank) > 0) allups_mask_ucat = rdata1d
-		            deallocate (rdata1d)
-		         ENDIF
-		      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-	         IF (numucat > 0) THEN
-	            allocate (allups_mask_ucat (numucat))
-            CALL mpi_recv (allups_mask_ucat, numucat, MPI_REAL8, p_address_root, &
-               mpi_tag_data, p_comm_glb, p_stat, p_err)
-	         ENDIF
-	      ENDIF
-#endif
-
-	      IF (p_is_compute .and. numucat == 0) THEN
-	         IF (.not. allocated(allups_mask_ucat)) allocate (allups_mask_ucat (0))
-	      ENDIF
-
-
-	      IF (allocated (uc_up2down   )) deallocate (uc_up2down   )
-	      IF (allocated (ucat_next_all)) deallocate (ucat_next_all)
-	      IF (allocated (nups_nst     )) deallocate (nups_nst     )
-      IF (allocated (iups_nst     )) deallocate (iups_nst     )
-      IF (allocated (ucat_area_all)) deallocate (ucat_area_all)
 
    END SUBROUTINE build_riverlake_network
 
@@ -1239,7 +112,7 @@ CONTAINS
    ! ---------
    SUBROUTINE build_riverlake_network_mpas_embedded ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_NetCDFSerial
    USE MOD_Mesh
@@ -1251,7 +124,6 @@ CONTAINS
    integer, allocatable :: varsize(:)
    integer, allocatable :: idmap_x(:,:), idmap_y(:,:)
    integer :: nlat_ucat, nlon_ucat
-   integer :: inpn
    integer :: i, j
 
       parafile = DEF_UnitCatchment_file
@@ -1263,7 +135,7 @@ CONTAINS
       CALL griducat%define_by_ndims (nlon_ucat, nlat_ucat)
       CALL build_compute_remapdata (landpatch, griducat, remap_patch2inpm)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          numinpm = remap_patch2inpm%num_grid
          IF (numinpm > 0) THEN
             allocate (inpm_gdid (numinpm))
@@ -1273,17 +145,21 @@ CONTAINS
          ENDIF
       ENDIF
 
-      CALL build_mpas_embedded_local_ucats (parafile, nlon_ucat, numinpm, inpm_gdid)
+      CALL build_mpas_embedded_local_ucats (parafile, nlon_ucat, nlat_ucat, numinpm, inpm_gdid)
 
       CALL ncio_inquire_varsize (parafile, 'inpmat_x', varsize)
+      IF (size(varsize) /= 2 .or. varsize(1) < 1 .or. varsize(2) /= totalnumucat) THEN
+         CALL CoLM_Stop ('ERROR: invalid inpmat_x dimensions in the embedded CoLM unit-catchment file.')
+      ENDIF
       inpn = varsize(1)
       deallocate (varsize)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numucat > 0) THEN
             CALL ncio_read_indexed_serial (parafile, 'inpmat_x',    ucat_ucid, idmap_x)
             CALL ncio_read_indexed_serial (parafile, 'inpmat_y',    ucat_ucid, idmap_y)
             CALL ncio_read_indexed_serial (parafile, 'inpmat_area', ucat_ucid, area_gd2uc)
+            CALL validate_mpas_embedded_inpmat (idmap_x, idmap_y, area_gd2uc, inpn, nlon_ucat, nlat_ucat)
 
             allocate (idmap_gd2uc (inpn,numucat))
             idmap_gd2uc = (idmap_y-1)*nlon_ucat + idmap_x
@@ -1300,26 +176,24 @@ CONTAINS
             allocate (area_gd2uc  (inpn,0))
          ENDIF
 
-         CALL build_mpas_embedded_uc2gd (parafile, nlon_ucat, inpn, numinpm, inpm_gdid, &
+         CALL build_mpas_embedded_uc2gd (parafile, nlon_ucat, nlat_ucat, inpn, numinpm, inpm_gdid, &
             nucpart, idmap_uc2gd, area_uc2gd)
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          CALL build_compute_pushdata (numinpm, inpm_gdid, numucat, idmap_gd2uc, area_gd2uc, push_inpm2ucat)
          CALL build_compute_pushdata (numucat, ucat_ucid, numinpm, idmap_uc2gd, area_uc2gd, push_ucat2inpm)
-         CALL build_compute_pushdata (numucat, ucat_ucid, numinpm, inpm_gdid, push_ucat2grid)
-         CALL build_compute_pushdata (numinpm, inpm_gdid, numinpm, inpm_gdid, allreduce_inpm)
       ENDIF
 
       CALL build_mpas_embedded_local_topology (parafile)
 
-	      IF (p_is_compute) THEN
+	      IF (.true.) THEN
 	         allocate (wts_ups (upnmax,numucat))
 	         IF (numucat > 0) wts_ups(:,:) = 1._r8
 
 	         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_next, push_next2ucat)
-	         CALL check_mpas_embedded_downstream_ownership ()
 	         CALL build_compute_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
+	         CALL check_mpas_embedded_topology_ownership ()
 	      ENDIF
 
       CALL build_mpas_embedded_river_systems (parafile)
@@ -1332,8 +206,9 @@ CONTAINS
       CALL readin_riverlake_parameter (parafile, 'topo_rivstomax', rdata1d = topo_rivstomax)
       CALL readin_riverlake_parameter (parafile, 'topo_area',      rdata1d = topo_area     )
       CALL readin_riverlake_parameter (parafile, 'topo_fldhgt',    rdata2d = topo_fldhgt   )
+      CALL validate_mpas_embedded_river_parameters ()
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numucat > 0) THEN
             allocate (lake_type (numucat))
             lake_type(:) = 0
@@ -1357,7 +232,7 @@ CONTAINS
                floodplain_curve(i)%flphgt(1:) = topo_fldhgt(:,i)
 
                floodplain_curve(i)%flparea(0)  = 0._r8
-               floodplain_curve(i)%flparea(1:) = topo_area(i) / floodplain_curve(i)%nlfp
+               floodplain_curve(i)%flparea(1:) = topo_area(i) / real(floodplain_curve(i)%nlfp, r8)
 
                floodplain_curve(i)%flpaccare(0) = 0._r8
                DO j = 1, floodplain_curve(i)%nlfp
@@ -1384,7 +259,7 @@ CONTAINS
       CALL compute_push_data (push_next2ucat, topo_rivelv, bedelv_next, fillvalue = spval)
       CALL compute_push_data (push_next2ucat, topo_rivwth, outletwth  , fillvalue = spval)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numucat > 0) THEN
             WHERE (ucat_next > 0)
                outletwth = (outletwth + topo_rivwth) * 0.5_r8
@@ -1393,13 +268,6 @@ CONTAINS
             END WHERE
          ENDIF
 
-         allocate (allups_mask_ucat (numucat))
-         IF (numucat > 0) THEN
-            allups_mask_ucat(:) = 0._r8
-            WHERE (push_inpm2ucat%sum_area > 0._r8)
-               allups_mask_ucat = 1._r8
-            END WHERE
-         ENDIF
       ENDIF
 
    END SUBROUTINE build_riverlake_network_mpas_embedded
@@ -1407,7 +275,7 @@ CONTAINS
    ! ---------
    SUBROUTINE build_mpas_embedded_river_systems (parafile)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_Utils
    IMPLICIT NONE
@@ -1416,14 +284,11 @@ CONTAINS
 
    integer, allocatable :: mouth_id(:), next_id(:)
    integer, allocatable :: request(:), request_order(:), request_next(:)
-   integer, allocatable :: local_mouths(:), all_mouths(:), global_mouths(:)
-#ifdef COLM_PARALLEL
-   integer, allocatable :: counts(:), displs(:)
-#endif
-   integer :: i, iloc, nactive, niter, nlocal_mouths, total_mouths
+   integer, allocatable :: local_mouths(:)
+   integer :: i, iloc, nactive, niter, nlocal_mouths
    logical :: is_new
 
-      IF (.not. p_is_compute) RETURN
+      IF (.not. .true.) RETURN
 
       allocate (irivsys (numucat))
       allocate (mouth_id (numucat))
@@ -1435,9 +300,7 @@ CONTAINS
          next_id = ucat_next
 
          DO i = 1, numucat
-            IF (next_id(i) <= 0) THEN
-               mouth_id(i) = ucat_ucid(i)
-            ENDIF
+            IF (next_id(i) <= 0) mouth_id(i) = ucat_ucid(i)
          ENDDO
 
          nactive = count(next_id > 0)
@@ -1487,71 +350,227 @@ CONTAINS
          CALL insert_into_sorted_list1 (mouth_id(i), nlocal_mouths, local_mouths, iloc, is_new)
       ENDDO
 
-#ifdef COLM_PARALLEL
-      allocate (counts (0:p_np_compute-1))
-      allocate (displs (0:p_np_compute-1))
-      CALL mpi_allgather (nlocal_mouths, 1, MPI_INTEGER, counts, 1, MPI_INTEGER, p_comm_compute, p_err)
-
-      displs(0) = 0
-      DO i = 1, p_np_compute-1
-         displs(i) = displs(i-1) + counts(i-1)
-      ENDDO
-      total_mouths = sum(counts)
-
-      allocate (all_mouths (max(1,total_mouths)))
-      CALL mpi_allgatherv (local_mouths, nlocal_mouths, MPI_INTEGER, all_mouths, counts, displs, &
-         MPI_INTEGER, p_comm_compute, p_err)
-
-      allocate (global_mouths (max(1,total_mouths)))
-      numrivsys = 0
-      DO i = 1, total_mouths
-         CALL insert_into_sorted_list1 (all_mouths(i), numrivsys, global_mouths, iloc, is_new)
-      ENDDO
-
-      p_comm_rivsys = p_comm_compute
-      rivsys_by_multiple_procs = p_np_compute > 1
-
-      deallocate (counts)
-      deallocate (displs)
-      deallocate (all_mouths)
-#else
-      total_mouths = nlocal_mouths
-      allocate (global_mouths (max(1,total_mouths)))
       numrivsys = nlocal_mouths
-      IF (numrivsys > 0) global_mouths(1:numrivsys) = local_mouths(1:numrivsys)
-      rivsys_by_multiple_procs = .false.
+#ifdef MPAS_MPI
+      CALL build_river_system_min_exchange(local_mouths(1:numrivsys))
 #endif
 
       DO i = 1, numucat
-         irivsys(i) = find_in_sorted_list1 (mouth_id(i), numrivsys, global_mouths(1:numrivsys))
+         irivsys(i) = find_in_sorted_list1 (mouth_id(i), numrivsys, local_mouths(1:numrivsys))
          IF (irivsys(i) <= 0) CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river-system map is incomplete.')
       ENDDO
 
       deallocate (mouth_id)
       deallocate (local_mouths)
-      deallocate (global_mouths)
 
    END SUBROUTINE build_mpas_embedded_river_systems
 
+#ifdef MPAS_MPI
    ! ---------
-   SUBROUTINE build_mpas_embedded_local_ucats (parafile, nlon_ucat, numinpm, inpm_gdid)
+   SUBROUTINE build_river_system_min_exchange(local_system_id)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
+   USE MOD_Utils, only: quicksort
+   IMPLICIT NONE
+
+   integer, intent(in) :: local_system_id(:)
+
+   integer, allocatable :: next_position(:)
+   integer, allocatable :: recv_system_id(:)
+   integer, allocatable :: send_system_id(:)
+   integer, allocatable :: sorted_order(:)
+   integer, allocatable :: sorted_system_id(:)
+   integer :: i
+   integer :: irank
+   integer :: nrecv
+   integer :: owner
+   integer :: position
+
+      IF (size(local_system_id) /= numrivsys) THEN
+         CALL CoLM_Stop('ERROR: local embedded CoLM river-system count is inconsistent.')
+      ENDIF
+      IF (numrivsys > 0) THEN
+         IF (any(local_system_id <= 0)) THEN
+            CALL CoLM_Stop('ERROR: embedded CoLM river-system IDs must be positive.')
+         ENDIF
+         IF (numrivsys > 1) THEN
+            IF (any(local_system_id(2:numrivsys) <= local_system_id(1:numrivsys-1))) THEN
+               CALL CoLM_Stop('ERROR: local embedded CoLM river-system IDs must be sorted and unique.')
+            ENDIF
+         ENDIF
+      ENDIF
+      IF (allocated(rivsys_send_counts) .or. allocated(rivsys_send_displs) .or. &
+          allocated(rivsys_recv_counts) .or. allocated(rivsys_recv_displs) .or. &
+          allocated(rivsys_send_local) .or. allocated(rivsys_recv_owner)) THEN
+         CALL CoLM_Stop('ERROR: embedded CoLM river-system exchange was initialized more than once.')
+      ENDIF
+
+      allocate(rivsys_send_counts(0:mpas_size-1), rivsys_send_displs(0:mpas_size-1))
+      allocate(rivsys_recv_counts(0:mpas_size-1), rivsys_recv_displs(0:mpas_size-1))
+      rivsys_send_counts = 0
+      DO i = 1, numrivsys
+         owner = modulo(local_system_id(i) - 1, mpas_size)
+         rivsys_send_counts(owner) = rivsys_send_counts(owner) + 1
+      ENDDO
+
+      rivsys_send_displs(0) = 0
+      DO irank = 1, mpas_size-1
+         rivsys_send_displs(irank) = rivsys_send_displs(irank-1) + rivsys_send_counts(irank-1)
+      ENDDO
+
+      allocate(next_position(0:mpas_size-1))
+      next_position = rivsys_send_displs
+      allocate(rivsys_send_local(numrivsys))
+      allocate(send_system_id(max(1,numrivsys)))
+      DO i = 1, numrivsys
+         owner = modulo(local_system_id(i) - 1, mpas_size)
+         position = next_position(owner) + 1
+         next_position(owner) = position
+         rivsys_send_local(position) = i
+         send_system_id(position) = local_system_id(i)
+      ENDDO
+
+      CALL mpi_alltoall(rivsys_send_counts, 1, MPI_INTEGER, rivsys_recv_counts, 1, MPI_INTEGER, &
+                        mpas_comm, mpas_mpi_ierr)
+      IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_Stop('ERROR: embedded CoLM river-system count exchange failed.')
+
+      rivsys_recv_displs(0) = 0
+      DO irank = 1, mpas_size-1
+         rivsys_recv_displs(irank) = rivsys_recv_displs(irank-1) + rivsys_recv_counts(irank-1)
+      ENDDO
+      nrecv = sum(rivsys_recv_counts)
+      allocate(recv_system_id(max(1,nrecv)))
+
+      CALL mpi_alltoallv(send_system_id, rivsys_send_counts, rivsys_send_displs, MPI_INTEGER, &
+                         recv_system_id, rivsys_recv_counts, rivsys_recv_displs, MPI_INTEGER, &
+                         mpas_comm, mpas_mpi_ierr)
+      IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_Stop('ERROR: embedded CoLM river-system ID exchange failed.')
+
+      allocate(rivsys_recv_owner(nrecv))
+      num_owned_rivsys = 0
+      IF (nrecv > 0) THEN
+         IF (any(recv_system_id(1:nrecv) <= 0)) THEN
+            CALL CoLM_Stop('ERROR: embedded CoLM received an invalid river-system ID.')
+         ENDIF
+         DO i = 1, nrecv
+            IF (modulo(recv_system_id(i) - 1, mpas_size) /= mpas_rank) THEN
+               CALL CoLM_Stop('ERROR: embedded CoLM river-system request reached the wrong owner rank.')
+            ENDIF
+         ENDDO
+
+         allocate(sorted_system_id(nrecv), sorted_order(nrecv))
+         sorted_system_id = recv_system_id(1:nrecv)
+         sorted_order = (/(i, i = 1, nrecv)/)
+         IF (nrecv > 1) CALL quicksort(nrecv, sorted_system_id, sorted_order)
+
+         DO i = 1, nrecv
+            IF (i == 1) THEN
+               num_owned_rivsys = num_owned_rivsys + 1
+            ELSEIF (sorted_system_id(i) /= sorted_system_id(i-1)) THEN
+               num_owned_rivsys = num_owned_rivsys + 1
+            ENDIF
+            rivsys_recv_owner(sorted_order(i)) = num_owned_rivsys
+         ENDDO
+         deallocate(sorted_system_id, sorted_order)
+      ENDIF
+
+      deallocate(next_position, recv_system_id, send_system_id)
+
+   END SUBROUTINE build_river_system_min_exchange
+
+   ! ---------
+   SUBROUTINE synchronize_river_system_min(system_value)
+
+   USE MOD_MPAS_MPI
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   IMPLICIT NONE
+
+   real(r8), intent(inout) :: system_value(:)
+
+   real(r8), allocatable :: owner_min(:)
+   real(r8), allocatable :: recv_value(:)
+   real(r8), allocatable :: return_value(:)
+   real(r8), allocatable :: send_value(:)
+   real(r8), allocatable :: synced_value(:)
+   integer :: i
+   integer :: nrecv
+   integer :: owner_index
+
+      IF (size(system_value) < max(1,numrivsys)) THEN
+         CALL CoLM_Stop('ERROR: embedded CoLM river-system timestep array is too small.')
+      ENDIF
+      IF (.not. allocated(rivsys_send_counts) .or. .not. allocated(rivsys_send_displs) .or. &
+          .not. allocated(rivsys_recv_counts) .or. .not. allocated(rivsys_recv_displs) .or. &
+          .not. allocated(rivsys_send_local) .or. .not. allocated(rivsys_recv_owner)) THEN
+         CALL CoLM_Stop('ERROR: embedded CoLM river-system exchange is not initialized.')
+      ENDIF
+      IF (numrivsys > 0) THEN
+         IF (.not. all(ieee_is_finite(system_value(1:numrivsys))) .or. &
+             any(system_value(1:numrivsys) < 0._r8)) THEN
+            CALL CoLM_Stop('ERROR: embedded CoLM river-system exchange received an invalid timestep.')
+         ENDIF
+      ENDIF
+
+      nrecv = sum(rivsys_recv_counts)
+      allocate(send_value(max(1,numrivsys)), synced_value(max(1,numrivsys)))
+      allocate(recv_value(max(1,nrecv)), return_value(max(1,nrecv)))
+      allocate(owner_min(max(1,num_owned_rivsys)))
+
+      DO i = 1, numrivsys
+         send_value(i) = system_value(rivsys_send_local(i))
+      ENDDO
+      CALL mpi_alltoallv(send_value, rivsys_send_counts, rivsys_send_displs, MPI_REAL8, &
+                         recv_value, rivsys_recv_counts, rivsys_recv_displs, MPI_REAL8, &
+                         mpas_comm, mpas_mpi_ierr)
+      IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_Stop('ERROR: embedded CoLM river-system timestep exchange failed.')
+
+      owner_min = huge(1._r8)
+      DO i = 1, nrecv
+         owner_index = rivsys_recv_owner(i)
+         IF (owner_index < 1 .or. owner_index > num_owned_rivsys) THEN
+            CALL CoLM_Stop('ERROR: embedded CoLM river-system owner address is invalid.')
+         ENDIF
+         owner_min(owner_index) = min(owner_min(owner_index), recv_value(i))
+      ENDDO
+      DO i = 1, nrecv
+         return_value(i) = owner_min(rivsys_recv_owner(i))
+      ENDDO
+
+      CALL mpi_alltoallv(return_value, rivsys_recv_counts, rivsys_recv_displs, MPI_REAL8, &
+                         synced_value, rivsys_send_counts, rivsys_send_displs, MPI_REAL8, &
+                         mpas_comm, mpas_mpi_ierr)
+      IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_Stop('ERROR: embedded CoLM river-system timestep return exchange failed.')
+
+      DO i = 1, numrivsys
+         system_value(rivsys_send_local(i)) = synced_value(i)
+      ENDDO
+
+      deallocate(owner_min, recv_value, return_value, send_value, synced_value)
+
+   END SUBROUTINE synchronize_river_system_min
+#endif
+
+   ! ---------
+   SUBROUTINE build_mpas_embedded_local_ucats (parafile, nlon_ucat, nlat_ucat, numinpm, inpm_gdid)
+
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_Utils
    IMPLICIT NONE
 
    character(len=*), intent(in) :: parafile
-   integer, intent(in) :: nlon_ucat
+   integer, intent(in) :: nlon_ucat, nlat_ucat
    integer, intent(in) :: numinpm
    integer, intent(in) :: inpm_gdid(:)
 
    integer, parameter :: ucat_chunk_size = 131072
    integer, allocatable :: inpm_sorted(:), inpm_order(:)
    integer, allocatable :: seq_x_blk(:), seq_y_blk(:)
-   integer :: istart, iend, iucat, iloc, grid_id, nfound
+   integer, allocatable :: local_owner_blk(:), owner_blk(:)
+   integer :: istart, iend, iucat, iblk, iloc, grid_id, nfound
+   integer :: covered_count, global_owned
 
-      IF (.not. p_is_compute) RETURN
+      IF (.not. .true.) RETURN
 
       IF (numinpm > 0) THEN
          allocate (inpm_sorted (numinpm))
@@ -1559,63 +578,130 @@ CONTAINS
          inpm_sorted = inpm_gdid
          inpm_order  = (/(iucat, iucat = 1, numinpm)/)
          CALL quicksort (numinpm, inpm_sorted, inpm_order)
+         IF (any(inpm_sorted < 1) .or. any(inpm_sorted > nlon_ucat*nlat_ucat)) THEN
+            CALL CoLM_Stop ('ERROR: embedded CoLM runoff input grid contains an out-of-range grid ID.')
+         ENDIF
+         IF (numinpm > 1) THEN
+            IF (any(inpm_sorted(2:) == inpm_sorted(:numinpm-1))) THEN
+               CALL CoLM_Stop ('ERROR: embedded CoLM runoff input grid contains duplicate local grid IDs.')
+            ENDIF
+         ENDIF
+      ENDIF
 
-         nfound = 0
-         istart = 1
-         DO WHILE (istart <= totalnumucat)
-            iend = min(istart + ucat_chunk_size - 1, totalnumucat)
-            CALL ncio_read_part_serial (parafile, 'seq_x', istart, iend, seq_x_blk)
-            CALL ncio_read_part_serial (parafile, 'seq_y', istart, iend, seq_y_blk)
+      nfound = 0
+      covered_count = 0
+      istart = 1
+      DO WHILE (istart <= totalnumucat)
+         iend = min(istart + ucat_chunk_size - 1, totalnumucat)
+         CALL ncio_read_part_serial (parafile, 'seq_x', istart, iend, seq_x_blk)
+         CALL ncio_read_part_serial (parafile, 'seq_y', istart, iend, seq_y_blk)
+         IF (size(seq_x_blk) /= size(seq_y_blk)) THEN
+            CALL CoLM_Stop ('ERROR: seq_x and seq_y lengths differ in the embedded CoLM river network.')
+         ENDIF
+         IF (any(seq_x_blk < 1) .or. any(seq_x_blk > nlon_ucat) .or. &
+             any(seq_y_blk < 1) .or. any(seq_y_blk > nlat_ucat)) THEN
+            CALL CoLM_Stop ('ERROR: embedded CoLM unit-catchment coordinates are outside the runoff input grid.')
+         ENDIF
 
-            DO iucat = lbound(seq_x_blk,1), ubound(seq_x_blk,1)
-               IF (seq_x_blk(iucat) > 0 .and. seq_y_blk(iucat) > 0) THEN
-                  grid_id = (seq_y_blk(iucat)-1) * nlon_ucat + seq_x_blk(iucat)
-                  iloc = find_in_sorted_list1 (grid_id, numinpm, inpm_sorted)
-                  IF (iloc > 0) nfound = nfound + 1
-               ENDIF
-            ENDDO
+         allocate (local_owner_blk (size(seq_x_blk)))
+         allocate (owner_blk       (size(seq_x_blk)))
+         local_owner_blk(:) = huge(1)
 
-            deallocate (seq_x_blk)
-            deallocate (seq_y_blk)
-            istart = iend + 1
+         DO iucat = lbound(seq_x_blk,1), ubound(seq_x_blk,1)
+            iblk = iucat - lbound(seq_x_blk,1) + 1
+            IF (numinpm > 0 .and. seq_x_blk(iucat) > 0 .and. seq_y_blk(iucat) > 0) THEN
+               grid_id = (seq_y_blk(iucat)-1) * nlon_ucat + seq_x_blk(iucat)
+               iloc = find_in_sorted_list1 (grid_id, numinpm, inpm_sorted)
+               IF (iloc > 0) local_owner_blk(iblk) = mpas_rank
+            ENDIF
          ENDDO
-      ELSE
-         nfound = 0
+
+#ifdef MPAS_MPI
+         CALL mpi_allreduce (local_owner_blk, owner_blk, size(local_owner_blk), MPI_INTEGER, &
+            MPI_MIN, mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('river-network first-pass ownership reduction')
+#else
+         owner_blk = local_owner_blk
+#endif
+
+         covered_count = covered_count + count(owner_blk < huge(1))
+         nfound = nfound + count(owner_blk == mpas_rank)
+
+         deallocate (seq_x_blk)
+         deallocate (seq_y_blk)
+         deallocate (local_owner_blk)
+         deallocate (owner_blk)
+         istart = iend + 1
+      ENDDO
+
+#ifdef MPAS_MPI
+      CALL mpi_allreduce (nfound, global_owned, 1, MPI_INTEGER, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('river-network ownership-count reduction')
+#else
+      global_owned = nfound
+#endif
+
+      IF (global_owned /= covered_count) THEN
+         IF (mpas_is_root) THEN
+            write(*,'(A,I0,A,I0)') 'ERROR: MPAS embedded CoLM river network covered ', covered_count, &
+               ' unit-catchment(s), but assigned ', global_owned
+         ENDIF
+         CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network ownership partition is inconsistent.')
       ENDIF
 
       numucat = nfound
       allocate (ucat_ucid (numucat))
-      allocate (x_ucat    (numucat))
-      allocate (y_ucat    (numucat))
-      allocate (ucat_gdid (numucat))
 
-      IF (numinpm > 0 .and. numucat > 0) THEN
-         nfound = 0
-         istart = 1
-         DO WHILE (istart <= totalnumucat)
-            iend = min(istart + ucat_chunk_size - 1, totalnumucat)
-            CALL ncio_read_part_serial (parafile, 'seq_x', istart, iend, seq_x_blk)
-            CALL ncio_read_part_serial (parafile, 'seq_y', istart, iend, seq_y_blk)
+      nfound = 0
+      istart = 1
+      DO WHILE (istart <= totalnumucat)
+         iend = min(istart + ucat_chunk_size - 1, totalnumucat)
+         CALL ncio_read_part_serial (parafile, 'seq_x', istart, iend, seq_x_blk)
+         CALL ncio_read_part_serial (parafile, 'seq_y', istart, iend, seq_y_blk)
+         IF (size(seq_x_blk) /= size(seq_y_blk)) THEN
+            CALL CoLM_Stop ('ERROR: seq_x and seq_y lengths differ in the embedded CoLM river network.')
+         ENDIF
+         IF (any(seq_x_blk < 1) .or. any(seq_x_blk > nlon_ucat) .or. &
+             any(seq_y_blk < 1) .or. any(seq_y_blk > nlat_ucat)) THEN
+            CALL CoLM_Stop ('ERROR: embedded CoLM unit-catchment coordinates are outside the runoff input grid.')
+         ENDIF
 
-            DO iucat = lbound(seq_x_blk,1), ubound(seq_x_blk,1)
-               IF (seq_x_blk(iucat) > 0 .and. seq_y_blk(iucat) > 0) THEN
-                  grid_id = (seq_y_blk(iucat)-1) * nlon_ucat + seq_x_blk(iucat)
-                  iloc = find_in_sorted_list1 (grid_id, numinpm, inpm_sorted)
-                  IF (iloc > 0) THEN
-                     nfound = nfound + 1
-                     ucat_ucid(nfound) = iucat
-                     x_ucat(nfound)    = seq_x_blk(iucat)
-                     y_ucat(nfound)    = seq_y_blk(iucat)
-                     ucat_gdid(nfound) = grid_id
-                  ENDIF
-               ENDIF
-            ENDDO
+         allocate (local_owner_blk (size(seq_x_blk)))
+         allocate (owner_blk       (size(seq_x_blk)))
+         local_owner_blk(:) = huge(1)
 
-            deallocate (seq_x_blk)
-            deallocate (seq_y_blk)
-            istart = iend + 1
+         DO iucat = lbound(seq_x_blk,1), ubound(seq_x_blk,1)
+            iblk = iucat - lbound(seq_x_blk,1) + 1
+            IF (numinpm > 0 .and. seq_x_blk(iucat) > 0 .and. seq_y_blk(iucat) > 0) THEN
+               grid_id = (seq_y_blk(iucat)-1) * nlon_ucat + seq_x_blk(iucat)
+               iloc = find_in_sorted_list1 (grid_id, numinpm, inpm_sorted)
+               IF (iloc > 0) local_owner_blk(iblk) = mpas_rank
+            ENDIF
          ENDDO
-      ENDIF
+
+#ifdef MPAS_MPI
+         CALL mpi_allreduce (local_owner_blk, owner_blk, size(local_owner_blk), MPI_INTEGER, &
+            MPI_MIN, mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('river-network final ownership reduction')
+#else
+         owner_blk = local_owner_blk
+#endif
+
+         DO iucat = lbound(seq_x_blk,1), ubound(seq_x_blk,1)
+            iblk = iucat - lbound(seq_x_blk,1) + 1
+            IF (owner_blk(iblk) == mpas_rank) THEN
+               grid_id = (seq_y_blk(iucat)-1) * nlon_ucat + seq_x_blk(iucat)
+               nfound = nfound + 1
+               ucat_ucid(nfound) = istart + iucat - lbound(seq_x_blk,1)
+            ENDIF
+         ENDDO
+
+         deallocate (seq_x_blk)
+         deallocate (seq_y_blk)
+         deallocate (local_owner_blk)
+         deallocate (owner_blk)
+         istart = iend + 1
+      ENDDO
 
       IF (allocated(inpm_sorted)) deallocate (inpm_sorted)
       IF (allocated(inpm_order )) deallocate (inpm_order )
@@ -1624,7 +710,7 @@ CONTAINS
 
    SUBROUTINE build_mpas_embedded_local_topology (parafile)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_Utils
    IMPLICIT NONE
@@ -1636,7 +722,7 @@ CONTAINS
    integer, allocatable :: seq_next_blk(:)
    integer :: istart, iend, iucat, iloc, idn, local_upnmax
 
-      IF (.not. p_is_compute) RETURN
+      IF (.not. .true.) RETURN
 
       IF (numucat > 0) THEN
          CALL ncio_read_indexed_serial (parafile, 'seq_next', ucat_ucid, ucat_next)
@@ -1654,6 +740,7 @@ CONTAINS
          DO WHILE (istart <= totalnumucat)
             iend = min(istart + ucat_chunk_size - 1, totalnumucat)
             CALL ncio_read_part_serial (parafile, 'seq_next', istart, iend, seq_next_blk)
+            CALL validate_mpas_embedded_seq_next (seq_next_blk, istart)
 
             DO iucat = lbound(seq_next_blk,1), ubound(seq_next_blk,1)
                idn = seq_next_blk(iucat)
@@ -1673,8 +760,9 @@ CONTAINS
          local_upnmax = 0
       ENDIF
 
-#ifdef COLM_PARALLEL
-      CALL mpi_allreduce (local_upnmax, upnmax, 1, MPI_INTEGER, MPI_MAX, p_comm_compute, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_allreduce (local_upnmax, upnmax, 1, MPI_INTEGER, MPI_MAX, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('river-network upstream-degree reduction')
 #else
       upnmax = local_upnmax
 #endif
@@ -1698,7 +786,8 @@ CONTAINS
                   iloc = find_in_sorted_list1 (idn, numucat, ucat_sorted)
                   IF (iloc > 0) THEN
                      ups_fill(ucat_order(iloc)) = ups_fill(ucat_order(iloc)) + 1
-                     ucat_ups(ups_fill(ucat_order(iloc)), ucat_order(iloc)) = iucat
+                     ucat_ups(ups_fill(ucat_order(iloc)), ucat_order(iloc)) = &
+                        istart + iucat - lbound(seq_next_blk,1)
                   ENDIF
                ENDIF
             ENDDO
@@ -1713,81 +802,191 @@ CONTAINS
          deallocate (ucat_order)
       ENDIF
 
-	   END SUBROUTINE build_mpas_embedded_local_topology
+   END SUBROUTINE build_mpas_embedded_local_topology
 
-	   ! ---------
-	   SUBROUTINE check_mpas_embedded_downstream_ownership ()
+   ! ---------
+   SUBROUTINE validate_mpas_embedded_seq_next (seq_next, first_id)
 
-	   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI, only: CoLM_Stop
+   IMPLICIT NONE
+
+   integer, intent(in) :: seq_next(:)
+   integer, intent(in) :: first_id
+   integer :: i, source_id
+
+      IF (any(seq_next > totalnumucat)) THEN
+         CALL CoLM_Stop ('ERROR: embedded CoLM seq_next contains an out-of-range unit-catchment ID.')
+      ENDIF
+      IF (any(seq_next <= 0 .and. seq_next /= -9 .and. seq_next /= -10 .and. seq_next /= -99)) THEN
+         CALL CoLM_Stop ('ERROR: embedded CoLM seq_next contains an unsupported outlet code.')
+      ENDIF
+      DO i = 1, size(seq_next)
+         source_id = first_id + i - 1
+         IF (seq_next(i) == source_id) THEN
+            CALL CoLM_Stop ('ERROR: embedded CoLM seq_next contains a self-loop.')
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE validate_mpas_embedded_seq_next
+
+   ! ---------
+	   SUBROUTINE check_mpas_embedded_topology_ownership ()
+
+	   USE MOD_MPAS_MPI
 	   IMPLICIT NONE
 
-	   logical, allocatable :: id_found(:)
-	   integer :: i, irank, ireq
-	   integer :: local_missing, global_missing
-	   integer :: first_missing, global_first_missing
+	   integer, allocatable :: next_owner_count(:)
+	   integer, allocatable :: ups_owner_count(:)
+	   integer :: i, iup, irank, ireq
+	   integer :: local_bad, global_bad
+	   integer :: first_bad, global_first_bad
 
-	      IF (.not. p_is_compute) RETURN
+	      IF (.not. .true.) RETURN
 
-	      local_missing = 0
-	      first_missing = huge(1)
+	      local_bad = 0
+	      first_bad = huge(1)
 
-	      IF (numucat > 0 .and. push_next2ucat%num_req_uniq > 0) THEN
-	         allocate (id_found (push_next2ucat%num_req_uniq))
-	         id_found(:) = .false.
-
-	         IF (push_next2ucat%nself > 0) id_found(push_next2ucat%self_to) = .true.
-
-#ifdef COLM_PARALLEL
-	         DO irank = 0, p_np_compute-1
-	            IF (push_next2ucat%n_from_other(irank) > 0) THEN
-	               id_found(push_next2ucat%other_to(irank)%val) = .true.
-	            ENDIF
+	      allocate (next_owner_count(push_next2ucat%num_req_uniq))
+	      next_owner_count(:) = 0
+	      DO i = 1, push_next2ucat%nself
+	         ireq = push_next2ucat%self_to(i)
+	         next_owner_count(ireq) = next_owner_count(ireq) + 1
+	      ENDDO
+#ifdef MPAS_MPI
+	      DO irank = 0, mpas_size-1
+	         DO i = 1, push_next2ucat%n_from_other(irank)
+	            ireq = push_next2ucat%other_to(irank)%val(i)
+	            next_owner_count(ireq) = next_owner_count(ireq) + 1
 	         ENDDO
+	      ENDDO
 #endif
 
-	         DO i = 1, numucat
-	            IF (ucat_next(i) > 0) THEN
-	               ireq = push_next2ucat%addr_single(i)
-	               IF (ireq <= 0 .or. .not. id_found(ireq)) THEN
-	                  local_missing = local_missing + 1
-	                  first_missing = min(first_missing, ucat_next(i))
+	      allocate (ups_owner_count(push_ups2ucat%num_req_uniq))
+	      ups_owner_count(:) = 0
+	      DO i = 1, push_ups2ucat%nself
+	         ireq = push_ups2ucat%self_to(i)
+	         ups_owner_count(ireq) = ups_owner_count(ireq) + 1
+	      ENDDO
+#ifdef MPAS_MPI
+	      DO irank = 0, mpas_size-1
+	         DO i = 1, push_ups2ucat%n_from_other(irank)
+	            ireq = push_ups2ucat%other_to(irank)%val(i)
+	            ups_owner_count(ireq) = ups_owner_count(ireq) + 1
+	         ENDDO
+	      ENDDO
+#endif
+
+	      DO i = 1, numucat
+	         IF (ucat_next(i) > 0) THEN
+	            ireq = push_next2ucat%addr_single(i)
+	            IF (ireq <= 0 .or. ireq > size(next_owner_count)) THEN
+	               local_bad = local_bad + 1
+	               first_bad = min(first_bad, ucat_next(i))
+	            ELSEIF (next_owner_count(ireq) /= 1) THEN
+	               local_bad = local_bad + 1
+	               first_bad = min(first_bad, ucat_next(i))
+	            ENDIF
+	         ENDIF
+
+	         DO iup = 1, upnmax
+	            IF (ucat_ups(iup,i) > 0) THEN
+	               ireq = push_ups2ucat%addr_multi(iup,i)
+	               IF (ireq <= 0 .or. ireq > size(ups_owner_count)) THEN
+	                  local_bad = local_bad + 1
+	                  first_bad = min(first_bad, ucat_ups(iup,i))
+	               ELSEIF (ups_owner_count(ireq) /= 1) THEN
+	                  local_bad = local_bad + 1
+	                  first_bad = min(first_bad, ucat_ups(iup,i))
 	               ENDIF
 	            ENDIF
 	         ENDDO
+	      ENDDO
 
-	         deallocate (id_found)
-	      ENDIF
+	      deallocate (next_owner_count)
+	      deallocate (ups_owner_count)
 
-#ifdef COLM_PARALLEL
-	      CALL mpi_allreduce (local_missing, global_missing, 1, MPI_INTEGER, MPI_SUM, p_comm_compute, p_err)
-	      CALL mpi_allreduce (first_missing, global_first_missing, 1, MPI_INTEGER, MPI_MIN, p_comm_compute, p_err)
+#ifdef MPAS_MPI
+	      CALL mpi_allreduce (local_bad, global_bad, 1, MPI_INTEGER, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+	      CALL mpas_mpi_check('river-network invalid-owner count reduction')
+	      CALL mpi_allreduce (first_bad, global_first_bad, 1, MPI_INTEGER, MPI_MIN, mpas_comm, mpas_mpi_ierr)
+	      CALL mpas_mpi_check('river-network first invalid-owner reduction')
 #else
-	      global_missing = local_missing
-	      global_first_missing = first_missing
+	      global_bad = local_bad
+	      global_first_bad = first_bad
 #endif
 
-	      IF (global_missing > 0) THEN
-	         IF (p_is_root) THEN
-	            write(*,'(A,I0,A,I0)') 'ERROR: MPAS embedded CoLM GridRiverLakeFlow is missing ', &
-	               global_missing, ' downstream unit-catchment owner(s); first missing seq_next = ', &
-	               global_first_missing
+	      IF (global_bad > 0) THEN
+	         IF (mpas_is_root) THEN
+	            write(*,'(A,I0,A,I0)') 'ERROR: MPAS embedded CoLM GridRiverLakeFlow has ', &
+	               global_bad, ' non-unique or missing topology owner reference(s); first unit-catchment ID = ', &
+	               global_first_bad
 	         ENDIF
-	         CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network ownership is incomplete.')
+	         CALL CoLM_Stop ('ERROR: MPAS domain/landdata must contain exactly one owner for every upstream and downstream unit catchment.')
 	      ENDIF
 
-	   END SUBROUTINE check_mpas_embedded_downstream_ownership
+	   END SUBROUTINE check_mpas_embedded_topology_ownership
 
 	   ! ---------
-	   SUBROUTINE build_mpas_embedded_uc2gd (parafile, nlon_ucat, inpn, numinpm, inpm_gdid, &
+	   SUBROUTINE validate_mpas_embedded_inpmat (idmap_x, idmap_y, area, inpn, nlon_ucat, nlat_ucat)
+
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+	   USE MOD_MPAS_MPI, only: CoLM_Stop
+	   IMPLICIT NONE
+
+	   integer, intent(in) :: idmap_x(:,:), idmap_y(:,:)
+	   real(r8), intent(in) :: area(:,:)
+	   integer, intent(in) :: inpn, nlon_ucat, nlat_ucat
+	   integer :: first_map
+	   integer :: grid_id
+	   integer :: imap
+	   integer :: imap_other
+	   integer :: iucat
+
+	      IF (size(idmap_x,1) /= inpn .or. size(idmap_y,1) /= inpn .or. size(area,1) /= inpn .or. &
+	          size(idmap_x,2) /= size(idmap_y,2) .or. size(idmap_x,2) /= size(area,2)) THEN
+	         CALL CoLM_Stop ('ERROR: inconsistent inpmat dimensions in the embedded CoLM unit-catchment file.')
+	      ENDIF
+	      IF (.not. all(ieee_is_finite(area))) THEN
+	         CALL CoLM_Stop ('ERROR: non-finite inpmat_area in the embedded CoLM unit-catchment file.')
+	      ENDIF
+	      IF (any(area < 0._r8)) THEN
+	         CALL CoLM_Stop ('ERROR: negative inpmat_area in the embedded CoLM unit-catchment file.')
+	      ENDIF
+	      IF (any((area > 0._r8) .and. &
+	              (idmap_x < 1 .or. idmap_x > nlon_ucat .or. idmap_y < 1 .or. idmap_y > nlat_ucat))) THEN
+	         CALL CoLM_Stop ('ERROR: positive unit-catchment overlap area has an out-of-range runoff grid index.')
+	      ENDIF
+	      DO iucat = 1, size(area,2)
+	         first_map = 0
+	         DO imap = 1, inpn
+	            IF (area(imap,iucat) <= 0._r8) CYCLE
+	            IF (first_map == 0) first_map = imap
+	            grid_id = (idmap_y(imap,iucat)-1) * nlon_ucat + idmap_x(imap,iucat)
+	            DO imap_other = imap + 1, inpn
+	               IF (area(imap_other,iucat) <= 0._r8) CYCLE
+	               IF ((idmap_y(imap_other,iucat)-1) * nlon_ucat + idmap_x(imap_other,iucat) == grid_id) THEN
+	                  CALL CoLM_Stop ('ERROR: a unit catchment maps to the same runoff grid more than once.')
+	               ENDIF
+	            ENDDO
+	         ENDDO
+	         IF (first_map == 0) THEN
+	            CALL CoLM_Stop ('ERROR: a unit catchment has no positive runoff-grid overlap area.')
+	         ENDIF
+	      ENDDO
+
+	   END SUBROUTINE validate_mpas_embedded_inpmat
+
+	   ! ---------
+	   SUBROUTINE build_mpas_embedded_uc2gd (parafile, nlon_ucat, nlat_ucat, inpn, numinpm, inpm_gdid, &
       nucpart, idmap_uc2gd, area_uc2gd)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_Utils
    IMPLICIT NONE
 
    character(len=*), intent(in) :: parafile
-   integer, intent(in) :: nlon_ucat
+   integer, intent(in) :: nlon_ucat, nlat_ucat
    integer, intent(in) :: inpn
    integer, intent(in) :: numinpm
    integer, intent(in) :: inpm_gdid(:)
@@ -1818,6 +1017,7 @@ CONTAINS
             CALL ncio_read_part_serial (parafile, 'inpmat_x',    (/1,istart/), (/inpn,iend/), idmap_x_blk)
             CALL ncio_read_part_serial (parafile, 'inpmat_y',    (/1,istart/), (/inpn,iend/), idmap_y_blk)
             CALL ncio_read_part_serial (parafile, 'inpmat_area', (/1,istart/), (/inpn,iend/), area_blk)
+            CALL validate_mpas_embedded_inpmat (idmap_x_blk, idmap_y_blk, area_blk, inpn, nlon_ucat, nlat_ucat)
 
             DO iucat = lbound(idmap_x_blk,2), ubound(idmap_x_blk,2)
                DO imap = 1, inpn
@@ -1844,8 +1044,9 @@ CONTAINS
          nucpart_local = 0
       ENDIF
 
-#ifdef COLM_PARALLEL
-      CALL mpi_allreduce (nucpart_local, nucpart, 1, MPI_INTEGER, MPI_MAX, p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_allreduce (nucpart_local, nucpart, 1, MPI_INTEGER, MPI_MAX, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('river-network unit-overlap reduction')
 #else
       nucpart = nucpart_local
 #endif
@@ -1865,6 +1066,7 @@ CONTAINS
             CALL ncio_read_part_serial (parafile, 'inpmat_x',    (/1,istart/), (/inpn,iend/), idmap_x_blk)
             CALL ncio_read_part_serial (parafile, 'inpmat_y',    (/1,istart/), (/inpn,iend/), idmap_y_blk)
             CALL ncio_read_part_serial (parafile, 'inpmat_area', (/1,istart/), (/inpn,iend/), area_blk)
+            CALL validate_mpas_embedded_inpmat (idmap_x_blk, idmap_y_blk, area_blk, inpn, nlon_ucat, nlat_ucat)
 
             DO iucat = lbound(idmap_x_blk,2), ubound(idmap_x_blk,2)
                DO imap = 1, inpn
@@ -1875,7 +1077,8 @@ CONTAINS
                      IF (iloc > 0) THEN
                         igrd = inpm_order(iloc)
                         nucat_g(igrd) = nucat_g(igrd) + 1
-                        idmap_uc2gd(nucat_g(igrd),igrd) = iucat
+                        idmap_uc2gd(nucat_g(igrd),igrd) = &
+                           istart + iucat - lbound(idmap_x_blk,2)
                         area_uc2gd (nucat_g(igrd),igrd) = area_blk(imap,iucat)
                      ENDIF
                   ENDIF
@@ -1897,159 +1100,73 @@ CONTAINS
 #endif
 
    ! ---------
+   SUBROUTINE validate_mpas_embedded_river_parameters ()
+
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   USE MOD_MPAS_MPI, only: CoLM_Stop
+   IMPLICIT NONE
+
+   integer :: j
+
+      IF (.not. .true. .or. numucat <= 0) RETURN
+
+      IF (.not. allocated(topo_rivelv) .or. .not. allocated(topo_rivhgt) .or. &
+          .not. allocated(topo_rivlen) .or. .not. allocated(topo_rivman) .or. &
+          .not. allocated(topo_rivwth) .or. .not. allocated(topo_rivstomax) .or. &
+          .not. allocated(topo_area) .or. .not. allocated(topo_fldhgt)) THEN
+         CALL CoLM_Stop ('ERROR: incomplete embedded CoLM river parameter data.')
+      ENDIF
+      IF (size(topo_rivelv) /= numucat .or. size(topo_rivhgt) /= numucat .or. &
+          size(topo_rivlen) /= numucat .or. size(topo_rivman) /= numucat .or. &
+          size(topo_rivwth) /= numucat .or. size(topo_rivstomax) /= numucat .or. &
+          size(topo_area) /= numucat .or. size(topo_fldhgt,2) /= numucat .or. &
+          size(topo_fldhgt,1) < 1) THEN
+         CALL CoLM_Stop ('ERROR: embedded CoLM river parameter dimensions do not match local unit catchments.')
+      ENDIF
+      IF (.not. all(ieee_is_finite(topo_rivelv)) .or. .not. all(ieee_is_finite(topo_rivhgt)) .or. &
+          .not. all(ieee_is_finite(topo_rivlen)) .or. .not. all(ieee_is_finite(topo_rivman)) .or. &
+          .not. all(ieee_is_finite(topo_rivwth)) .or. .not. all(ieee_is_finite(topo_rivstomax)) .or. &
+          .not. all(ieee_is_finite(topo_area)) .or. .not. all(ieee_is_finite(topo_fldhgt))) THEN
+         CALL CoLM_Stop ('ERROR: non-finite embedded CoLM river parameter data.')
+      ENDIF
+      IF (any(topo_rivhgt <= 0._r8) .or. any(topo_rivlen <= 0._r8) .or. &
+          any(topo_rivman <= 0._r8) .or. any(topo_rivwth <= 0._r8) .or. &
+          any(topo_rivstomax <= 0._r8) .or. any(topo_area <= 0._r8)) THEN
+         CALL CoLM_Stop ('ERROR: embedded CoLM river geometry and roughness parameters must be positive.')
+      ENDIF
+      IF (any(topo_fldhgt(1,:) <= 0._r8)) THEN
+         CALL CoLM_Stop ('ERROR: embedded CoLM floodplain heights must start above the river bank.')
+      ENDIF
+      DO j = 2, size(topo_fldhgt,1)
+         IF (any(topo_fldhgt(j,:) <= topo_fldhgt(j-1,:))) THEN
+            CALL CoLM_Stop ('ERROR: embedded CoLM floodplain heights must be strictly increasing.')
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE validate_mpas_embedded_river_parameters
+
+   ! ---------
    SUBROUTINE readin_riverlake_parameter (parafile, varname, rdata1d, rdata2d, idata1d)
 
-   USE MOD_SPMD_Task
-   USE MOD_NetCDFSerial
+   USE MOD_MPAS_MPI, only: mpas_comm, mpas_mpi_ierr, mpas_mpi_check
+   USE MOD_NetCDFSerial, only: ncio_read_indexed_serial
    IMPLICIT NONE
 
    character(len=*), intent(in) :: parafile
    character(len=*), intent(in) :: varname
-
    real(r8), allocatable, intent(inout), optional :: rdata1d (:)
    real(r8), allocatable, intent(inout), optional :: rdata2d (:,:)
    integer,  allocatable, intent(inout), optional :: idata1d (:)
 
-   ! Local Variables
-   integer :: irank, nucat, ndim1, i
-   real(r8), allocatable :: rsend1d (:)
-   real(r8), allocatable :: rsend2d (:,:)
-   integer,  allocatable :: isend1d (:)
-
-#ifdef MPAS_EMBEDDED_COLM
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (present(rdata1d)) CALL ncio_read_indexed_serial (parafile, varname, ucat_ucid, rdata1d)
          IF (present(rdata2d)) CALL ncio_read_indexed_serial (parafile, varname, ucat_ucid, rdata2d)
          IF (present(idata1d)) CALL ncio_read_indexed_serial (parafile, varname, ucat_ucid, idata1d)
       ENDIF
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-      RETURN
-#endif
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('river-parameter indexed read completion')
 
-      IF (p_is_root) THEN
-         IF (present(rdata1d))  CALL ncio_read_serial (parafile, varname, rdata1d)
-         IF (present(rdata2d))  CALL ncio_read_serial (parafile, varname, rdata2d)
-         IF (present(idata1d))  CALL ncio_read_serial (parafile, varname, idata1d)
-      ENDIF
-
-#ifdef COLM_PARALLEL
-      CALL mpi_barrier (p_comm_glb, p_err)
-
-      IF (present(rdata2d)) THEN
-         IF (p_is_root) ndim1 = size(rdata2d,1)
-         CALL mpi_bcast (ndim1, 1, MPI_INTEGER, p_address_root, p_comm_glb, p_err)
-      ENDIF
-
-      ! send unit catchment index to ranks
-      IF (p_is_root) THEN
-
-         DO irank = 0, p_np_compute-1
-
-            nucat = numucat_rank(irank)
-
-            IF (nucat > 0) THEN
-	               IF (present(rdata1d)) THEN
-	                  allocate (rsend1d (nucat))
-
-	                  rsend1d = rdata1d(ucat_data_address(irank)%val)
-	                  IF (p_address_compute(irank) == p_iam_glb) THEN
-	                     IF (allocated(rdata1d)) deallocate(rdata1d)
-	                     allocate (rdata1d (nucat))
-	                     rdata1d = rsend1d
-	                  ELSE
-	                     CALL mpi_send (rsend1d, nucat, MPI_REAL8, p_address_compute(irank), &
-	                        mpi_tag_data, p_comm_glb, p_err)
-	                  ENDIF
-
-	                  deallocate (rsend1d)
-	               ENDIF
-
-               IF (present(rdata2d)) THEN
-                  allocate (rsend2d (ndim1,nucat))
-
-	                  DO i = 1, nucat
-	                     rsend2d(:,i) = rdata2d(:,ucat_data_address(irank)%val(i))
-	                  ENDDO
-	                  IF (p_address_compute(irank) == p_iam_glb) THEN
-	                     IF (allocated(rdata2d)) deallocate(rdata2d)
-	                     allocate (rdata2d (ndim1,nucat))
-	                     rdata2d = rsend2d
-	                  ELSE
-	                     CALL mpi_send (rsend2d, ndim1*nucat, MPI_REAL8, p_address_compute(irank), &
-	                        mpi_tag_data, p_comm_glb, p_err)
-	                  ENDIF
-
-	                  deallocate (rsend2d)
-	               ENDIF
-
-	               IF (present(idata1d)) THEN
-	                  allocate (isend1d (nucat))
-
-	                  isend1d = idata1d(ucat_data_address(irank)%val)
-	                  IF (p_address_compute(irank) == p_iam_glb) THEN
-	                     IF (allocated(idata1d)) deallocate(idata1d)
-	                     allocate (idata1d (nucat))
-	                     idata1d = isend1d
-	                  ELSE
-	                     CALL mpi_send (isend1d, nucat, MPI_INTEGER, p_address_compute(irank), &
-	                        mpi_tag_data, p_comm_glb, p_err)
-	                  ENDIF
-
-	                  deallocate (isend1d)
-	               ENDIF
-            ENDIF
-         ENDDO
-
-	         IF (.not. p_is_compute) THEN
-	            IF (present(rdata1d))  deallocate (rdata1d)
-	            IF (present(rdata2d))  deallocate (rdata2d)
-	            IF (present(idata1d))  deallocate (idata1d)
-	         ENDIF
-
-	      ENDIF
-
-	      IF (p_is_compute .and. (.not. p_is_root)) THEN
-
-	         IF (numucat > 0) THEN
-            IF (present(rdata1d)) THEN
-               allocate (rdata1d (numucat))
-               CALL mpi_recv (rdata1d, numucat, MPI_REAL8, p_address_root, &
-                  mpi_tag_data, p_comm_glb, p_stat, p_err)
-            ENDIF
-
-            IF (present(rdata2d)) THEN
-               allocate (rdata2d (ndim1,numucat))
-               CALL mpi_recv (rdata2d, ndim1*numucat, MPI_REAL8, p_address_root, &
-                  mpi_tag_data, p_comm_glb, p_stat, p_err)
-            ENDIF
-
-            IF (present(idata1d)) THEN
-               allocate (idata1d (numucat))
-               CALL mpi_recv (idata1d, numucat, MPI_INTEGER, p_address_root, &
-                  mpi_tag_data, p_comm_glb, p_stat, p_err)
-            ENDIF
-         ENDIF
-
-      ENDIF
-
-	      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-	      IF (p_is_compute .and. numucat == 0) THEN
-	         IF (present(rdata1d)) THEN
-	            IF (.not. allocated(rdata1d)) allocate (rdata1d (0))
-	         ENDIF
-	         IF (present(rdata2d)) THEN
-	            IF (.not. allocated(rdata2d)) allocate (rdata2d (ndim1,0))
-	         ENDIF
-	         IF (present(idata1d)) THEN
-	            IF (.not. allocated(idata1d)) allocate (idata1d (0))
-	         ENDIF
-	      ENDIF
-
-	   END SUBROUTINE readin_riverlake_parameter
+   END SUBROUTINE readin_riverlake_parameter
 
    !
    FUNCTION retrieve_depth_from_volume (this, volume) result(depth)
@@ -2180,14 +1297,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      IF (allocated(x_ucat           )) deallocate(x_ucat           )
-      IF (allocated(y_ucat           )) deallocate(y_ucat           )
-
       IF (allocated(ucat_ucid        )) deallocate(ucat_ucid        )
-      IF (allocated(ucat_gdid        )) deallocate(ucat_gdid        )
-
-      IF (allocated(numucat_rank      )) deallocate(numucat_rank      )
-      IF (allocated(ucat_data_address)) deallocate(ucat_data_address)
 
       IF (allocated(inpm_gdid        )) deallocate(inpm_gdid        )
       IF (allocated(idmap_gd2uc      )) deallocate(idmap_gd2uc      )
@@ -2196,7 +1306,16 @@ CONTAINS
       IF (allocated(area_uc2gd       )) deallocate(area_uc2gd       )
       IF (allocated(ucat_next        )) deallocate(ucat_next        )
       IF (allocated(ucat_ups         )) deallocate(ucat_ups         )
+      IF (allocated(wts_ups          )) deallocate(wts_ups          )
       IF (allocated(irivsys          )) deallocate(irivsys          )
+#ifdef MPAS_MPI
+      IF (allocated(rivsys_send_counts)) deallocate(rivsys_send_counts)
+      IF (allocated(rivsys_send_displs)) deallocate(rivsys_send_displs)
+      IF (allocated(rivsys_recv_counts)) deallocate(rivsys_recv_counts)
+      IF (allocated(rivsys_recv_displs)) deallocate(rivsys_recv_displs)
+      IF (allocated(rivsys_send_local )) deallocate(rivsys_send_local )
+      IF (allocated(rivsys_recv_owner )) deallocate(rivsys_recv_owner )
+#endif
 
       IF (allocated(topo_rivelv      )) deallocate(topo_rivelv      )
       IF (allocated(topo_rivhgt      )) deallocate(topo_rivhgt      )
@@ -2212,7 +1331,23 @@ CONTAINS
 
       IF (allocated(floodplain_curve )) deallocate(floodplain_curve )
 
-      IF (allocated(allups_mask_ucat )) deallocate(allups_mask_ucat )
+      CALL grid_free_mem(griducat)
+      CALL compute_remapdata_free_mem(remap_patch2inpm)
+      CALL compute_pushdata_free_mem(push_inpm2ucat)
+      CALL compute_pushdata_free_mem(push_ucat2inpm)
+      CALL compute_pushdata_free_mem(push_next2ucat)
+      CALL compute_pushdata_free_mem(push_ups2ucat)
+
+      totalnumucat = 0
+      numucat = 0
+      numinpm = 0
+      inpn = 0
+      nucpart = 0
+      upnmax = 0
+      numrivsys = 0
+#ifdef MPAS_MPI
+      num_owned_rivsys = 0
+#endif
 
    END SUBROUTINE riverlake_network_final
 

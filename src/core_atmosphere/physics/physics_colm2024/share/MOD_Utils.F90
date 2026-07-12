@@ -14,6 +14,7 @@ MODULE MOD_Utils
    ! ---- PUBLIC subroutines ----
 
    PUBLIC :: normalize_longitude
+   PUBLIC :: make_directory
 
    INTERFACE expand_list
       MODULE procedure expand_list_int32
@@ -75,6 +76,40 @@ MODULE MOD_Utils
    PUBLIC :: polint
 
 CONTAINS
+
+   !---------------------------------
+   SUBROUTINE make_directory (path)
+
+   USE MOD_MPAS_MPI, only: CoLM_stop
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: path
+   character(len=:), allocatable :: directory, command
+   integer :: cmdstat, exitstat
+   logical :: exists
+
+      directory = trim(adjustl(path))
+      IF (len(directory) == 0) CALL CoLM_stop('Cannot create an empty directory path.')
+      IF (verify(directory, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./+-') /= 0) THEN
+         CALL CoLM_stop('CoLM directory paths may contain only letters, digits, _, ., /, +, and -.')
+      ENDIF
+
+      inquire(file=directory, exist=exists)
+      IF (exists) RETURN
+
+      IF (directory(1:1) == '/') THEN
+         command = 'mkdir -p ' // directory
+      ELSE
+         command = 'mkdir -p ./' // directory
+      ENDIF
+      CALL execute_command_line(command, wait=.true., exitstat=exitstat, cmdstat=cmdstat)
+      IF (cmdstat /= 0 .or. exitstat /= 0) THEN
+         CALL CoLM_stop('Failed to create CoLM directory: '//directory)
+      ENDIF
+      inquire(file=directory, exist=exists)
+      IF (.not. exists) CALL CoLM_stop('CoLM directory creation did not produce: '//directory)
+
+   END SUBROUTINE make_directory
 
    !---------------------------------
    SUBROUTINE normalize_longitude (lon)

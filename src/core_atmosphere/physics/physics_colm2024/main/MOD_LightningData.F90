@@ -33,7 +33,7 @@ CONTAINS
 !  Initialize lightning data read in.
 !-----------------------------------------------------------------------
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_TimeManager
    USE MOD_Grid

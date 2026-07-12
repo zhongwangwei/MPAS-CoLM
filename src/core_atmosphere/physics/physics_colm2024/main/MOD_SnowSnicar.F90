@@ -28,7 +28,7 @@ MODULE MOD_SnowSnicar
 ! !USES:
    USE MOD_Precision
    USE MOD_Vars_Global, only: maxsnl
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
 ! SAVE
@@ -500,14 +500,14 @@ CONTAINS
 
          ! Error check for snow grain size:
 #ifndef _OPENACC
-         IF (p_is_root) THEN
+         IF (mpas_is_root) THEN
             DO i=snl_top,snl_btm,1
                IF ((snw_rds_lcl(i) < snw_rds_min_tbl) .or. (snw_rds_lcl(i) > snw_rds_max_tbl)) THEN
                   write (iulog,*)  "SNICAR ERROR: snow grain radius of out of bounds."
                   write (iulog,*) "flg_snw_ice= ", flg_snw_ice
                   write (iulog,*) " level: ", i, " snl(c)= ", snl_lcl
                   write (iulog,*) "h2osno(c)= ", h2osno_lcl
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
             ENDDO
          ENDIF
@@ -1027,7 +1027,7 @@ CONTAINS
                ELSEIF((trip == 1).and.(flg_dover == 4).and.(err_idx >= 20)) THEN
                  flg_dover = 0
 #ifndef _OPENACC
-                 IF (p_is_root) THEN
+                 IF (mpas_is_root) THEN
                     write(iulog,*) "SNICAR ERROR: FOUND A WORMHOLE. STUCK IN INFINITE LOOP! Called from: ", flg_snw_ice
                     write(iulog,*) "SNICAR STATS: snw_rds(0)= ", snw_rds(0)
                     write(iulog,*) "SNICAR STATS: L_snw(0)= ", L_snw(0)
@@ -1039,7 +1039,7 @@ CONTAINS
                     write(iulog,*) "SNICAR STATS: dust3(0)= ", mss_cnc_aer_lcl(0,5)
                     write(iulog,*) "SNICAR STATS: dust4(0)= ", mss_cnc_aer_lcl(0,6)
                     write(iulog,*) "frac_sno: ", frac_sno
-                    CALL abort
+                    CALL CoLM_stop()
                  ENDIF
 #endif
                ELSE
@@ -1053,9 +1053,9 @@ CONTAINS
             energy_sum = (mu_not*pi*flx_slrd_lcl(bnd_idx)) + flx_slri_lcl(bnd_idx) - (F_abs_sum + F_btm_net + F_sfc_pls)
             IF (abs(energy_sum) > 0.00001_r8) THEN
 #ifndef _OPENACC
-               IF (p_is_root) THEN
+               IF (mpas_is_root) THEN
                   write(iulog,*) "SNICAR ERROR: Energy conservation error of : ", energy_sum
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
 #endif
             ENDIF
@@ -1065,7 +1065,7 @@ CONTAINS
             ! Check that albedo is less than 1
             IF (albout_lcl(bnd_idx) > 1.0) THEN
 #ifndef _OPENACC
-               IF (p_is_root) THEN
+               IF (mpas_is_root) THEN
                   write(iulog,*) "SNICAR ERROR: Albedo > 1.0: "
                   write(iulog,*) "SNICAR STATS: bnd_idx= ",bnd_idx
                   write (iulog,*) "SNICAR STATS: albout_lcl(bnd)= ",albout_lcl(bnd_idx), &
@@ -1091,7 +1091,7 @@ CONTAINS
                   write (iulog,*) "SNICAR STATS: snw_rds(-1)= ", snw_rds(-1)
                   write (iulog,*) "SNICAR STATS: snw_rds(0)= ", snw_rds(0)
 
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
 #endif
             ENDIF
@@ -1511,9 +1511,9 @@ CONTAINS
       ELSEIF (trim(snow_shape) == 'koch_snowflake') THEN
         snw_shp_lcl(:) = snow_shape_koch_snowflake
       ELSE
-         IF (p_is_root) THEN
+         IF (mpas_is_root) THEN
             write(iulog,*) "snow_shape = ", snow_shape
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
       ENDIF
 
@@ -1533,9 +1533,9 @@ CONTAINS
       ELSEIF (trim(snicar_atm_type) == 'high_mountain') THEN
         atm_type_index = atm_type_high_mountain
       ELSE
-         IF (p_is_root) THEN
+         IF (mpas_is_root) THEN
             write(iulog,*) "snicar_atm_type = ", snicar_atm_type
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
       ENDIF
 
@@ -1615,14 +1615,14 @@ CONTAINS
          albsfc_lcl(nir_bnd_bgn:nir_bnd_end) = albsfc(2)
 
          ! Error check for snow grain size:
-         IF (p_is_root) THEN
+         IF (mpas_is_root) THEN
             DO i=snl_top,snl_btm,1
                IF ((snw_rds_lcl(i) < snw_rds_min_tbl) .or. (snw_rds_lcl(i) > snw_rds_max_tbl)) THEN
                   write (iulog,*) "SNICAR ERROR: snow grain radius of ", snw_rds_lcl(i), " out of bounds."
                   write (iulog,*) "flg_snw_ice= ", flg_snw_ice
                   write (iulog,*) " level: ", i, " snl(c)= ", snl_lcl
                   write (iulog,*) "h2osno(c)= ", h2osno_lcl
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
             ENDDO
          ENDIF
@@ -2248,7 +2248,7 @@ CONTAINS
               flx_abs_lcl(i,bnd_idx) = F_abs(i)
 
               ! ERROR check: negative absorption
-              IF (p_is_root) THEN
+              IF (mpas_is_root) THEN
                  IF (flx_abs_lcl(i,bnd_idx) < -0.00001) THEN
                     write (iulog,"(a,e13.6,a,i6)") "SNICAR ERROR: negative absoption : ", flx_abs_lcl(i,bnd_idx)
                     write(iulog,*) "SNICAR_AD STATS: snw_rds(0)= ", snw_rds(0)
@@ -2260,7 +2260,7 @@ CONTAINS
                     write(iulog,*) "SNICAR_AD STATS: dust2(0)= ", mss_cnc_aer_lcl(0,4)
                     write(iulog,*) "SNICAR_AD STATS: dust3(0)= ", mss_cnc_aer_lcl(0,5)
                     write(iulog,*) "SNICAR_AD STATS: dust4(0)= ", mss_cnc_aer_lcl(0,6)
-                    CALL abort
+                    CALL CoLM_stop()
                  ENDIF
               ENDIF
             ENDDO
@@ -2301,7 +2301,7 @@ CONTAINS
             ! Energy conservation check:
             ! Incident direct+diffuse radiation equals (absorbed+bulk_transmitted+bulk_reflected)
             energy_sum = (mu_not*pi*flx_slrd_lcl(bnd_idx)) + flx_slri_lcl(bnd_idx) - (F_abs_sum + F_btm_net + F_sfc_pls)
-            IF (p_is_root) THEN
+            IF (mpas_is_root) THEN
                IF (abs(energy_sum) > 0.00001_r8) THEN
                   write (iulog,"(a,e13.6,a,i6)") "SNICAR ERROR: Energy conservation error of : ", energy_sum
                   write(iulog,*) "F_abs_sum: ",F_abs_sum
@@ -2312,13 +2312,13 @@ CONTAINS
                   write(iulog,*) "bnd_idx", bnd_idx
                   write(iulog,*) "F_abs", F_abs
                   write(iulog,*) "albedo", albedo
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
             ENDIF
 
             albout_lcl(bnd_idx) = albedo
             ! Check that albedo is less than 1
-            IF (p_is_root) THEN
+            IF (mpas_is_root) THEN
                IF (albout_lcl(bnd_idx) > 1.0) THEN
                   write (iulog,*) "SNICAR ERROR: Albedo > 1.0: "
                   write (iulog,*) "SNICAR STATS: bnd_idx= ",bnd_idx
@@ -2345,7 +2345,7 @@ CONTAINS
                   write (iulog,*) "SNICAR STATS: snw_rds(-1)= ", snw_rds(-1)
                   write (iulog,*) "SNICAR STATS: snw_rds(0)= ", snw_rds(0)
 
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
             ENDIF
 
@@ -2607,9 +2607,9 @@ CONTAINS
             IF ( abs(dr_fresh) < 1.0e-8_r8 ) THEN
                dr_fresh = 0.0_r8
             ELSEIF ( dr_fresh < 0.0_r8 ) THEN
-               IF (p_is_root) THEN
+               IF (mpas_is_root) THEN
                   write(iulog,*) "dr_fresh = ", dr_fresh, snw_rds(i), snw_rds_min
-                  CALL abort
+                  CALL CoLM_stop()
                ENDIF
             ENDIF
 
@@ -2749,15 +2749,15 @@ CONTAINS
       ELSEIF (trim(snicar_atm_type) == 'high_mountain') THEN
          atm_type_index = atm_type_high_mountain
       ELSE
-         IF (p_is_root) THEN
+         IF (mpas_is_root) THEN
             write(iulog,*) "snicar_atm_type = ", snicar_atm_type
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
       ENDIF
 
       !
       ! Open optics file:
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(iulog,*) 'Attempting to read snow optical properties .....'
          write(iulog,*) subname,trim(fsnowoptics)
       ENDIF
@@ -2781,7 +2781,7 @@ CONTAINS
 
 #ifdef MODAL_AER
       ! size-dependent BC parameters and BC enhancement factors
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(iulog,*) 'Attempting to read optical properties for within-ice BC (modal aerosol treatment) ...'
       ENDIF
       !
@@ -2848,13 +2848,13 @@ CONTAINS
       !
       !
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(iulog,*) 'Successfully read snow optical properties'
       ENDIF
 
 
       ! print some diagnostics:
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write (iulog,*) 'SNICAR: Mie single scatter albedos for direct-beam ice, rds=100um: ', &
             ss_alb_snw_drc(71,1), ss_alb_snw_drc(71,2), ss_alb_snw_drc(71,3),     &
             ss_alb_snw_drc(71,4), ss_alb_snw_drc(71,5)
@@ -2869,7 +2869,7 @@ CONTAINS
       ENDIF
       !
 #ifdef MODAL_AER
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          ! unique dimensionality for modal aerosol optical properties
          write (iulog,*) 'SNICAR: Subset of Mie single scatter albedos for BC: ', &
             ss_alb_bc1(1,1), ss_alb_bc1(1,2), ss_alb_bc1(2,1), ss_alb_bc1(5,1), ss_alb_bc1(1,10), ss_alb_bc2(1,10)
@@ -2882,7 +2882,7 @@ CONTAINS
             bcenh(1,1,1), bcenh(1,2,1), bcenh(1,1,2), bcenh(2,1,1), bcenh(5,10,1), bcenh(5,1,8), bcenh(5,10,8)
       ENDIF
 #else
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write (iulog,*) 'SNICAR: Mie single scatter albedos for hydrophillic BC: ', &
             ss_alb_bc1(1), ss_alb_bc1(2), ss_alb_bc1(3), ss_alb_bc1(4), ss_alb_bc1(5)
          write (iulog,*) 'SNICAR: Mie single scatter albedos for hydrophobic BC: ', &
@@ -2890,7 +2890,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          IF (DO_SNO_OC) THEN
             write (iulog,*) 'SNICAR: Mie single scatter albedos for hydrophillic OC: ', &
                ss_alb_oc1(1), ss_alb_oc1(2), ss_alb_oc1(3), ss_alb_oc1(4), ss_alb_oc1(5)
@@ -2923,7 +2923,7 @@ CONTAINS
    character(len= 32) :: subname = 'SnowAge_init'    ! SUBROUTINE name
       !
       ! Open snow aging (effective radius evolution) file:
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(iulog,*) 'Attempting to read snow aging parameters .....'
          write(iulog,*) subname,trim(fsnowaging)
       ENDIF
@@ -2936,12 +2936,12 @@ CONTAINS
       CALL ncio_read_bcast_serial (fsnowaging, 'drdsdt0', snowage_drdt0)
 
       !
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(iulog,*) 'Successfully read snow aging properties'
       ENDIF
       !
       ! print some diagnostics:
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write (iulog,*) 'SNICAR: snowage tau for T=263K, dTdz = 100 K/m, rhos = 150 kg/m3: ', snowage_tau(3,11,9)
          write (iulog,*) 'SNICAR: snowage kappa for T=263K, dTdz = 100 K/m, rhos = 150 kg/m3: ', snowage_kappa(3,11,9)
          write (iulog,*) 'SNICAR: snowage dr/dt_0 for T=263K, dTdz = 100 K/m, rhos = 150 kg/m3: ', snowage_drdt0(3,11,9)

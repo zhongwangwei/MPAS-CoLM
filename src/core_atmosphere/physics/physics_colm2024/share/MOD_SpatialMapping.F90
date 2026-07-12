@@ -1,5 +1,11 @@
 #include <define.h>
 
+#ifdef MPAS_EMBEDDED_COLM
+#define COLM_SPATIAL_LOCAL_RANK mpas_rank
+#else
+#define COLM_SPATIAL_LOCAL_RANK 0
+#endif
+
 MODULE MOD_SpatialMapping
 
 !--------------------------------------------------------------------------------
@@ -91,7 +97,7 @@ CONTAINS
    USE MOD_DataType
    USE MOD_Mesh
    USE MOD_Utils
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -120,11 +126,8 @@ CONTAINS
    logical  :: skip, is_new
 
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
 
          write(*,"(A, I0, A, I0, A)") &
             'Making areal weighted mapping between pixel set and grid: ', &
@@ -196,7 +199,7 @@ CONTAINS
 #endif
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          this%npset = pixelset%nset
 
@@ -295,9 +298,15 @@ CONTAINS
 
                         area = areaquad (lat_s, lat_n, lon_w, lon_e)
 
-                        CALL insert_into_sorted_list2 ( ix, iy, &
-                           gfrom(iset)%ng, gfrom(iset)%ilon, gfrom(iset)%ilat, &
-                           iloc, is_new)
+	                        IF (gfrom(iset)%ng == size(gfrom(iset)%ilat)) THEN
+	                           CALL expand_list (gfrom(iset)%ilat, 0.2_r8)
+	                           CALL expand_list (gfrom(iset)%ilon, 0.2_r8)
+	                           CALL expand_list (afrac(iset)%val,  0.2_r8)
+	                        ENDIF
+
+	                        CALL insert_into_sorted_list2 ( ix, iy, &
+	                           gfrom(iset)%ng, gfrom(iset)%ilon, gfrom(iset)%ilat, &
+	                           iloc, is_new)
 
                         IF (is_new) THEN
                            IF (iloc < gfrom(iset)%ng) THEN
@@ -310,18 +319,11 @@ CONTAINS
                            afrac(iset)%val(iloc) = afrac(iset)%val(iloc) + area
                         ENDIF
 
-                        IF (gfrom(iset)%ng == size(gfrom(iset)%ilat)) THEN
-                           CALL expand_list (gfrom(iset)%ilat, 0.2_r8)
-                           CALL expand_list (gfrom(iset)%ilon, 0.2_r8)
-                           CALL expand_list (afrac(iset)%val,  0.2_r8)
-                        ENDIF
-
-                        CALL insert_into_sorted_list1 ( &
-                           ix, ng_lat(iy), list_lat(iy)%val, iloc)
-
-                        IF (ng_lat(iy) == size(list_lat(iy)%val)) THEN
-                           CALL expand_list (list_lat(iy)%val, 0.2_r8)
-                        ENDIF
+	                        IF (ng_lat(iy) == size(list_lat(iy)%val)) THEN
+	                           CALL expand_list (list_lat(iy)%val, 0.2_r8)
+	                        ENDIF
+	                        CALL insert_into_sorted_list1 ( &
+	                           ix, ng_lat(iy), list_lat(iy)%val, iloc)
 
                      ENDIF
 
@@ -357,24 +359,11 @@ CONTAINS
          ENDDO
          deallocate (list_lat)
 
-#ifdef USEMPI
-         allocate (ipt (ng_all))
-         allocate (msk (ng_all))
-         DO ig = 1, ng_all
-            xblk = fgrid%xblk(xlist(ig))
-            yblk = fgrid%yblk(ylist(ig))
-            ipt(ig) = gblock%pio(xblk,yblk)
-         ENDDO
-#endif
 
-         allocate (this%glist (0:p_np_active-1))
-         DO iproc = 0, p_np_active-1
-#ifdef USEMPI
-            msk = (ipt == p_address_active(iproc))
-            ng  = count(msk)
-#else
-            ng  = ng_all
-#endif
+         allocate (this%glist (0:mpas_size-1))
+         DO iproc = 0, mpas_size-1
+            ng = 0
+            IF (iproc == COLM_SPATIAL_LOCAL_RANK) ng = ng_all
 
             this%glist(iproc)%ng = ng
 
@@ -382,20 +371,11 @@ CONTAINS
                allocate (this%glist(iproc)%ilat (ng))
                allocate (this%glist(iproc)%ilon (ng))
 
-#ifdef USEMPI
-               this%glist(iproc)%ilon = pack(xlist, msk)
-               this%glist(iproc)%ilat = pack(ylist, msk)
-#else
                this%glist(iproc)%ilon = xlist
                this%glist(iproc)%ilat = ylist
-#endif
             ENDIF
          ENDDO
 
-#ifdef USEMPI
-         deallocate (ipt)
-         deallocate (msk)
-#endif
 
          allocate (this%address  (pixelset%nset))
          allocate (this%areapart (pixelset%nset))
@@ -423,11 +403,7 @@ CONTAINS
                xblk = fgrid%xblk(ilon)
                yblk = fgrid%yblk(ilat)
 
-#ifdef USEMPI
-               iproc = p_itis_active(gblock%pio(xblk,yblk))
-#else
-               iproc = 0
-#endif
+               iproc = COLM_SPATIAL_LOCAL_RANK
 
                this%address(iset)%val(1,ig) = iproc
                this%address(iset)%val(2,ig) = find_in_sorted_list2 ( &
@@ -449,56 +425,8 @@ CONTAINS
 
       ENDIF
 
-#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
-      IF (p_is_compute) THEN
 
-         DO iproc = 0, p_np_active-1
-            idest = p_address_active(iproc)
-            smesg = (/p_iam_glb, this%glist(iproc)%ng/)
-
-            CALL mpi_send (smesg, 2, MPI_INTEGER, &
-               idest, mpi_tag_mesg, p_comm_glb, p_err)
-
-            IF (this%glist(iproc)%ng > 0) THEN
-               CALL mpi_send (this%glist(iproc)%ilon, this%glist(iproc)%ng, MPI_INTEGER, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-               CALL mpi_send (this%glist(iproc)%ilat, this%glist(iproc)%ng, MPI_INTEGER, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-
-      ENDIF
-
-      IF (p_is_active) THEN
-
-         allocate (this%glist (0:p_np_compute-1))
-
-         DO irank = 0, p_np_compute-1
-
-            CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
-               MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-
-            isrc  = rmesg(1)
-            nrecv = rmesg(2)
-            iproc = p_itis_compute(isrc)
-
-            this%glist(iproc)%ng = nrecv
-
-            IF (nrecv > 0) THEN
-               allocate (this%glist(iproc)%ilon (nrecv))
-               allocate (this%glist(iproc)%ilat (nrecv))
-
-               CALL mpi_recv (this%glist(iproc)%ilon, nrecv, MPI_INTEGER, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL mpi_recv (this%glist(iproc)%ilat, nrecv, MPI_INTEGER, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-            ENDIF
-         ENDDO
-
-      ENDIF
-#endif
-
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (this%npset > 0) THEN
             allocate (this%areapset (this%npset))
             this%areapset(:) = 0.
@@ -510,8 +438,9 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_active) CALL allocate_block_data (fgrid, this%areagrid)
-      IF (p_is_compute) THEN
+#ifndef MPAS_EMBEDDED_COLM
+      IF (.true.) CALL allocate_block_data (fgrid, this%areagrid)
+      IF (.true.) THEN
          IF (this%npset > 0) THEN
             allocate (msk (this%npset))
             msk = pixelset%ipxstt > 0 .and. pixelset%ipxend > 0
@@ -520,11 +449,9 @@ CONTAINS
       CALL this%get_sumarea (this%areagrid, msk)
 
       IF (allocated(msk)) deallocate(msk)
-
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
 #endif
+
+
 
    END SUBROUTINE spatial_mapping_build_arealweighted
 
@@ -540,7 +467,7 @@ CONTAINS
    USE MOD_Mesh
    USE MOD_Pixelset
    USE MOD_Utils
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: pi
    IMPLICIT NONE
 
@@ -568,11 +495,8 @@ CONTAINS
    real(r8) :: lon, lonw, lone, latn, lats
    real(r8) :: distn, dists, distw, diste, diffw, diffe, areathis
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
 
          write(*,*)
          write(*,"(A, I0, A, I0, A)") &
@@ -609,7 +533,7 @@ CONTAINS
       allocate (this%grid%xcnt (size(fgrid%xcnt)));  this%grid%xcnt = fgrid%xcnt
       allocate (this%grid%ycnt (size(fgrid%ycnt)));  this%grid%ycnt = fgrid%ycnt
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (this%grid%lat_s(this%grid%nlat));  this%grid%lat_s = fgrid%lat_s
          allocate (this%grid%lat_n(this%grid%nlat));  this%grid%lat_n = fgrid%lat_n
@@ -739,24 +663,11 @@ CONTAINS
 
          ENDDO
 
-#ifdef USEMPI
-         allocate (ipt (nglist))
-         allocate (msk (nglist))
-         DO ig = 1, nglist
-            xblk = this%grid%xblk(xlist(ig))
-            yblk = this%grid%yblk(ylist(ig))
-            ipt(ig) = gblock%pio(xblk,yblk)
-         ENDDO
-#endif
 
-         allocate (this%glist (0:p_np_active-1))
-         DO iproc = 0, p_np_active-1
-#ifdef USEMPI
-            msk = (ipt == p_address_active(iproc))
-            ng  = count(msk)
-#else
-            ng  = nglist
-#endif
+         allocate (this%glist (0:mpas_size-1))
+         DO iproc = 0, mpas_size-1
+            ng = 0
+            IF (iproc == COLM_SPATIAL_LOCAL_RANK) ng = nglist
 
             this%glist(iproc)%ng = ng
 
@@ -764,13 +675,8 @@ CONTAINS
                allocate (this%glist(iproc)%ilat (ng))
                allocate (this%glist(iproc)%ilon (ng))
 
-#ifdef USEMPI
-               this%glist(iproc)%ilon = pack(xlist(1:nglist), msk)
-               this%glist(iproc)%ilat = pack(ylist(1:nglist), msk)
-#else
                this%glist(iproc)%ilon = xlist(1:nglist)
                this%glist(iproc)%ilat = ylist(1:nglist)
-#endif
             ENDIF
 
          ENDDO
@@ -778,63 +684,10 @@ CONTAINS
          deallocate (xlist)
          deallocate (ylist)
 
-#ifdef USEMPI
-         deallocate (ipt)
-         deallocate (msk)
-#endif
       ENDIF
 
-#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
-            idest = p_address_active(iproc)
-            smesg = (/p_iam_glb, this%glist(iproc)%ng/)
 
-            CALL mpi_send (smesg, 2, MPI_INTEGER, &
-               idest, mpi_tag_mesg, p_comm_glb, p_err)
-
-            IF (this%glist(iproc)%ng > 0) THEN
-               CALL mpi_send (this%glist(iproc)%ilon, this%glist(iproc)%ng, MPI_INTEGER, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-               CALL mpi_send (this%glist(iproc)%ilat, this%glist(iproc)%ng, MPI_INTEGER, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-      ENDIF
-
-      IF (p_is_active) THEN
-
-         allocate (this%glist (0:p_np_compute-1))
-
-         DO irank = 0, p_np_compute-1
-
-            CALL mpi_recv (rmesg, 2, MPI_INTEGER, &
-               MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-
-            isrc  = rmesg(1)
-            nrecv = rmesg(2)
-            iproc = p_itis_compute(isrc)
-
-            this%glist(iproc)%ng = nrecv
-
-            IF (nrecv > 0) THEN
-               allocate (this%glist(iproc)%ilon (nrecv))
-               allocate (this%glist(iproc)%ilat (nrecv))
-
-               CALL mpi_recv (this%glist(iproc)%ilon, nrecv, MPI_INTEGER, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL mpi_recv (this%glist(iproc)%ilat, nrecv, MPI_INTEGER, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-            ENDIF
-
-         ENDDO
-
-      ENDIF
-
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (this%address (this%npset))
          allocate (this%npart   (this%npset))
@@ -872,13 +725,7 @@ CONTAINS
 
             ! northwest grid
             ix = xw(iset); iy = yn(iset);
-#ifdef USEMPI
-            xblk = this%grid%xblk(ix)
-            yblk = this%grid%yblk(iy)
-            iproc = p_itis_active(gblock%pio(xblk,yblk))
-#else
-            iproc = 0
-#endif
+            iproc = COLM_SPATIAL_LOCAL_RANK
             this%address(iset)%val(1,1) = iproc
             this%address(iset)%val(2,1) = find_in_sorted_list2 ( ix, iy, &
                this%glist(iproc)%ng, this%glist(iproc)%ilon, this%glist(iproc)%ilat)
@@ -887,13 +734,7 @@ CONTAINS
 
             ! northeast grid
             ix = xe(iset); iy = yn(iset);
-#ifdef USEMPI
-            xblk = this%grid%xblk(ix)
-            yblk = this%grid%yblk(iy)
-            iproc = p_itis_active(gblock%pio(xblk,yblk))
-#else
-            iproc = 0
-#endif
+            iproc = COLM_SPATIAL_LOCAL_RANK
             this%address(iset)%val(1,2) = iproc
             this%address(iset)%val(2,2) = find_in_sorted_list2 ( ix, iy, &
                this%glist(iproc)%ng, this%glist(iproc)%ilon, this%glist(iproc)%ilat)
@@ -902,13 +743,7 @@ CONTAINS
 
             ! southwest
             ix = xw(iset); iy = ys(iset);
-#ifdef USEMPI
-            xblk = this%grid%xblk(ix)
-            yblk = this%grid%yblk(iy)
-            iproc = p_itis_active(gblock%pio(xblk,yblk))
-#else
-            iproc = 0
-#endif
+            iproc = COLM_SPATIAL_LOCAL_RANK
             this%address(iset)%val(1,3) = iproc
             this%address(iset)%val(2,3) = find_in_sorted_list2 ( ix, iy, &
                this%glist(iproc)%ng, this%glist(iproc)%ilon, this%glist(iproc)%ilat)
@@ -917,13 +752,7 @@ CONTAINS
 
             ! southeast
             ix = xe(iset); iy = ys(iset);
-#ifdef USEMPI
-            xblk = this%grid%xblk(ix)
-            yblk = this%grid%yblk(iy)
-            iproc = p_itis_active(gblock%pio(xblk,yblk))
-#else
-            iproc = 0
-#endif
+            iproc = COLM_SPATIAL_LOCAL_RANK
             this%address(iset)%val(1,4) = iproc
             this%address(iset)%val(2,4) = find_in_sorted_list2 ( ix, iy, &
                this%glist(iproc)%ng, this%glist(iproc)%ilon, this%glist(iproc)%ilat)
@@ -934,7 +763,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (this%npset > 0) THEN
             allocate (this%areapset (this%npset))
          ENDIF
@@ -943,14 +772,16 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_active)  CALL allocate_block_data (fgrid, this%areagrid)
-      IF (p_is_compute) THEN
+#ifndef MPAS_EMBEDDED_COLM
+      IF (.true.)  CALL allocate_block_data (fgrid, this%areagrid)
+      IF (.true.) THEN
          IF (this%npset > 0) THEN
             allocate (msk (this%npset))
             msk = pixelset%ipxstt > 0 .and. pixelset%ipxend > 0
          ENDIF
       ENDIF
       CALL this%get_sumarea (this%areagrid, msk)
+#endif
 
 
       IF (allocated(this%grid%lat_s)) deallocate(this%grid%lat_s)
@@ -975,9 +806,6 @@ CONTAINS
 
       IF (allocated(msk)) deallocate(msk)
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
    END SUBROUTINE spatial_mapping_build_bilinear
 
@@ -988,7 +816,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1008,9 +836,9 @@ CONTAINS
       this%has_missing_value = .true.
       this%missing_value = missing_value
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -1027,13 +855,6 @@ CONTAINS
 
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -1048,23 +869,17 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -1090,7 +905,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1107,7 +922,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1129,14 +944,14 @@ CONTAINS
    character(len=256) :: inmode
    real(r8) :: sumwt
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          inmode = 'average'
          IF (present(input_mode)) inmode = trim(input_mode)
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
@@ -1183,19 +998,10 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          IF (present(spv)) THEN
             CALL flush_block_data (gdata, spv)
@@ -1203,18 +1009,12 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   IF (present(spv)) THEN
@@ -1252,8 +1052,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1270,7 +1070,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1291,14 +1091,14 @@ CONTAINS
    type(pointer_real8_2d), allocatable :: pbuff(:)
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
          lb1 = lbound(pdata,1)
          ub1 = ubound(pdata,1)
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (lb1:ub1, this%glist(iproc)%ng))
 
@@ -1338,21 +1138,10 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, &
-                  (ub1-lb1+1) * this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          lb1 = gdata%lb1
          ub1 = gdata%ub1
@@ -1363,19 +1152,12 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (lb1:ub1, this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, &
-                  (ub1-lb1+1) * this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   ilon = this%glist(iproc)%ilon(ig)
@@ -1409,8 +1191,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1426,7 +1208,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1446,9 +1228,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:,:,:)
    type(pointer_real8_3d), allocatable :: pbuff(:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
          lb1 = lbound(pdata,1)
          ub1 = ubound(pdata,1)
@@ -1458,7 +1240,7 @@ CONTAINS
          ub2 = ubound(pdata,2)
          ndim2 = ub2 - lb2 + 1
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (lb1:ub1, lb2:ub2, this%glist(iproc)%ng))
 
@@ -1500,19 +1282,10 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, ndim1 * ndim2 * this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          lb1 = gdata%lb1
          ub1 = gdata%ub1
@@ -1528,18 +1301,12 @@ CONTAINS
             CALL flush_block_data (gdata, 0.0_r8)
          ENDIF
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (lb1:ub1, lb2:ub2, this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, ndim1 * ndim2 * this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   ilon = this%glist(iproc)%ilon(ig)
@@ -1573,8 +1340,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1590,7 +1357,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -1609,11 +1376,11 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = spval
@@ -1642,34 +1409,19 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL flush_block_data (gdata, spval)
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   IF (gbuff(ig) /= spval) THEN
@@ -1695,8 +1447,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1712,7 +1464,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1732,16 +1484,16 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff (:)
 
-      IF (p_is_compute) THEN
-         allocate (pbuff (0:p_np_active-1))
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         allocate (pbuff (0:mpas_size-1))
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val  (this%glist(iproc)%ng))
             ENDIF
          ENDDO
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
          CALL flush_block_data (gdata, spv)
       ENDIF
 
@@ -1749,9 +1501,9 @@ CONTAINS
 
       DO ityp = 1, ntyps
 
-         IF (p_is_compute) THEN
+         IF (.true.) THEN
 
-            DO iproc = 0, p_np_active-1
+            DO iproc = 0, mpas_size-1
                IF (this%glist(iproc)%ng > 0) THEN
                   pbuff(iproc)%val(:) = spv
                ENDIF
@@ -1774,32 +1526,17 @@ CONTAINS
                ENDIF
             ENDDO
 
-#ifdef USEMPI
-            DO iproc = 0, p_np_active-1
-               IF (this%glist(iproc)%ng > 0) THEN
-                  idest = p_address_active(iproc)
-                  CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-            ENDDO
-#endif
 
          ENDIF
 
-         IF (p_is_active) THEN
+         IF (.true.) THEN
 
-            DO iproc = 0, p_np_compute-1
+            DO iproc = 0, mpas_size-1
                IF (this%glist(iproc)%ng > 0) THEN
 
                   allocate (gbuff (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-                  isrc = p_address_compute(iproc)
-                  CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                     isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-                  gbuff = pbuff(0)%val
-#endif
+                  gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                   DO ig = 1, this%glist(iproc)%ng
                      IF (gbuff(ig) /= spv) THEN
@@ -1826,13 +1563,10 @@ CONTAINS
 
          ENDIF
 
-#ifdef USEMPI
-         CALL mpi_barrier (p_comm_glb, p_err)
-#endif
       ENDDO
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1848,7 +1582,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -1864,9 +1598,9 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
 #ifdef MPAS_EMBEDDED_COLM
-      IF (p_is_active) CALL flush_block_data (sumarea, 0.0_r8)
+      IF (.true.) CALL flush_block_data (sumarea, 0.0_r8)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          DO iset = 1, this%npset
 
             IF (present(filter)) THEN
@@ -1875,7 +1609,7 @@ CONTAINS
 
             DO ipart = 1, this%npart(iset)
                iproc = this%address(iset)%val(1,ipart)
-               IF (p_address_active(iproc) /= p_iam_glb) CYCLE
+               IF (iproc /= mpas_rank) CYCLE
 
                iloc  = this%address(iset)%val(2,ipart)
                ilon = this%glist(iproc)%ilon(iloc)
@@ -1894,11 +1628,11 @@ CONTAINS
       RETURN
 #endif
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = 0.0
@@ -1918,34 +1652,19 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL flush_block_data (sumarea, 0.0_r8)
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   ilon = this%glist(iproc)%ilon(ig)
@@ -1965,8 +1684,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -1983,7 +1702,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -1999,9 +1718,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2018,35 +1737,22 @@ CONTAINS
 
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -2074,7 +1780,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2092,7 +1798,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2110,9 +1816,9 @@ CONTAINS
    type(pointer_real8_2d), allocatable :: pbuff(:)
 
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (ndim1, this%glist(iproc)%ng))
@@ -2128,35 +1834,22 @@ CONTAINS
                   gbuff(:,ig) = gdata%blk(xblk,yblk)%val(:,xloc,yloc)
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, ndim1 * this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (ndim1, this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, ndim1 * this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -2185,7 +1878,7 @@ CONTAINS
 
          ENDDO
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2203,7 +1896,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2219,9 +1912,9 @@ CONTAINS
    integer, allocatable :: gbuff(:)
    type(pointer_int32_1d), allocatable :: pbuff(:)
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2238,35 +1931,22 @@ CONTAINS
 
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_INTEGER, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_INTEGER, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -2281,7 +1961,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2300,7 +1980,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2317,9 +1997,9 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: pbuff(:)
    real(r8), allocatable :: pdata_tem(:)
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2336,36 +2016,23 @@ CONTAINS
 
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
          allocate (pdata_tem (size(pdata)))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -2393,7 +2060,7 @@ CONTAINS
 
          pdata = pdata_tem
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2412,7 +2079,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2428,9 +2095,9 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
@@ -2447,35 +2114,22 @@ CONTAINS
 
                ENDDO
 
-#ifdef USEMPI
-               idest = p_address_compute(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-
-               deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_active(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               pbuff(0)%val = gbuff
+               pbuff(COLM_SPATIAL_LOCAL_RANK)%val = gbuff
                deallocate (gbuff)
-#endif
             ENDIF
          ENDDO
 
@@ -2488,7 +2142,7 @@ CONTAINS
             ENDDO
          ENDDO
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2506,7 +2160,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -2522,11 +2176,11 @@ CONTAINS
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
-         allocate (pbuff (0:p_np_active-1))
+         allocate (pbuff (0:mpas_size-1))
 
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                allocate (pbuff(iproc)%val (this%glist(iproc)%ng))
                pbuff(iproc)%val(:) = 0.0
@@ -2543,34 +2197,19 @@ CONTAINS
             ENDDO
          ENDDO
 
-#ifdef USEMPI
-         DO iproc = 0, p_np_active-1
-            IF (this%glist(iproc)%ng > 0) THEN
-               idest = p_address_active(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
-                  idest, mpi_tag_data, p_comm_glb, p_err)
-            ENDIF
-         ENDDO
-#endif
 
       ENDIF
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL flush_block_data (gdata, 0.0_r8)
 
-         DO iproc = 0, p_np_compute-1
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
 
                allocate (gbuff (this%glist(iproc)%ng))
 
-#ifdef USEMPI
-               isrc = p_address_compute(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-#else
-               gbuff = pbuff(0)%val
-#endif
+               gbuff = pbuff(COLM_SPATIAL_LOCAL_RANK)%val
 
                DO ig = 1, this%glist(iproc)%ng
                   ilon = this%glist(iproc)%ilon(ig)
@@ -2602,8 +2241,8 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) THEN
-         DO iproc = 0, p_np_active-1
+      IF (.true.) THEN
+         DO iproc = 0, mpas_size-1
             IF (this%glist(iproc)%ng > 0) THEN
                deallocate (pbuff(iproc)%val)
             ENDIF
@@ -2621,7 +2260,7 @@ CONTAINS
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2637,12 +2276,12 @@ CONTAINS
    type(pointer_real8_1d), allocatable :: scaldata(:)
 
 
-      IF (p_is_active)     CALL allocate_block_data (this%grid, sumdata)
-      IF (p_is_compute) CALL this%allocate_part  (scaldata)
+      IF (.true.)     CALL allocate_block_data (this%grid, sumdata)
+      IF (.true.) CALL this%allocate_part  (scaldata)
 
       CALL this%part2grid (sdata, sumdata)
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             xblk = gblock%xblkme(iblkme)
@@ -2657,7 +2296,7 @@ CONTAINS
 
       CALL this%grid2part (sumdata, scaldata)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          DO iset = 1, this%npset
             DO ipart = 1, this%npart(iset)
@@ -2671,7 +2310,7 @@ CONTAINS
 
       ENDIF
 
-      IF (p_is_compute) deallocate(scaldata)
+      IF (.true.) deallocate(scaldata)
 
    END SUBROUTINE spatial_mapping_normalize
 
@@ -2681,7 +2320,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -2693,7 +2332,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          pdata(:) = spval
 
@@ -2710,7 +2349,7 @@ CONTAINS
    !-----------------------------------------------------
    SUBROUTINE spatial_mapping_allocate_part (this, datapart)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_DataType
    IMPLICIT NONE
 
@@ -2721,7 +2360,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (this%npset > 0) THEN
             allocate (datapart (this%npset))
@@ -2740,7 +2379,7 @@ CONTAINS
    !-----------------------------------------------------
    SUBROUTINE spatial_mapping_deallocate_part (this, datapart)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_DataType
    IMPLICIT NONE
 
@@ -2751,7 +2390,7 @@ CONTAINS
    ! Local variables
    integer :: iset
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          DO iset = 1, this%npset
             IF (this%npart(iset) > 0) THEN
@@ -2770,7 +2409,7 @@ CONTAINS
    !-----------------------------------------------------
    SUBROUTINE spatial_mapping_free_mem (this)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type (spatial_mapping_type) :: this
@@ -2796,7 +2435,7 @@ CONTAINS
          deallocate (this%glist)
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (allocated(this%npart)) deallocate(this%npart)
 
@@ -2828,7 +2467,7 @@ CONTAINS
 
    SUBROUTINE forc_free_mem_spatial_mapping(this)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    class (spatial_mapping_type) :: this
@@ -2854,7 +2493,7 @@ CONTAINS
          deallocate (this%glist)
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (allocated(this%npart)) deallocate(this%npart)
 

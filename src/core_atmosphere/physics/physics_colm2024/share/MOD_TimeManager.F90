@@ -466,8 +466,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (idate(3) > 86400) THEN
-
+      DO WHILE (idate(3) > 86400)
          idate(3) = idate(3) - 86400
          idate(2) = idate(2) + 1
 
@@ -481,7 +480,7 @@ CONTAINS
             idate(1) = idate(1) + 1
             idate(2) = 1
          ENDIF
-      ENDIF
+      ENDDO
 
    END SUBROUTINE localtime2gmt
 
@@ -494,8 +493,7 @@ CONTAINS
    integer maxday
 
       idate(3) = idate(3) + nint(deltim)
-      IF (idate(3) > 86400) THEN
-
+      DO WHILE (idate(3) > 86400)
          idate(3) = idate(3) - 86400
          idate(2) = idate(2) + 1
 
@@ -509,7 +507,7 @@ CONTAINS
             idate(1) = idate(1) + 1
             idate(2) = 1
          ENDIF
-      ENDIF
+      ENDDO
 
    END SUBROUTINE ticktime
 

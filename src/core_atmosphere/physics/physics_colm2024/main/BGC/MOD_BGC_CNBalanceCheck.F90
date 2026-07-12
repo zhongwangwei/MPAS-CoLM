@@ -44,7 +44,7 @@ MODULE MOD_BGC_CNBalanceCheck
        m_livecrootc_to_litter_p   , m_livecrootc_storage_to_litter_p, m_livecrootc_xfer_to_litter_p, &
        m_deadcrootc_to_litter_p   , m_deadcrootc_storage_to_litter_p, m_deadcrootc_xfer_to_litter_p, &
        m_gresp_storage_to_litter_p, m_gresp_xfer_to_litter_p
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_PFTimeInvariants, only: pftclass, pftfrac
 
    USE MOD_BGC_Vars_1DFluxes, only: &
@@ -151,7 +151,7 @@ CONTAINS
                                + gap_deadstem_to_litter + gap_livecroot_to_litter + gap_deadcroot_to_litter + gap_gresp_to_litter
 
       IF(abs(col_errcb) > cerror) THEN
-         write(*,*)'column cbalance error    = ', col_errcb, i, p_iam_glb
+         write(*,*)'column cbalance error    = ', col_errcb, i, mpas_rank
          write(*,*)'Latdeg,Londeg='             , dlat, dlon
          write(*,*)'begcb                    = ',col_begcb(i)
          write(*,*)'endcb                    = ',col_endcb(i)
@@ -186,11 +186,7 @@ CONTAINS
          write(*,*)'wood_harvestc            = ',wood_harvestc(i)*deltim
          write(*,*)'grainc_to_cropprodc      = ',grainc_to_cropprodc(i)*deltim, grainc_to_food_p(ps)*deltim
          write(*,*)'-1*som_c_leached         = ',som_c_leached(i)*deltim
-#ifdef USEMPI
-         CALL mpi_abort (p_comm_glb, p_err)
-#else
-         CALL abort
-#endif
+	         CALL CoLM_stop('BGC carbon balance check failed.')
       ENDIF
 
    END SUBROUTINE CBalanceCheck
@@ -237,7 +233,7 @@ CONTAINS
       col_errnb    =(col_ninputs - col_noutputs)*deltim - (col_endnb(i) - col_begnb(i))
 
       IF (abs(col_errnb) > nerror) THEN !
-         write(*,*)'column nbalance error    = ',col_errnb, i, p_iam_glb
+         write(*,*)'column nbalance error    = ',col_errnb, i, mpas_rank
          write(*,*)'Latdeg,Londeg            = ',dlat, dlon
          write(*,*)'begnb                    = ',col_begnb(i)
          write(*,*)'endnb                    = ',col_endnb(i)
@@ -260,11 +256,7 @@ CONTAINS
                       sminn_leached(i)*deltim,denit(i)*deltim,fire_nloss(i)*deltim,&
                       (wood_harvestn(i)+grainn_to_cropprodn(i))*deltim, - som_n_leached(i)
          ENDIF
-#ifdef USEMPI
-         CALL mpi_abort (p_comm_glb, p_err)
-#else
-         CALL abort
-#endif
+	         CALL CoLM_stop('BGC nitrogen balance check failed.')
       ENDIF
 
    END SUBROUTINE NBalanceCheck

@@ -23,9 +23,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Vars_1DFluxes
    USE MOD_LandPatch, only: numpatch,landpatch
    USE MOD_LandUrban, only: patch2urban
-   USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
-   USE MOD_Forcing, only: forcmask_pch
-   USE omp_lib
+   USE MOD_Namelist, only: DEF_URBAN_RUN
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -46,18 +44,11 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
 ! ======================================================================
 
-#ifdef OPENMP
-!$OMP PARALLEL DO NUM_THREADS(OPENMP) &
+!$OMP PARALLEL DO &
 !$OMP PRIVATE(i, m, u, k, steps_in_one_deltim, deltim_phy) &
 !$OMP SCHEDULE(STATIC, 1)
-#endif
 
       DO i = 1, numpatch
-
-         ! Apply forcing mask
-         IF (DEF_forcing%has_missing_value) THEN
-            IF (.not. forcmask_pch(i)) CYCLE
-         ENDIF
 
          ! Apply patch mask, but still run virtual 2m WMO patch (patch ipxstt=-1)
          IF (DEF_Output_2mWMO) THEN
@@ -347,9 +338,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
 #endif
       ENDDO
-#ifdef OPENMP
 !$OMP END PARALLEL DO
-#endif
 
 END SUBROUTINE CoLMDRIVER
 ! ---------- EOP ------------

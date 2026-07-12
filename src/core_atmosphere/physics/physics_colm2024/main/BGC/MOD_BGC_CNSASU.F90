@@ -30,6 +30,7 @@ MODULE MOD_BGC_CNSASU
 !                   USE accumulated transfer fluxes to calculate the matrix.
 
    USE MOD_Precision
+   USE MOD_MPAS_MPI, only: CoLM_stop
    USE MOD_Namelist, only: DEF_USE_SASU, DEF_USE_DiagMatrix
    USE MOD_BGC_Vars_TimeInvariants, only: &
        i_met_lit, i_cel_lit, i_lig_lit, i_cwd, i_soil1, i_soil2, i_soil3, floating_cn_ratio
@@ -995,7 +996,7 @@ CONTAINS
 
       DO k=1,n
          IF ( a(k,k) == 0.0_r8 )THEN
-            CALL abort
+            CALL CoLM_stop('BGC SASU matrix is singular.')
          ENDIF
       ENDDO
      !

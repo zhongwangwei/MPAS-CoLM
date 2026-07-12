@@ -187,14 +187,16 @@ CONTAINS
 !  longitude info.  Initialize Ozone data read in.
 !-----------------------------------------------------------------------
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_TimeManager
    USE MOD_Grid
    USE MOD_NetCDFSerial
    USE MOD_NetCDFBlock
    USE MOD_LandPatch
+#ifdef RangeCheck
    USE MOD_RangeCheck
+#endif
    IMPLICIT NONE
 
    integer, intent(in) :: idate(3)
@@ -242,7 +244,9 @@ CONTAINS
    USE MOD_TimeManager
    USE MOD_Namelist
    USE MOD_NetCDFBlock
+#ifdef RangeCheck
    USE MOD_RangeCheck
+#endif
    IMPLICIT NONE
 
    type(timestamp), intent(in) :: time

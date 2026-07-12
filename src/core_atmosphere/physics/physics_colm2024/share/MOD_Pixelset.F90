@@ -1,9 +1,5 @@
 #include <define.h>
 
-#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
-#define COLM_VECTOR_MPI_IO
-#endif
-
 MODULE MOD_Pixelset
 
 !------------------------------------------------------------------------------------
@@ -38,7 +34,6 @@ MODULE MOD_Pixelset
 !    "Vector" is a collection of data when each pixelset in a given level is associated
 !    with a value, representing its averaged physical, chemical or biological state.
 !
-!    Legacy vector MPI I/O may redistribute vector data between ranks for IO.
 !    MPAS-embedded CoLM keeps land vectors on MPAS-owned cell subsets.
 !
 !  Created by Shupeng Zhang, May 2023
@@ -57,10 +52,6 @@ MODULE MOD_Pixelset
       ! local vector offsets
       integer, allocatable :: vstt(:,:)
       integer, allocatable :: vend(:,:)
-
-      ! gathered vector counts/displacements
-      integer, allocatable :: vcnt(:,:,:)
-      integer, allocatable :: vdsp(:,:,:)
 
    CONTAINS
       final  :: vec_gather_scatter_free_mem
@@ -338,27 +329,35 @@ CONTAINS
    SUBROUTINE vec_gather_scatter_set (this)
 
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Mesh
    IMPLICIT NONE
 
    class(pixelset_type)  :: this
 
    ! Local variables
-   integer :: iproc
-   integer :: iset, ie, xblk, yblk, iblk, jblk, scnt, iblkgrp, iblkall
+   integer :: iset, ie, xblk, yblk, iblk, jblk, iblkgrp
    logical, allocatable :: nonzero(:,:)
 
-#ifdef COLM_VECTOR_MPI_IO
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
       IF (.not. allocated (this%vecgs%vlen)) THEN
          allocate (this%vecgs%vlen (gblock%nxblk, gblock%nyblk))
          this%vecgs%vlen(:,:) = 0
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (this%nset > 0) THEN
+            IF (.not. allocated(this%eindex) .or. size(this%eindex) /= this%nset) THEN
+               CALL CoLM_stop('Invalid pixelset element-index vector in set_vecgs.')
+            ENDIF
+            IF (.not. allocated(this%ielm) .or. size(this%ielm) /= this%nset) THEN
+               CALL CoLM_stop('Pixelset element mapping must be established before set_vecgs.')
+            ENDIF
+            IF (.not. allocated(mesh)) THEN
+               CALL CoLM_stop('Pixelset vector layout requires an allocated local element mesh.')
+            ENDIF
+         ENDIF
 
          IF (.not. allocated (this%vecgs%vstt)) THEN
             allocate (this%vecgs%vstt (gblock%nxblk, gblock%nyblk))
@@ -368,13 +367,20 @@ CONTAINS
          this%vecgs%vstt(:,:) = 0
          this%vecgs%vend(:,:) = -1
 
-         ie = 1
          xblk = 0
          yblk = 0
          DO iset = 1, this%nset
-            DO WHILE (this%eindex(iset) /= mesh(ie)%indx)
-               ie = ie + 1
-            ENDDO
+            ie = this%ielm(iset)
+            IF (ie < 1 .or. ie > size(mesh)) THEN
+               CALL CoLM_stop('Pixelset contains an out-of-range local element index in set_vecgs.')
+            ENDIF
+            IF (this%eindex(iset) /= mesh(ie)%indx) THEN
+               CALL CoLM_stop('Pixelset element ID does not match its local CoLM element in set_vecgs.')
+            ENDIF
+            IF (mesh(ie)%xblk < 1 .or. mesh(ie)%xblk > gblock%nxblk .or. &
+                mesh(ie)%yblk < 1 .or. mesh(ie)%yblk > gblock%nyblk) THEN
+               CALL CoLM_stop('Pixelset references an element with an invalid CoLM block index.')
+            ENDIF
 
             IF ((mesh(ie)%xblk /= xblk) .or. (mesh(ie)%yblk /= yblk)) THEN
                xblk = mesh(ie)%xblk
@@ -387,61 +393,13 @@ CONTAINS
 
          this%vecgs%vlen = this%vecgs%vend - this%vecgs%vstt + 1
 
-#ifdef COLM_VECTOR_MPI_IO
-         DO jblk = 1, gblock%nyblk
-            DO iblk = 1, gblock%nxblk
-               IF (gblock%pio(iblk,jblk) == p_address_active(p_my_group)) THEN
-
-                  scnt = this%vecgs%vlen(iblk,jblk)
-                  CALL mpi_gather (scnt, 1, MPI_INTEGER, &
-                     MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
-
-               ENDIF
-            ENDDO
-         ENDDO
-#endif
       ENDIF
 
-#ifdef COLM_VECTOR_MPI_IO
-      IF (p_is_active) THEN
 
-         IF (.not. allocated(this%vecgs%vcnt)) THEN
-            allocate (this%vecgs%vcnt (0:p_np_group-1,gblock%nxblk,gblock%nyblk))
-            allocate (this%vecgs%vdsp (0:p_np_group-1,gblock%nxblk,gblock%nyblk))
-         ENDIF
-
-         this%vecgs%vcnt(:,:,:) = 0
-         DO jblk = 1, gblock%nyblk
-            DO iblk = 1, gblock%nxblk
-               IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
-
-                  scnt = 0
-                  CALL mpi_gather (scnt, 1, MPI_INTEGER, &
-                     this%vecgs%vcnt(:,iblk,jblk), 1, MPI_INTEGER, &
-                     p_root, p_comm_group, p_err)
-
-                  this%vecgs%vdsp(0,iblk,jblk) = 0
-                  DO iproc = 1, p_np_group-1
-                     this%vecgs%vdsp(iproc,iblk,jblk) = &
-                        this%vecgs%vdsp(iproc-1,iblk,jblk) + this%vecgs%vcnt(iproc-1,iblk,jblk)
-                  ENDDO
-
-                  this%vecgs%vlen(iblk,jblk) = sum(this%vecgs%vcnt(:,iblk,jblk))
-
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDIF
-#endif
-
-      IF (p_is_active .or. p_is_compute) THEN
+      IF (.true.) THEN
          allocate (nonzero (gblock%nxblk,gblock%nyblk))
 
          nonzero = this%vecgs%vlen > 0
-#ifdef COLM_VECTOR_MPI_IO
-         CALL mpi_allreduce (MPI_IN_PLACE, nonzero, gblock%nxblk * gblock%nyblk, &
-            MPI_LOGICAL, MPI_LOR, p_comm_group, p_err)
-#endif
 
          this%nblkgrp = count(nonzero)
          IF (allocated(this%xblkgrp)) deallocate(this%xblkgrp)
@@ -468,7 +426,7 @@ CONTAINS
    ! --------------------------------
    SUBROUTINE pixelset_pack (this, mask, nset_packed)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
    class(pixelset_type) :: this
    logical, intent(in)  :: mask(:)
@@ -484,7 +442,7 @@ CONTAINS
    real(r8),  allocatable :: pctshared_(:)
    integer :: s, e
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (this%nset > 0) THEN
             IF (count(mask) < this%nset) THEN
@@ -592,9 +550,6 @@ CONTAINS
       IF (allocated(this%vlen))  deallocate (this%vlen)
       IF (allocated(this%vstt))  deallocate (this%vstt)
       IF (allocated(this%vend))  deallocate (this%vend)
-      IF (allocated(this%vcnt))  deallocate (this%vcnt)
-      IF (allocated(this%vdsp))  deallocate (this%vdsp)
-
    END SUBROUTINE vec_gather_scatter_free_mem
 
    ! --------------------------------
@@ -603,6 +558,8 @@ CONTAINS
    USE MOD_Mesh
    USE MOD_Pixel
    USE MOD_Utils
+   USE MOD_MPAS_MPI, only: CoLM_stop
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    CLASS(subset_type) :: this
@@ -613,6 +570,7 @@ CONTAINS
 
    ! Local Variables
    integer :: isuperset, isubset, ielm, ipxl, istt, iend
+   real(r8) :: subset_area
 
       IF (superset%has_shared) THEN
          write(*,*) 'Warning: superset has shared area.'
@@ -637,6 +595,9 @@ CONTAINS
       isuperset = 1
       isubset   = 1
       DO WHILE (isubset <= subset%nset)
+         IF (isuperset > superset%nset) THEN
+            CALL CoLM_stop('A CoLM subset does not belong to any loaded element.')
+         ENDIF
          IF (     (subset%eindex(isubset) == superset%eindex(isuperset)) &
             .and. (subset%ipxstt(isubset) >= superset%ipxstt(isuperset) .or. &
                    subset%ipxstt(isubset) == -1 ) &
@@ -659,6 +620,17 @@ CONTAINS
 
          DO isubset = 1, subset%nset
             ielm = subset%ielm(isubset)
+            IF (ielm < 1 .or. ielm > size(mesh)) THEN
+               CALL CoLM_stop('A CoLM subset references an invalid local element.')
+            ENDIF
+            IF (subset%ipxstt(isubset) /= -1) THEN
+               IF (subset%ipxstt(isubset) < 1 .or. subset%ipxend(isubset) < subset%ipxstt(isubset) .or. &
+                   subset%ipxend(isubset) > mesh(ielm)%npxl) THEN
+                  CALL CoLM_stop('A CoLM subset references pixels outside its element.')
+               ENDIF
+            ELSEIF (subset%ipxend(isubset) /= -1) THEN
+               CALL CoLM_stop('A CoLM virtual subset has inconsistent pixel bounds.')
+            ENDIF
             this%subfrc(isubset) = 0
             DO ipxl = subset%ipxstt(isubset), subset%ipxend(isubset)
                IF (ipxl == -1) CYCLE
@@ -678,7 +650,11 @@ CONTAINS
             IF (this%substt(isuperset) /= 0) THEN
                istt = this%substt(isuperset)
                iend = this%subend(isuperset)
-               this%subfrc(istt:iend) = this%subfrc(istt:iend) / sum(this%subfrc(istt:iend))
+               subset_area = sum(this%subfrc(istt:iend))
+               IF (.not. ieee_is_finite(subset_area) .or. subset_area <= 0._r8) THEN
+                  CALL CoLM_stop('A CoLM element has no positive finite subset area.')
+               ENDIF
+               this%subfrc(istt:iend) = this%subfrc(istt:iend) / subset_area
             ENDIF
          ENDDO
 

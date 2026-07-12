@@ -44,7 +44,7 @@ MODULE MOD_Urban_Flux
 !
 !-----------------------------------------------------------------------
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist, only: DEF_RSS_SCHEME, DEF_VEG_SNOW
    USE MOD_Vars_Global
    USE MOD_Qsadv, only: qsadv
@@ -113,7 +113,7 @@ CONTAINS
    USE MOD_Const_Physical, only: cpair,vonkar,grav,hvap
    USE MOD_FrictionVelocity
    USE MOD_CanopyLayerProfile
-   USE MOD_UserSpecifiedForcing, only: HEIGHT_mode
+   USE MOD_Vars_1DForcing, only: forc_height_mode
    IMPLICIT NONE
 
 !-------------------------- Dummy Arguments ----------------------------
@@ -514,7 +514,7 @@ CONTAINS
 
       hu_ = hu; ht_ = ht; hq_ = hq;
 
-      IF (trim(HEIGHT_mode) == 'absolute') THEN
+      IF (forc_height_mode == 'absolute') THEN
 
          IF (hu <= hroof+1) THEN
             hu_ = hroof + 1.
@@ -544,7 +544,7 @@ CONTAINS
 
       IF (zldis <= 0.0) THEN
          write(6,*) 'the obs height of u less than the zero displacement heght'
-         CALL abort
+         CALL CoLM_stop('UrbanOnlyFlux received a reference height below displacement height.')
       ENDIF
 
       CALL moninobukini(ur,th,thm,thv,dth,dqh,dthv,zldis,z0m,um,obu)
@@ -918,7 +918,7 @@ CONTAINS
    USE MOD_FrictionVelocity
    USE MOD_CanopyLayerProfile
    USE MOD_AssimStomataConductance
-   USE MOD_UserSpecifiedForcing, only: HEIGHT_mode
+   USE MOD_Vars_1DForcing, only: forc_height_mode
    IMPLICIT NONE
 
 !-------------------------- Dummy Arguments ----------------------------
@@ -1526,7 +1526,7 @@ CONTAINS
 
       hu_ = hu; ht_ = ht; hq_ = hq;
 
-      IF (trim(HEIGHT_mode) == 'absolute') THEN
+      IF (forc_height_mode == 'absolute') THEN
 
          IF (hu <= hroof+1) THEN
             hu_ = hroof + 1.
@@ -1556,7 +1556,7 @@ CONTAINS
 
       IF (zldis <= 0.0) THEN
          write(6,*) 'the obs height of u less than the zero displacement heght'
-         CALL abort
+         CALL CoLM_stop('UrbanVegFlux received a reference height below displacement height.')
       ENDIF
 
       CALL moninobukini(ur,th,thm,thv,dth,dqh,dthv,zldis,z0m,um,obu)

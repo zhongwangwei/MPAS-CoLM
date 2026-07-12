@@ -48,7 +48,6 @@ MODULE MOD_Pixel
 
       procedure, PUBLIC :: map_to_grid => pixel_map_to_grid
 
-      procedure, PUBLIC :: save_to_file   => pixel_save_to_file
       procedure, PUBLIC :: load_from_file => pixel_load_from_file
 
       final :: pixel_free_mem
@@ -65,7 +64,7 @@ CONTAINS
          edges_in, edgen_in, edgew_in, edgee_in)
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Utils
    IMPLICIT NONE
 
@@ -95,7 +94,7 @@ CONTAINS
       this%lon_w(1) = this%edgew
       this%lon_e(1) = this%edgee
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(A)') '----- Region information -----'
          write(*,'(A,F10.4,A,F10.4,A,F10.4,A,F10.4,A)') ' (south,north,west,east) = (', &
             this%edges, ',', this%edgen, ',', this%edgew, ',', this%edgee, ')'
@@ -338,45 +337,11 @@ CONTAINS
    END SUBROUTINE pixel_map_to_grid
 
    ! --------------------------------
-   SUBROUTINE pixel_save_to_file (this, dir_landdata)
-
-   USE MOD_SPMD_Task
-   USE MOD_NetCDFSerial
-   IMPLICIT NONE
-   class(pixel_type) :: this
-
-   character(len=*), intent(in) :: dir_landdata
-
-   ! Local variables
-   character(len=256) :: filename
-
-      IF (p_is_root) THEN
-
-         filename = trim(dir_landdata) // '/pixel.nc'
-
-         CALL ncio_create_file (filename)
-
-         CALL ncio_write_serial (filename, 'edges', this%edges)
-         CALL ncio_write_serial (filename, 'edgen', this%edgen)
-         CALL ncio_write_serial (filename, 'edgew', this%edgew)
-         CALL ncio_write_serial (filename, 'edgee', this%edgee)
-
-         CALL ncio_define_dimension (filename, 'latitude',  this%nlat)
-         CALL ncio_define_dimension (filename, 'longitude', this%nlon)
-
-         CALL ncio_write_serial (filename, 'lat_s', this%lat_s, 'latitude' )
-         CALL ncio_write_serial (filename, 'lat_n', this%lat_n, 'latitude' )
-         CALL ncio_write_serial (filename, 'lon_w', this%lon_w, 'longitude')
-         CALL ncio_write_serial (filename, 'lon_e', this%lon_e, 'longitude')
-
-      ENDIF
-
-   END SUBROUTINE pixel_save_to_file
-
-   ! --------------------------------
    SUBROUTINE pixel_load_from_file (this, dir_landdata)
 
    USE MOD_NetCDFSerial
+   USE MOD_MPAS_MPI, only: CoLM_stop
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    class(pixel_type) :: this
@@ -399,6 +364,24 @@ CONTAINS
 
       this%nlon = size(this%lon_w)
       this%nlat = size(this%lat_s)
+
+      IF (this%nlon < 1 .or. this%nlat < 1 .or. size(this%lon_e) /= this%nlon .or. &
+          size(this%lat_n) /= this%nlat) THEN
+         CALL CoLM_stop('CoLM pixel.nc contains inconsistent pixel-boundary dimensions.')
+      ENDIF
+      IF (.not. all(ieee_is_finite((/this%edges, this%edgen, this%edgew, this%edgee/))) .or. &
+          .not. all(ieee_is_finite(this%lat_s)) .or. .not. all(ieee_is_finite(this%lat_n)) .or. &
+          .not. all(ieee_is_finite(this%lon_w)) .or. .not. all(ieee_is_finite(this%lon_e))) THEN
+         CALL CoLM_stop('CoLM pixel.nc contains non-finite pixel boundaries.')
+      ENDIF
+      IF (any(this%lat_s < -90._r8) .or. any(this%lat_n > 90._r8) .or. &
+          any(this%lat_n <= this%lat_s)) THEN
+         CALL CoLM_stop('CoLM pixel.nc contains invalid latitude boundaries.')
+      ENDIF
+      IF (this%nlat > 1) THEN
+         IF (any(this%lat_s(2:) <= this%lat_s(:this%nlat-1))) &
+            CALL CoLM_stop('CoLM pixel.nc latitude pixels are not ordered south to north.')
+      ENDIF
 
    END SUBROUTINE pixel_load_from_file
 

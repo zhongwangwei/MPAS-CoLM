@@ -130,7 +130,7 @@ CONTAINS
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
    USE MOD_Hydro_SoilFunction, only: soil_psi_from_vliq
 #endif
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
 

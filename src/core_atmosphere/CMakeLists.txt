@@ -301,6 +301,8 @@ list(TRANSFORM ATMOSPHERE_CORE_PHYSICS_NOAMP_SRC_SOURCES PREPEND physics/physics
 
 if(MPAS_COLM2024)
     set(COLM2024_SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/physics/physics_colm2024)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        ${COLM2024_SOURCE_ROOT}/include/define.h)
     set(COLM2024_SOURCE_SEARCH_DIRS
         share
         main
@@ -334,14 +336,67 @@ if(MPAS_COLM2024)
             list(APPEND ATMOSPHERE_CORE_PHYSICS_COLM2024_SKIPPED_EMPTY_SOURCES ${_colm2024_src_rel})
             continue()
         endif()
-        list(APPEND ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES ${_colm2024_src_rel})
+        list(APPEND COLM2024_AVAILABLE_SOURCES ${_colm2024_src_rel})
+        string(REGEX MATCHALL "(^|\n)[ \t]*MODULE[ \t]+[A-Z][A-Z0-9_]*" _colm2024_module_lines
+            "${_colm2024_preprocessed_src_upper}")
+        foreach(_colm2024_module_line IN LISTS _colm2024_module_lines)
+            if(_colm2024_module_line MATCHES "MODULE[ \t]+PROCEDURE")
+                continue()
+            endif()
+            string(REGEX REPLACE ".*MODULE[ \t]+([A-Z][A-Z0-9_]*).*" "\\1" _colm2024_module_name
+                "${_colm2024_module_line}")
+            set(COLM2024_MODULE_SOURCE_${_colm2024_module_name} ${_colm2024_src_rel})
+        endforeach()
+        string(REGEX MATCHALL "(^|\n)[ \t]*USE[^\n]*" _colm2024_use_lines
+            "${_colm2024_preprocessed_src_upper}")
+        set(_colm2024_source_uses)
+        foreach(_colm2024_use_line IN LISTS _colm2024_use_lines)
+            if(_colm2024_use_line MATCHES "INTRINSIC")
+                continue()
+            endif()
+            if(_colm2024_use_line MATCHES "USE[ \t]*(,[^:]*)?(::)?[ \t]*([A-Z][A-Z0-9_]*)")
+                list(APPEND _colm2024_source_uses ${CMAKE_MATCH_3})
+            endif()
+        endforeach()
+        if(_colm2024_source_uses)
+            list(REMOVE_DUPLICATES _colm2024_source_uses)
+        endif()
+        string(MAKE_C_IDENTIFIER "${_colm2024_src_rel}" _colm2024_src_key)
+        set(COLM2024_SOURCE_USES_${_colm2024_src_key} ${_colm2024_source_uses})
     endforeach()
+    set(ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES
+        physics/physics_colm2024/drivers/mpas/MOD_CoLM_MPAS_Interface.F90
+        physics/physics_colm2024/main/CoLMDRIVER.F90
+        physics/physics_colm2024/main/CoLMMAIN.F90
+        physics/physics_colm2024/main/MOD_MonthlyinSituCO2MaunaLoa.F90
+    )
+    foreach(_colm2024_root IN LISTS ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
+        if(NOT "${_colm2024_root}" IN_LIST COLM2024_AVAILABLE_SOURCES)
+            message(FATAL_ERROR "Required embedded CoLM2024 source is unavailable: ${_colm2024_root}")
+        endif()
+    endforeach()
+
+    set(_colm2024_previous_source_count -1)
     list(LENGTH ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES _colm2024_source_count)
-    if(_colm2024_source_count EQUAL 0)
-        message(FATAL_ERROR "CoLM2024 CMake source list is empty")
-    endif()
+    while(NOT _colm2024_previous_source_count EQUAL _colm2024_source_count)
+        set(_colm2024_previous_source_count ${_colm2024_source_count})
+        foreach(_colm2024_src IN LISTS ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
+            string(MAKE_C_IDENTIFIER "${_colm2024_src}" _colm2024_src_key)
+            foreach(_colm2024_use IN LISTS COLM2024_SOURCE_USES_${_colm2024_src_key})
+                if(DEFINED COLM2024_MODULE_SOURCE_${_colm2024_use})
+                    list(APPEND ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES
+                        ${COLM2024_MODULE_SOURCE_${_colm2024_use}})
+                endif()
+            endforeach()
+        endforeach()
+        list(REMOVE_DUPLICATES ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
+        list(LENGTH ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES _colm2024_source_count)
+    endwhile()
+    list(SORT ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
+
     list(LENGTH ATMOSPHERE_CORE_PHYSICS_COLM2024_SKIPPED_EMPTY_SOURCES _colm2024_skipped_empty_count)
-    message(STATUS "CoLM2024 embedded CMake sources: ${_colm2024_source_count}")
+    list(LENGTH COLM2024_AVAILABLE_SOURCES _colm2024_available_source_count)
+    message(STATUS "CoLM2024 embedded CMake sources: ${_colm2024_source_count} of ${_colm2024_available_source_count}")
     message(STATUS "CoLM2024 embedded CMake skipped empty sources: ${_colm2024_skipped_empty_count}")
 
     function(_colm2024_object_path out source)
@@ -365,40 +420,23 @@ if(MPAS_COLM2024)
         endif()
     endfunction()
 
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeTimeVars.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeNetwork.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_Reservoir.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeHist.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeNetwork.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_Reservoir.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Vector_ReadWrite.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/MOD_HistGridded.F90
-        physics/physics_colm2024/main/MOD_HistWriteBack.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeFlow.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeNetwork.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_Reservoir.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeTimeVars.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeHist.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/MOD_Vars_TimeVariables.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeTimeVars.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/main/MOD_Hist.F90
-        physics/physics_colm2024/main/MOD_Vars_TimeVariables.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeHist.F90)
-    _colm2024_source_depends(
-        physics/physics_colm2024/drivers/mpas/MOD_CoLM_MPAS_Interface.F90
-        physics/physics_colm2024/main/MOD_Vars_TimeVariables.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeNetwork.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_Reservoir.F90
-        physics/physics_colm2024/main/HYDRO/MOD_Grid_RiverLakeFlow.F90)
-    _colm2024_source_depends(
-        physics/mpas_atmphys_driver_lsm_colm2024.F
-        physics/physics_colm2024/drivers/mpas/MOD_CoLM_MPAS_Interface.F90)
+    foreach(_colm2024_src IN LISTS ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES)
+        string(MAKE_C_IDENTIFIER "${_colm2024_src}" _colm2024_src_key)
+        set(_colm2024_dep_sources)
+        set(_colm2024_source_uses ${COLM2024_SOURCE_USES_${_colm2024_src_key}})
+        foreach(_colm2024_use IN LISTS _colm2024_source_uses)
+            if(DEFINED COLM2024_MODULE_SOURCE_${_colm2024_use})
+                set(_colm2024_dep_source ${COLM2024_MODULE_SOURCE_${_colm2024_use}})
+                if(NOT _colm2024_dep_source STREQUAL _colm2024_src)
+                    list(APPEND _colm2024_dep_sources ${_colm2024_dep_source})
+                endif()
+            endif()
+        endforeach()
+        if(_colm2024_dep_sources)
+            list(REMOVE_DUPLICATES _colm2024_dep_sources)
+            _colm2024_source_depends(${_colm2024_src} ${_colm2024_dep_sources})
+        endif()
+    endforeach()
 endif()
 
 # diagnostics/
@@ -476,18 +514,10 @@ target_compile_definitions(core_atmosphere PRIVATE ${CORE_ATMOSPHERE_COMPILE_DEF
 if (MPAS_COLM2024)
     target_include_directories(core_atmosphere PRIVATE ${COLM2024_SOURCE_ROOT}/include)
     target_link_libraries(core_atmosphere PUBLIC NetCDF::NetCDF_Fortran NetCDF::NetCDF_C)
-    if(TARGET LAPACK::LAPACK)
-        target_link_libraries(core_atmosphere PUBLIC LAPACK::LAPACK)
-    else()
-        target_link_libraries(core_atmosphere PUBLIC ${LAPACK_LIBRARIES})
-    endif()
     set_property(SOURCE ${ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES}
                  PROPERTY Fortran_PREPROCESS ON)
     if(CMAKE_Fortran_COMPILER_ID MATCHES GNU)
         set(_colm2024_compile_options -fdefault-real-8 -ffree-line-length-none)
-        if(CMAKE_Fortran_COMPILER_VERSION VERSION_GREATER_EQUAL 10)
-            list(APPEND _colm2024_compile_options -fallow-argument-mismatch)
-        endif()
     elseif(CMAKE_Fortran_COMPILER_ID MATCHES Intel)
         set(_colm2024_compile_options -real-size 64)
     elseif(CMAKE_Fortran_COMPILER_ID MATCHES NVHPC)
@@ -499,7 +529,13 @@ if (MPAS_COLM2024)
     endif()
 endif ()
 set_MPAS_DEBUG_flag(core_atmosphere)
-mpas_core_target(CORE atmosphere TARGET core_atmosphere INCLUDES ${ATMOSPHERE_CORE_INCLUDES})
+set(ATMOSPHERE_REGISTRY_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/diagnostics/Registry_diagnostics.xml
+    ${CMAKE_CURRENT_SOURCE_DIR}/physics/Registry_noahmp.xml
+    ${CMAKE_CURRENT_SOURCE_DIR}/physics/Registry_colm2024.xml)
+mpas_core_target(CORE atmosphere TARGET core_atmosphere
+                 INCLUDES ${ATMOSPHERE_CORE_INCLUDES}
+                 REGISTRY_DEPENDS ${ATMOSPHERE_REGISTRY_DEPENDS})
 
 #Get physics_wrf tables from MPAS-Data
 include(FetchContent)

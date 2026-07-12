@@ -131,7 +131,7 @@ MODULE MOD_BGC_Veg_CNPhenology
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_FERT
    USE MOD_BGC_Daylength, only: daylength
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
 

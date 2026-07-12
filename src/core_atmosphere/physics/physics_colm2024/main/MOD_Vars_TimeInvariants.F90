@@ -49,13 +49,13 @@ CONTAINS
    ! Allocates memory for CoLM PFT 1d [numpft] variables
    ! -------------------------------------------------------------------
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    USE MOD_LandPFT,   only: numpft
    USE MOD_Precision
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
             allocate (pftclass      (numpft))
             allocate (pftfrac       (numpft))
@@ -132,10 +132,10 @@ CONTAINS
    ! -------------------------------------------------------------------
    ! Deallocates memory for CoLM PFT 1d [numpft] variables
    ! -------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
             deallocate (pftclass)
             deallocate (pftfrac )
@@ -317,11 +317,11 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Vars_Global
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -448,7 +448,7 @@ CONTAINS
    !====================================================================
 
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFVector
    USE MOD_NetCDFSerial
 #ifdef RangeCheck
@@ -517,7 +517,7 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'fc_vgm   ' ,   nl_soil, landpatch, fc_vgm    ) ! a scaling factor by using air entry value in the Mualem model [-]
 #endif
 #ifdef DataAssimilation
-      IF (numpatch > 0 .and. p_is_compute) wf_silt = 1.0_r8 - wf_gravels - wf_sand - wf_clay - wf_om
+      IF (numpatch > 0 .and. .true.) wf_silt = 1.0_r8 - wf_gravels - wf_sand - wf_clay - wf_om
 #endif
 
       CALL ncio_read_vector (file_restart, 'soiltext', landpatch, soiltext, defval = 0    )
@@ -632,11 +632,12 @@ CONTAINS
       CALL check_TimeInvariants ()
 #endif
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant restart read completion')
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading Time Invariants done.'
       ENDIF
 
@@ -650,9 +651,10 @@ CONTAINS
    !====================================================================
 
    USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_BEDROCK
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_NetCDFSerial
    USE MOD_NetCDFVector
+   USE MOD_Utils, only: make_directory
    USE MOD_LandPatch
    USE MOD_Vars_Global
 
@@ -670,11 +672,12 @@ CONTAINS
 
       write(cyear,'(i4.4)') lc_year
 
-      IF (p_is_root) THEN
-         CALL system('mkdir -p ' // trim(dir_restart)//'/const')
+      IF (mpas_is_root) THEN
+         CALL make_directory(trim(dir_restart)//'/const')
       ENDIF
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant restart directory creation')
 #endif
 
       file_restart = trim(dir_restart) // '/const/' // trim(casename) //'_restart_const' //'_lc'// trim(cyear) // '.nc'
@@ -800,11 +803,12 @@ CONTAINS
       ENDIF
 
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant vector write completion')
 #endif
 
-      if (p_is_root) then
+      if (mpas_is_root) then
 
 #if (!defined(VectorInOneFileS) && !defined(VectorInOneFileP))
          CALL ncio_create_file (file_restart)
@@ -830,8 +834,9 @@ CONTAINS
 
       ENDIF
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant scalar write completion')
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -854,7 +859,7 @@ CONTAINS
    SUBROUTINE deallocate_TimeInvariants ()
 
    USE MOD_Namelist, only: DEF_USE_Forcing_Downscaling, DEF_USE_Forcing_Downscaling_Simple
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch, only: numpatch
 
    IMPLICIT NONE
@@ -863,7 +868,7 @@ CONTAINS
       ! Deallocates memory for CoLM 1d [numpatch] variables
       ! --------------------------------------------------
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -985,7 +990,7 @@ CONTAINS
 #ifdef RangeCheck
    SUBROUTINE check_TimeInvariants ()
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_RangeCheck
    USE MOD_Namelist, only: DEF_Runoff_SCHEME, DEF_TOPMOD_method, DEF_USE_BEDROCK, &
                            DEF_USE_Forcing_Downscaling, DEF_USE_Forcing_Downscaling_Simple
@@ -994,12 +999,13 @@ CONTAINS
 
       real(r8), allocatable :: tmpcheck(:,:)
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(/,A29)') 'Checking Time Invariants ...'
       ENDIF
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant range-check entry')
 #endif
 
       CALL check_vector_data ('lakedepth    [m]     ', lakedepth   ) !
@@ -1103,11 +1109,12 @@ CONTAINS
          CALL check_vector_data ('cur          [-]     ', cur_patches      )
       ENDIF
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('time-invariant range-check completion')
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(/,A)') 'Checking Constants ...'
          write(*,'(A,E20.10)') 'zlnd   [m]    ', zlnd      ! roughness length for soil [m]
          write(*,'(A,E20.10)') 'zsno   [m]    ', zsno      ! roughness length for snow [m]

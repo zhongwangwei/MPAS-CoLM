@@ -6,7 +6,7 @@ MODULE MOD_Urban_Shortwave
    USE MOD_LandUrban
    USE MOD_Vars_Global
    USE MOD_3DCanopyRadiation, only: tee, phi
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
    SAVE

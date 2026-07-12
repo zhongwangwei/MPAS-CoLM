@@ -47,7 +47,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -61,7 +61,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -107,7 +107,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -121,7 +121,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -167,7 +167,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -182,7 +182,7 @@ CONTAINS
    integer :: iblk, jblk, ndims(3), start3(3), count3(3), start_mem
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -229,7 +229,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -244,7 +244,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -291,7 +291,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -306,7 +306,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -352,7 +352,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    character (len=*), intent(in) :: filename
@@ -367,7 +367,7 @@ CONTAINS
    integer :: ncid, varid
    integer :: iblkme
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          CALL check_ncfile_exist (filename)
          CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid) ,trace=trim(filename)//' cannot open')
@@ -413,7 +413,7 @@ CONTAINS
    USE netcdf
    USE MOD_Block
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    IMPLICIT NONE
 
@@ -430,7 +430,7 @@ CONTAINS
    integer, SAVE :: ncid, time_dim
    logical, SAVE :: fid = .false.
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
          CALL check_ncfile_exist (filename)
 
          IF ((.not. fid) .or. (trim(fileopen) /= trim(filename))) THEN

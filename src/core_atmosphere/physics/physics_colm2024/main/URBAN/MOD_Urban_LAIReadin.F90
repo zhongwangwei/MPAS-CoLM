@@ -27,7 +27,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
    USE MOD_Vars_Global
    USE MOD_Const_LC
@@ -66,7 +66,7 @@ CONTAINS
       CALL ncio_read_vector (lndname, 'TREE_SAI',  landurban, urb_sai)
 #endif
       ! loop for urban patch to assign fraction of green leaf
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          DO u = 1, numurban
             npatch = urban2patch(u)
             tlai(npatch) = urb_lai(u)

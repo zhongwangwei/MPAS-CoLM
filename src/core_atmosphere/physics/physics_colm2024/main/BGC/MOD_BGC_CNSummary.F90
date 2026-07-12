@@ -126,7 +126,7 @@ MODULE MOD_BGC_CNSummary
 
    USE MOD_Vars_TimeInvariants, only: patchclass
    USE MOD_Vars_Global, only: spval
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
 
    IMPLICIT NONE
 
@@ -832,8 +832,8 @@ CONTAINS
 #ifdef CROP
       IF(patchclass(i) .eq. 12)THEN
          IF(ps .ne. pe)THEN
-            write(*,*) 'Error: crop patch CONTAINS multiple pfts:',p_iam_glb,'i=',i,'ps',ps,'does not equal to pe',pe
-            CALL abort
+            write(*,*) 'Error: crop patch CONTAINS multiple pfts:',mpas_rank,'i=',i,'ps',ps,'does not equal to pe',pe
+            CALL CoLM_stop('A crop patch contains more than one PFT.')
          ELSE
             cropprod1c_loss     (i) = cropprod1c_loss_p(ps)
             grainc_to_cropprodc (i) = grainc_to_food_p (ps)
@@ -902,8 +902,8 @@ CONTAINS
 #ifdef CROP
       IF(patchclass(i) .eq. 12)THEN
          IF(ps .ne. pe)THEN
-            write(*,*) 'Error: crop patch contains multiple pfts:',p_iam_glb,'i=',i,'ps',ps,'does not equal to pe',pe
-            CALL abort
+            write(*,*) 'Error: crop patch contains multiple pfts:',mpas_rank,'i=',i,'ps',ps,'does not equal to pe',pe
+            CALL CoLM_stop('A crop patch contains more than one PFT.')
          ELSE
             grainn_to_cropprodn (i) = grainn_to_food_p (ps)
          ENDIF

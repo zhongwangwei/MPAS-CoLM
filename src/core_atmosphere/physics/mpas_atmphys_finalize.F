@@ -10,13 +10,13 @@
  use mpas_pool_routines
 
  use mpas_atmphys_lsm_noahmpfinalize,only: sf_noahmp_deallocate
- use mpas_atmphys_driver_lsm_colm2024,only: finalize_lsm_colm2024
+ use mpas_atmphys_driver_lsm_colm2024,only: checkpoint_lsm_colm2024, finalize_lsm_colm2024
  use module_mp_thompson
  use cires_ugwpv1_module
 
  implicit none
  private
- public:: atmphys_finalize
+ public:: atmphys_write_restart, atmphys_finalize
 
 !mpas_atmphys_finalize contains subroutines that deallocate arrays used in physics parameterizations, i.e. arrays
 !that need to remain allocated as long as MPAS runs and are not properly deallocated in the sourcecode itself.
@@ -32,6 +32,18 @@
 !     Michael D. toy (michael.toy@noaa.gov) / 2024-10-21
 
  contains
+
+!=================================================================================================================
+ subroutine atmphys_write_restart(configs)
+!=================================================================================================================
+
+ type(mpas_pool_type),intent(in):: configs
+ character(len=StrKIND),pointer:: config_lsm_scheme
+
+ call mpas_pool_get_config(configs,'config_lsm_scheme',config_lsm_scheme)
+ if(trim(config_lsm_scheme) == 'sf_colm2024') call checkpoint_lsm_colm2024
+
+ end subroutine atmphys_write_restart
 
 
 !=================================================================================================================

@@ -16,6 +16,7 @@ MODULE MOD_Glacier
 !  01/2023, Hua Yuan: added snow layer absorption in GLACIER_TEMP()
 !-----------------------------------------------------------------------
    USE MOD_Precision
+   USE MOD_MPAS_MPI, only: CoLM_stop
    IMPLICIT NONE
    SAVE
 
@@ -325,7 +326,7 @@ CONTAINS
       IF(abs(errore)>.2)THEN
          write(6,*) 'GLACIER_TEMP.F90 : energy balance violation'
          write(6,100) errore,sabg,forc_frl,olrg,fsena,lfevpa,xmf,t_precip,t_icesno(lb)
-         STOP
+         CALL CoLM_stop('GLACIER_TEMP energy balance violation.')
       ENDIF
 100   format(10(f7.3))
 #endif

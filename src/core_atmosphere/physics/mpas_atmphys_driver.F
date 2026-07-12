@@ -123,9 +123,10 @@
  type(mpas_pool_type),pointer::  configs,             &
                                  mesh,                &
                                  state,               &
-                                 diag,                &
-                                 diag_physics,        &
-                                 diag_physics_noahmp, &
+				 diag,                &
+				 diag_physics,        &
+				 diag_physics_colm2024, &
+				 diag_physics_noahmp, &
                                  output_noahmp,       &
                                  tend_physics,        &
                                  atm_input,           &
@@ -187,9 +188,9 @@
 
 	    call mpas_pool_get_subpool(block%structs,'mesh'               ,mesh               )
 	    call mpas_pool_get_subpool(block%structs,'state'              ,state              )
-	    call mpas_pool_get_subpool(block%structs,'diag'               ,diag               )
-	    call mpas_pool_get_subpool(block%structs,'diag_physics'       ,diag_physics       )
-	    call mpas_pool_get_subpool(block%structs,'diag_physics_noahmp',diag_physics_noahmp)
+		    call mpas_pool_get_subpool(block%structs,'diag'               ,diag               )
+		    call mpas_pool_get_subpool(block%structs,'diag_physics'       ,diag_physics       )
+		    call mpas_pool_get_subpool(block%structs,'diag_physics_noahmp',diag_physics_noahmp)
 	    call mpas_pool_get_subpool(block%structs,'output_noahmp'      ,output_noahmp      )
 	    call mpas_pool_get_subpool(block%structs,'atm_input'          ,atm_input          )
 	    call mpas_pool_get_subpool(block%structs,'sfc_input'          ,sfc_input          )
@@ -271,8 +272,8 @@
 
 	    if(config_oml1d) call driver_oml1d(block%configs,mesh,diag,diag_physics,sfc_input)
 
-	    call push_lsm_colm2024(block,block%configs,mesh,state,time_lev,diag,diag_physics, &
-	                           sfc_input,itimestep,cellSolveThreadStart(1),cellSolveThreadEnd(nThreads))
+	    call push_lsm_colm2024(block,block%configs,mesh,state,time_lev,diag,diag_physics,atm_input, &
+	                           sfc_input,cellSolveThreadStart(1),cellSolveThreadEnd(nThreads))
 
 	    call deallocate_forall_physics(block%configs)
 	    block => block % next
@@ -285,9 +286,10 @@
 
 	    call mpas_pool_get_subpool(block%structs,'mesh'               ,mesh               )
 	    call mpas_pool_get_subpool(block%structs,'state'              ,state              )
-	    call mpas_pool_get_subpool(block%structs,'diag'               ,diag               )
-	    call mpas_pool_get_subpool(block%structs,'diag_physics'       ,diag_physics       )
-	    call mpas_pool_get_subpool(block%structs,'diag_physics_noahmp',diag_physics_noahmp)
+		    call mpas_pool_get_subpool(block%structs,'diag'               ,diag               )
+		    call mpas_pool_get_subpool(block%structs,'diag_physics'       ,diag_physics       )
+		    call mpas_pool_get_subpool(block%structs,'diag_physics_colm2024',diag_physics_colm2024)
+		    call mpas_pool_get_subpool(block%structs,'diag_physics_noahmp',diag_physics_noahmp)
 	    call mpas_pool_get_subpool(block%structs,'output_noahmp'      ,output_noahmp      )
 	    call mpas_pool_get_subpool(block%structs,'sfc_input'          ,sfc_input          )
 	    call mpas_pool_get_subpool(block%structs,'ngw_input'          ,ngw_input          )
@@ -307,7 +309,8 @@
 	    end do
 	!$OMP END PARALLEL DO
 
-	    call pull_lsm_colm2024(block,diag_physics,sfc_input,cellSolveThreadStart(1),cellSolveThreadEnd(nThreads))
+		    call pull_lsm_colm2024(block,diag_physics,diag_physics_colm2024,sfc_input, &
+		                           cellSolveThreadStart(1),cellSolveThreadEnd(nThreads))
 
 	    call allocate_seaice(block%configs)
 	!$OMP PARALLEL DO

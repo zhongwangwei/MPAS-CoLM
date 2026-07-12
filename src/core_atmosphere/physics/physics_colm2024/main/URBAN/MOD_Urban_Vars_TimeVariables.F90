@@ -123,12 +123,12 @@ CONTAINS
 ! Allocates memory for CLM 1d [numurban] variables
 ! ------------------------------------------------------
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
             allocate (fwsun                         (numurban))
             allocate (dfwsun                        (numurban))
@@ -412,10 +412,10 @@ CONTAINS
 
    SUBROUTINE deallocate_UrbanTimeVariables
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandUrban
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numurban > 0) THEN
             deallocate (fwsun        )
             deallocate (dfwsun       )

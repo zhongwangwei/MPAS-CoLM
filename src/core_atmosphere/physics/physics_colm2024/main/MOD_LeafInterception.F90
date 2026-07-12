@@ -30,8 +30,9 @@ MODULE MOD_LeafInterception
    ! 2019.06     Hua Yuan: 1) add wrapper for PFT and PC, and 2) remove sigf by using lai+sai
    ! 2014.04     Yongjiu Dai
    ! 2002.08.31  Yongjiu Dai
-   USE MOD_Precision
-   USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice, hfus
+	   USE MOD_Precision
+	   USE MOD_MPAS_MPI, only: CoLM_stop
+	   USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice, hfus
    USE MOD_Namelist, only: DEF_Interception_scheme, DEF_VEG_SNOW
 
    IMPLICIT NONE
@@ -336,13 +337,13 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code: '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          IF (DEF_VEG_SNOW .and. abs(ldew-ldew_rain-ldew_snow) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code when DEF_VEG_SNOW: '
             write(6,*) ldew, ldew_rain, ldew_snow
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 #endif
 
@@ -527,7 +528,7 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('CoLM202x', &
@@ -705,7 +706,7 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 #endif
 
@@ -921,7 +922,7 @@ CONTAINS
             write(6,*) 'Mass balance error in CLM5 interception:'
             write(6,*) 'Error:', w, 'ldew:', ldew, 'outflow:', (pg_rain+pg_snow)*deltim
             write(6,*) 'satcap_rain:', satcap_rain, 'satcap_snow:', satcap_snow
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('CLM5', &
@@ -1168,7 +1169,7 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim  !, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('NoahMP', &
@@ -1439,7 +1440,7 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('MATSIRO', &
@@ -1795,7 +1796,7 @@ CONTAINS
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('VIC', &
@@ -2144,7 +2145,7 @@ CONTAINS
          IF (abs(w_l) > 1.e-6) THEN
             write(6,*) 'JULES interception mass balance error: ', w_l
             write(6,*) 'ldew=', ldew, ' pg*dt=', (pg_rain+pg_snow)*deltim
-            CALL abort
+            CALL CoLM_stop()
          ENDIF
 
          CALL check_interception_balance('JULES', &
@@ -2430,7 +2431,7 @@ CONTAINS
          write(6,*) 'Component consistency error in ', scheme_name, ':'
          write(6,*) 'ldew=', ldew, ' ldew_rain+ldew_snow=', ldew_rain+ldew_snow
          write(6,*) 'diff=', ldew - (ldew_rain + ldew_snow)
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
       ! Check B: non-negativity
@@ -2442,7 +2443,7 @@ CONTAINS
          write(6,*) 'Negative value error in ', scheme_name, ':'
          write(6,*) 'ldew=', ldew, ' ldew_rain=', ldew_rain, ' ldew_snow=', ldew_snow
          write(6,*) 'pg_rain=', pg_rain, ' pg_snow=', pg_snow
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
       ! Check C: flux consistency (qintr == qintr_rain + qintr_snow)
@@ -2450,7 +2451,7 @@ CONTAINS
          write(6,*) 'Flux consistency error in ', scheme_name, ':'
          write(6,*) 'qintr=', qintr, ' qintr_rain+qintr_snow=', qintr_rain+qintr_snow
          write(6,*) 'diff=', qintr - (qintr_rain + qintr_snow)
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
    END SUBROUTINE check_interception_balance

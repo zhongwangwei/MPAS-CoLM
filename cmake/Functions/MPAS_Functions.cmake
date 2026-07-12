@@ -148,7 +148,8 @@ function(mpas_fortran_target target)
 endfunction()
 
 
-# mpas_core_target(CORE <core-name> TARGET <cmake-target-name> INCLUDE <file1.inc, ...> )
+# mpas_core_target(CORE <core-name> TARGET <cmake-target-name>
+#                  INCLUDES <file1.inc, ...> REGISTRY_DEPENDS <file1.xml, ...> )
 #
 # Common configuration and properties for `MPAS::core::<core_name>` targets.
 # * Calls mpas_fortran_target() for common Fortran target configuration.
@@ -164,9 +165,10 @@ endfunction()
 #   CORE - Name of core
 #   TARGET - Name of core_target (without namespace)
 #   INCLUDES - List of generated include files
+#   REGISTRY_DEPENDS - Files included by the core Registry.xml preprocessor input
 #
 function(mpas_core_target)
-    cmake_parse_arguments(ARG "" "CORE;TARGET" "INCLUDES" ${ARGN})
+    cmake_parse_arguments(ARG "" "CORE;TARGET" "INCLUDES;REGISTRY_DEPENDS" ${ARGN})
 
     mpas_fortran_target(${ARG_TARGET})
 
@@ -219,7 +221,7 @@ function(mpas_core_target)
 add_custom_command(OUTPUT ${REGISTRY_PROCESSED_XML}
             COMMAND ${CPP_EXECUTABLE} -E -P ${CPP_EXTRA_FLAGS} ${CMAKE_CURRENT_SOURCE_DIR}/Registry.xml > ${REGISTRY_PROCESSED_XML}
             COMMENT "CORE ${ARG_CORE}: Pre-Process Registry"
-            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Registry.xml)
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Registry.xml ${ARG_REGISTRY_DEPENDS})
     add_custom_command(OUTPUT ${ARG_INCLUDES}
             COMMAND mpas_parse_${ARG_CORE} ${REGISTRY_PROCESSED_XML} ${CPP_EXTRA_FLAGS}
             COMMENT "CORE ${ARG_CORE}: Parse Registry"

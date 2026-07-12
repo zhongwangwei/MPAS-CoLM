@@ -21,8 +21,9 @@ MODULE MOD_LeafTemperaturePC
 ! /////////////////////////////////////////////////////////////////////
 !
 !-----------------------------------------------------------------------
-   USE MOD_Precision
-   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
+	   USE MOD_Precision
+	   USE MOD_MPAS_MPI, only: CoLM_stop
+	   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
                            DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
                            DEF_VEG_SNOW
    IMPLICIT NONE
@@ -119,7 +120,7 @@ CONTAINS
    USE MOD_AssimStomataConductance
    USE MOD_PlantHydraulic, only: PlantHydraulicStress_twoleaf
    USE MOD_Ozone, only: CalcOzoneStress
-   USE MOD_UserSpecifiedForcing, only: HEIGHT_mode
+   USE MOD_Vars_1DForcing, only: forc_height_mode
 
    IMPLICIT NONE
 
@@ -920,7 +921,7 @@ CONTAINS
 
       hu_ = hu; ht_ = ht; hq_ = hq;
 
-      IF (trim(HEIGHT_mode) == 'absolute') THEN
+      IF (forc_height_mode == 'absolute') THEN
 
          IF (hu <= htop_lay(toplay)+1) THEN
             hu_ = htop_lay(toplay) + 1.
@@ -950,7 +951,7 @@ CONTAINS
 
       IF(zldis <= 0.0) THEN
          write(6,*) 'the obs height of u less than the zero displacement heght'
-         CALL abort
+         CALL CoLM_stop()
       ENDIF
 
       CALL moninobukini(ur,th,thm,thv,dth,dqh,dthv,zldis,z0mv,um,obu)
@@ -1935,7 +1936,7 @@ ENDIF
                   ldew (i)     = ldew_snow(i)
                ENDIF
             ELSE
-               CALL abort
+               CALL CoLM_stop()
             ENDIF
 
             IF ( DEF_VEG_SNOW ) THEN

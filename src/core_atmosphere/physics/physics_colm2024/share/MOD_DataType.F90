@@ -223,7 +223,7 @@ CONTAINS
 
    USE MOD_Grid
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(grid_type), intent(in) :: grid
@@ -285,7 +285,7 @@ CONTAINS
 
    USE MOD_Grid
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(grid_type), intent(in) :: grid
@@ -347,7 +347,7 @@ CONTAINS
 
    USE MOD_Grid
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(grid_type), intent(in) :: grid
@@ -419,7 +419,7 @@ CONTAINS
 
    USE MOD_Grid
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(grid_type), intent(in) :: grid
@@ -487,7 +487,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_2d), intent(inout) :: gdata
@@ -509,7 +509,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_int32_2d), intent(inout) :: gdata
@@ -531,7 +531,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_3d), intent(inout) :: gdata
@@ -553,7 +553,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_4d), intent(inout) :: gdata
@@ -575,7 +575,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_2d), intent(inout) :: gdata
@@ -608,7 +608,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_2d), intent(in)    :: gdata_from
@@ -636,7 +636,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
    type(block_data_real8_2d), intent(in)    :: gdata_from1, gdata_from2
@@ -661,7 +661,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Block
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -672,7 +672,7 @@ CONTAINS
    ! Local variables
    integer :: iblkme, iblk, jblk
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          IF (.not. present(spv)) THEN
 

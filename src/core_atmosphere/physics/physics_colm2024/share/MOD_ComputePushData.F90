@@ -7,8 +7,9 @@ MODULE MOD_ComputePushData
 
    USE MOD_Precision
    USE MOD_DataType
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Utils
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    ! -- Data Type : push data between ranks --
@@ -26,7 +27,7 @@ MODULE MOD_ComputePushData
       integer :: nself
       integer,  allocatable :: self_from (:)
       integer,  allocatable :: self_to   (:)
-#ifdef COLM_PARALLEL
+#ifdef MPAS_MPI
       ! data is on other processors
       integer, allocatable :: n_to_other   (:)
       integer, allocatable :: n_from_other (:)
@@ -62,8 +63,6 @@ MODULE MOD_ComputePushData
       MODULE procedure build_compute_pushdata_multi
    END INTERFACE build_compute_pushdata
 
-   PUBLIC :: build_compute_pushdata_subset
-
    PUBLIC :: build_compute_remapdata
 
    INTERFACE compute_push_data
@@ -93,21 +92,33 @@ CONTAINS
 
    ! Local Variables
    integer, allocatable :: ids_me_sorted(:), order_ids(:), self_from(:)
-#ifdef COLM_PARALLEL
+#ifdef MPAS_MPI
    integer, allocatable :: ids(:), loc_from_me(:), loc_from_other(:)
    integer :: request(3)
 #endif
    integer :: i, iloc, irank, jrank, n_req_other
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (num_me < 0 .or. num_me > size(ids_me)) THEN
+            CALL CoLM_stop('Invalid local ID count while building CoLM compute push data.')
+         ENDIF
+         IF (n_req_uniq < 0 .or. n_req_uniq > size(ids_req_uniq)) THEN
+            CALL CoLM_stop('Invalid request ID count while building CoLM compute push data.')
+         ENDIF
 
 	         allocate (ids_me_sorted (num_me))
 	         allocate (order_ids     (num_me))
 	         IF (num_me > 0) THEN
-	            ids_me_sorted = ids_me
+	            ids_me_sorted = ids_me(1:num_me)
 	            order_ids = (/(i, i = 1, num_me)/)
 	            CALL quicksort (num_me, ids_me_sorted, order_ids)
+	            IF (num_me > 1) THEN
+	               IF (any(ids_me_sorted(2:num_me) == ids_me_sorted(1:num_me-1))) THEN
+	                  CALL CoLM_stop('Duplicate local source IDs while building CoLM compute push data.')
+	               ENDIF
+	            ENDIF
 	         ENDIF
 
          pushdata%nself = 0
@@ -132,40 +143,45 @@ CONTAINS
             ENDIF
          ENDIF
 
-#ifdef COLM_PARALLEL
-         CALL mpi_barrier (p_comm_compute, p_err)
+#ifdef MPAS_MPI
+         CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('compute-push layout synchronization')
 
-         allocate (pushdata%n_to_other   (0:p_np_compute-1))
-         allocate (pushdata%to_other     (0:p_np_compute-1))
+         allocate (pushdata%n_to_other   (0:mpas_size-1))
+         allocate (pushdata%to_other     (0:mpas_size-1))
 
-         allocate (pushdata%n_from_other (0:p_np_compute-1))
-         allocate (pushdata%other_to     (0:p_np_compute-1))
+         allocate (pushdata%n_from_other (0:mpas_size-1))
+         allocate (pushdata%other_to     (0:mpas_size-1))
 
          pushdata%n_to_other  (:) = 0
          pushdata%n_from_other(:) = 0
 
          IF (n_req_uniq > 0) allocate (loc_from_other (n_req_uniq))
 
-         irank = modulo(p_iam_compute+1, p_np_compute)
-         jrank = modulo(p_iam_compute-1, p_np_compute)
-         DO WHILE (irank /= p_iam_compute)
+         irank = modulo(mpas_rank+1, mpas_size)
+         jrank = modulo(mpas_rank-1, mpas_size)
+         DO WHILE (irank /= mpas_rank)
 
             CALL mpi_isend (n_req_uniq, 1, MPI_INTEGER, jrank, 10, &
-               p_comm_compute, request(1), p_err)
+               mpas_comm, request(1), mpas_mpi_ierr)
+            CALL mpas_mpi_check('compute-push request-count send')
 
             IF (n_req_uniq > 0) THEN
                CALL mpi_isend(ids_req_uniq, n_req_uniq, MPI_INTEGER, jrank, 11, &
-                  p_comm_compute, request(2), p_err)
+                  mpas_comm, request(2), mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push request-ID send')
             ENDIF
 
             CALL mpi_recv (n_req_other, 1, MPI_INTEGER, irank, 10, &
-               p_comm_compute, p_stat, p_err)
+               mpas_comm, mpas_status, mpas_mpi_ierr)
+            CALL mpas_mpi_check('compute-push request-count receive')
 
             IF (n_req_other > 0) THEN
 
                allocate (ids (n_req_other))
                CALL mpi_recv (ids, n_req_other, MPI_INTEGER, irank, 11, &
-                  p_comm_compute, p_stat, p_err)
+                  mpas_comm, mpas_status, mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push request-ID receive')
 
                allocate (loc_from_me (n_req_other))
                loc_from_me(:) = -1
@@ -186,14 +202,16 @@ CONTAINS
                ENDIF
 
                CALL mpi_isend (loc_from_me, n_req_other, MPI_INTEGER, irank, 12, &
-                  p_comm_compute, request(3), p_err)
+                  mpas_comm, request(3), mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push source-location send')
 
             ENDIF
 
             IF (n_req_uniq > 0) THEN
 
                CALL mpi_recv (loc_from_other, n_req_uniq, MPI_INTEGER, &
-                  jrank, 12, p_comm_compute, p_stat, p_err)
+                  jrank, 12, mpas_comm, mpas_status, mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push source-location receive')
 
                pushdata%n_from_other(jrank) = count(loc_from_other > 0)
                IF (pushdata%n_from_other(jrank) > 0) THEN
@@ -203,20 +221,28 @@ CONTAINS
 
             ENDIF
 
-            CALL mpi_wait(request(1), MPI_STATUS_IGNORE, p_err)
-            IF (n_req_uniq  > 0) CALL mpi_wait(request(2), MPI_STATUSES_IGNORE, p_err)
-            IF (n_req_other > 0) CALL mpi_wait(request(3), MPI_STATUSES_IGNORE, p_err)
+            CALL mpi_wait(request(1), MPI_STATUS_IGNORE, mpas_mpi_ierr)
+            CALL mpas_mpi_check('compute-push request-count send completion')
+            IF (n_req_uniq > 0) THEN
+               CALL mpi_wait(request(2), MPI_STATUS_IGNORE, mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push request-ID send completion')
+            ENDIF
+            IF (n_req_other > 0) THEN
+               CALL mpi_wait(request(3), MPI_STATUS_IGNORE, mpas_mpi_ierr)
+               CALL mpas_mpi_check('compute-push source-location send completion')
+            ENDIF
 
             IF (allocated(ids        )) deallocate(ids        )
             IF (allocated(loc_from_me)) deallocate(loc_from_me)
 
-            irank = modulo(irank+1, p_np_compute)
-            jrank = modulo(jrank-1, p_np_compute)
+            irank = modulo(irank+1, mpas_size)
+            jrank = modulo(jrank-1, mpas_size)
          ENDDO
 
          IF (allocated (loc_from_other)) deallocate (loc_from_other)
 
-         CALL mpi_barrier (p_comm_compute, p_err)
+         CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('compute-push layout completion')
 #endif
 
          IF (allocated(ids_me_sorted)) deallocate(ids_me_sorted)
@@ -240,18 +266,25 @@ CONTAINS
    integer :: n_req_uniq, iloc, i
    integer, allocatable :: ids_req_uniq (:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (num_me < 0 .or. num_me > size(ids_me)) THEN
+            CALL CoLM_stop('Invalid local ID count while building single CoLM compute push data.')
+         ENDIF
+         IF (num_req < 0 .or. num_req > size(ids_req)) THEN
+            CALL CoLM_stop('Invalid request count while building single CoLM compute push data.')
+         ENDIF
 
          n_req_uniq = 0
 
 	         allocate (ids_req_uniq (num_req))
 	         IF (num_req > 0) THEN
-	            DO i = 1, size(ids_req)
+	            DO i = 1, num_req
 	               CALL insert_into_sorted_list1 (ids_req(i), n_req_uniq, ids_req_uniq, iloc)
 	            ENDDO
 
             allocate (pushdata%addr_single (num_req))
-            DO i = 1, size(ids_req)
+            DO i = 1, num_req
                pushdata%addr_single(i) = &
                   find_in_sorted_list1 (ids_req(i), n_req_uniq, ids_req_uniq(1:n_req_uniq))
             ENDDO
@@ -284,7 +317,22 @@ CONTAINS
    integer, allocatable :: ids_req_uniq (:)
    logical, allocatable :: id_found     (:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (num_me < 0 .or. num_me > size(ids_me)) THEN
+            CALL CoLM_stop('Invalid local ID count while building multi CoLM compute push data.')
+         ENDIF
+         IF (num_req < 0 .or. num_req > size(ids_req, 2) .or. num_req > size(area_req, 2)) THEN
+            CALL CoLM_stop('Invalid request count while building multi CoLM compute push data.')
+         ENDIF
+         IF (size(area_req, 1) /= size(ids_req, 1)) THEN
+            CALL CoLM_stop('ID and area shapes differ while building multi CoLM compute push data.')
+         ENDIF
+         IF (num_req > 0) THEN
+            IF (.not. all(ieee_is_finite(area_req(:,1:num_req)))) THEN
+               CALL CoLM_stop('Non-finite overlap area while building multi CoLM compute push data.')
+            ENDIF
+         ENDIF
 
          n_req_uniq = 0
 
@@ -318,9 +366,9 @@ CONTAINS
             allocate (pushdata%area_multi (ndim1,num_req))
             allocate (pushdata%sum_area   (num_req))
 
-            pushdata%area_multi = area_req
+            pushdata%area_multi = area_req(:,1:num_req)
 
-            WHERE ((area_req <= 0.) .or. (ids_req <= 0))
+            WHERE ((pushdata%area_multi <= 0.) .or. (ids_req(:,1:num_req) <= 0))
                pushdata%area_multi = 0.
             END WHERE
 
@@ -328,8 +376,8 @@ CONTAINS
             id_found(:) = .false.
 
             IF (pushdata%nself > 0) id_found(pushdata%self_to) = .true.
-#ifdef COLM_PARALLEL
-            DO irank = 0, p_np_compute-1
+#ifdef MPAS_MPI
+            DO irank = 0, mpas_size-1
                IF (pushdata%n_from_other(irank) > 0) THEN
                   id_found(pushdata%other_to(irank)%val) = .true.
                ENDIF
@@ -356,194 +404,6 @@ CONTAINS
    END SUBROUTINE build_compute_pushdata_multi
 
    ! ----------
-   SUBROUTINE build_compute_pushdata_subset ( &
-         num_me, num_req, pushdata_in, subset_in, pushdata_out, subset_out, numsubset)
-
-   USE MOD_Pixelset
-   IMPLICIT NONE
-
-   integer, intent(in) :: num_me
-   integer, intent(in) :: num_req
-
-   type(compute_pushdata_type),  intent(in)    :: pushdata_in
-   type(subset_type),           intent(in)    :: subset_in
-
-   type(compute_pushdata_type),  intent(inout) :: pushdata_out
-   type(subset_type), optional, intent(inout) :: subset_out
-   integer, optional,           intent(inout) :: numsubset
-
-   ! Local Variables
-   integer :: i, j, ii, jj, idsp, jdsp, kdsp, nsub, irank
-   integer, allocatable :: nsub_me  (:), nsub_req(:), nsub_req_uniq(:)
-   integer, allocatable :: subdsp_me(:), subdsp_req_uniq(:)
-
-      IF (p_is_compute) THEN
-
-         IF (num_me > 0) THEN
-            allocate (nsub_me (num_me))
-            nsub_me = subset_in%subend - subset_in%substt + 1
-         ENDIF
-
-         IF (num_req > 0) THEN
-            allocate (nsub_req (num_req))
-         ENDIF
-
-         CALL compute_push_data (pushdata_in, nsub_me, nsub_req, 0)
-
-         IF (present(subset_out) .and. present(numsubset)) THEN
-            IF (num_req > 0) THEN
-               allocate (subset_out%substt (num_req))
-               allocate (subset_out%subend (num_req))
-
-               idsp = 0
-               DO i = 1, num_req
-                  IF (nsub_req(i) == 0) THEN
-                     subset_out%substt(i) = 0
-                     subset_out%subend(i) = -1
-                  ELSE
-                     subset_out%substt(i) = idsp + 1
-                     subset_out%subend(i) = idsp + nsub_req(i)
-                  ENDIF
-                  idsp = idsp + nsub_req(i)
-               ENDDO
-
-               numsubset = idsp
-            ELSE
-               numsubset = 0
-            ENDIF
-         ENDIF
-
-         IF (num_me > 0) THEN
-            allocate (subdsp_me (num_me))
-            idsp = 0
-            DO i = 1, num_me
-               IF (nsub_me(i) > 0) THEN
-                  subdsp_me(i) = idsp
-                  idsp = idsp + nsub_me(i)
-               ENDIF
-            ENDDO
-         ENDIF
-
-         pushdata_out%num_req_uniq = 0
-         IF (pushdata_in%num_req_uniq > 0) THEN
-
-            allocate (nsub_req_uniq   (pushdata_in%num_req_uniq))
-            allocate (subdsp_req_uniq (pushdata_in%num_req_uniq))
-
-            nsub_req_uniq(:) = 0
-            DO i = 1, size(pushdata_in%addr_single)
-               nsub_req_uniq(pushdata_in%addr_single(i)) = nsub_req(i)
-            ENDDO
-
-            idsp = 0
-            DO i = 1, pushdata_in%num_req_uniq
-               IF (nsub_req_uniq(i) > 0) THEN
-                  subdsp_req_uniq(i) = idsp
-                  idsp = idsp + nsub_req_uniq(i)
-               ENDIF
-            ENDDO
-
-            pushdata_out%num_req_uniq = sum(nsub_req_uniq)
-         ENDIF
-
-
-         IF (pushdata_out%num_req_uniq > 0) THEN
-            allocate (pushdata_out%addr_single (sum(nsub_req)))
-
-            idsp = 0
-            DO i = 1, num_req
-               IF (nsub_req(i) > 0) THEN
-                  jdsp = subdsp_req_uniq(pushdata_in%addr_single(i))
-                  pushdata_out%addr_single(idsp+1:idsp+nsub_req(i)) = &
-                     (/(jj, jj=jdsp+1,jdsp+nsub_req(i))/)
-                  idsp = idsp + nsub_req(i)
-               ENDIF
-            ENDDO
-         ENDIF
-
-         pushdata_out%nself = 0
-         DO i = 1, pushdata_in%nself
-            pushdata_out%nself = pushdata_out%nself + nsub_me(pushdata_in%self_from(i))
-         ENDDO
-
-         IF (pushdata_out%nself > 0) THEN
-            allocate (pushdata_out%self_from (pushdata_out%nself))
-            allocate (pushdata_out%self_to   (pushdata_out%nself))
-
-            kdsp = 0
-            DO i = 1, pushdata_in%nself
-               IF (nsub_me(pushdata_in%self_from(i)) > 0) THEN
-                  nsub = nsub_me(pushdata_in%self_from(i))
-                  idsp = subdsp_me      (pushdata_in%self_from(i))
-                  jdsp = subdsp_req_uniq(pushdata_in%self_to  (i))
-                  pushdata_out%self_from(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
-                  pushdata_out%self_to  (kdsp+1:kdsp+nsub) = (/(jj, jj=jdsp+1,jdsp+nsub)/)
-                  kdsp = kdsp + nsub
-               ENDIF
-            ENDDO
-         ENDIF
-
-#ifdef COLM_PARALLEL
-         allocate (pushdata_out%n_to_other (0:p_np_compute-1))
-         allocate (pushdata_out%to_other   (0:p_np_compute-1))
-
-         DO irank = 0, p_np_compute-1
-
-            pushdata_out%n_to_other(irank) = 0
-            DO i = 1, pushdata_in%n_to_other(irank)
-               pushdata_out%n_to_other(irank) = pushdata_out%n_to_other(irank) &
-                  + nsub_me(pushdata_in%to_other(irank)%val(i))
-            ENDDO
-
-            IF (pushdata_out%n_to_other(irank) > 0) THEN
-               allocate (pushdata_out%to_other(irank)%val (pushdata_out%n_to_other(irank)))
-               kdsp = 0
-               DO i = 1, pushdata_in%n_to_other(irank)
-                  IF (nsub_me(pushdata_in%to_other(irank)%val(i)) > 0) THEN
-                     nsub = nsub_me  (pushdata_in%to_other(irank)%val(i))
-                     idsp = subdsp_me(pushdata_in%to_other(irank)%val(i))
-                     pushdata_out%to_other(irank)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
-                     kdsp = kdsp + nsub
-                  ENDIF
-               ENDDO
-            ENDIF
-
-         ENDDO
-
-         allocate (pushdata_out%n_from_other (0:p_np_compute-1))
-         allocate (pushdata_out%other_to     (0:p_np_compute-1))
-
-         DO irank = 0, p_np_compute-1
-            pushdata_out%n_from_other(irank) = 0
-            DO i = 1, pushdata_in%n_from_other(irank)
-               pushdata_out%n_from_other(irank) = pushdata_out%n_from_other(irank) &
-                  + nsub_req_uniq(pushdata_in%other_to(irank)%val(i))
-            ENDDO
-
-            IF (pushdata_out%n_from_other(irank) > 0) THEN
-               allocate (pushdata_out%other_to(irank)%val (pushdata_out%n_from_other(irank)))
-               kdsp = 0
-               DO i = 1, pushdata_in%n_from_other(irank)
-                  IF (nsub_req_uniq(pushdata_in%other_to(irank)%val(i)) > 0) THEN
-                     nsub = nsub_req_uniq  (pushdata_in%other_to(irank)%val(i))
-                     idsp = subdsp_req_uniq(pushdata_in%other_to(irank)%val(i))
-                     pushdata_out%other_to(irank)%val(kdsp+1:kdsp+nsub) = (/(ii, ii=idsp+1,idsp+nsub)/)
-                     kdsp = kdsp + nsub
-                  ENDIF
-               ENDDO
-            ENDIF
-         ENDDO
-#endif
-
-         IF (allocated (nsub_me        )) deallocate (nsub_me        )
-         IF (allocated (nsub_req       )) deallocate (nsub_req       )
-         IF (allocated (nsub_req_uniq  )) deallocate (nsub_req_uniq  )
-         IF (allocated (subdsp_me      )) deallocate (subdsp_me      )
-         IF (allocated (subdsp_req_uniq)) deallocate (subdsp_req_uniq)
-
-      ENDIF
-
-   END SUBROUTINE build_compute_pushdata_subset
 
    ! ----------
    SUBROUTINE build_compute_remapdata (pixelset, grid, remapdata)
@@ -566,10 +426,10 @@ CONTAINS
 
       CALL mapping%build_arealweighted (grid, pixelset)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          ngrid = 0
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             ngrid = ngrid + mapping%glist(iproc)%ng
          ENDDO
 
@@ -579,7 +439,7 @@ CONTAINS
          ENDIF
 
          ngrid = 0
-         DO iproc = 0, p_np_active-1
+         DO iproc = 0, mpas_size-1
             DO ig = 1, mapping%glist(iproc)%ng
                CALL insert_into_sorted_list2 ( &
                   mapping%glist(iproc)%ilon(ig), mapping%glist(iproc)%ilat(ig), &
@@ -600,7 +460,21 @@ CONTAINS
 
          remapdata%npset = mapping%npset
 
+         IF (remapdata%npset < 0) THEN
+            CALL CoLM_stop('Negative pixel-set count while building CoLM compute remap data.')
+         ENDIF
+
          IF (remapdata%npset > 0) THEN
+
+            IF (.not. allocated(mapping%npart) .or. .not. allocated(mapping%address) .or. &
+                .not. allocated(mapping%areapart) .or. .not. allocated(mapping%glist)) THEN
+               CALL CoLM_stop('Incomplete spatial mapping while building CoLM compute remap data.')
+            ENDIF
+            IF (size(mapping%npart) < remapdata%npset .or. &
+                size(mapping%address) < remapdata%npset .or. &
+                size(mapping%areapart) < remapdata%npset) THEN
+               CALL CoLM_stop('Spatial mapping count mismatch while building CoLM compute remap data.')
+            ENDIF
 
             allocate (remapdata%sum_area (remapdata%npset))
             allocate (remapdata%npart    (remapdata%npset))
@@ -608,9 +482,23 @@ CONTAINS
             allocate (remapdata%areapart (remapdata%npset))
 
             remapdata%npart = mapping%npart
+            remapdata%sum_area = 0._r8
+
+            IF (any(remapdata%npart < 0)) THEN
+               CALL CoLM_stop('Negative part count while building CoLM compute remap data.')
+            ENDIF
 
             DO iset = 1, remapdata%npset
                IF (remapdata%npart(iset) > 0) THEN
+                  IF (.not. allocated(mapping%address(iset)%val) .or. &
+                      .not. allocated(mapping%areapart(iset)%val)) THEN
+                     CALL CoLM_stop('Incomplete spatial mapping while building CoLM compute remap data.')
+                  ENDIF
+                  IF (size(mapping%address(iset)%val,1) < 2 .or. &
+                      size(mapping%address(iset)%val,2) < remapdata%npart(iset) .or. &
+                      size(mapping%areapart(iset)%val) < remapdata%npart(iset)) THEN
+                     CALL CoLM_stop('Spatial mapping shape mismatch while building CoLM compute remap data.')
+                  ENDIF
                   allocate (remapdata%part_to(iset)%val  (remapdata%npart(iset)))
                   allocate (remapdata%areapart(iset)%val (remapdata%npart(iset)))
                ENDIF
@@ -618,14 +506,37 @@ CONTAINS
                DO ipart = 1, remapdata%npart(iset)
                   iproc = mapping%address(iset)%val(1,ipart)
                   iloc  = mapping%address(iset)%val(2,ipart)
+                  IF (iproc < lbound(mapping%glist,1) .or. iproc > ubound(mapping%glist,1)) THEN
+                     CALL CoLM_stop('Spatial mapping rank is outside the CoLM active communicator.')
+                  ENDIF
+                  IF (.not. allocated(mapping%glist(iproc)%ilon) .or. &
+                      .not. allocated(mapping%glist(iproc)%ilat)) THEN
+                     CALL CoLM_stop('Spatial mapping grid list is incomplete.')
+                  ENDIF
+                  IF (iloc < 1 .or. iloc > mapping%glist(iproc)%ng .or. &
+                      iloc > size(mapping%glist(iproc)%ilon) .or. &
+                      iloc > size(mapping%glist(iproc)%ilat)) THEN
+                     CALL CoLM_stop('Spatial mapping address is outside the local CoLM grid list.')
+                  ENDIF
                   remapdata%part_to(iset)%val(ipart)  = find_in_sorted_list2 ( &
                      mapping%glist(iproc)%ilon(iloc), mapping%glist(iproc)%ilat(iloc), ngrid, ilon_me, ilat_me)
+                  IF (remapdata%part_to(iset)%val(ipart) <= 0) THEN
+                     CALL CoLM_stop('Spatial mapping target is missing from the local CoLM remap grid.')
+                  ENDIF
                   ! from km^2 to m^2
-                  remapdata%areapart(iset)%val(ipart) = mapping%areapart(iset)%val(ipart) * 1.e6
+                  remapdata%areapart(iset)%val(ipart) = mapping%areapart(iset)%val(ipart) * 1.e6_r8
+                  IF (.not. ieee_is_finite(remapdata%areapart(iset)%val(ipart)) .or. &
+                      remapdata%areapart(iset)%val(ipart) <= 0._r8) THEN
+                     CALL CoLM_stop('Invalid overlap area while building CoLM compute remap data.')
+                  ENDIF
                ENDDO
 
                IF (remapdata%npart(iset) > 0) THEN
                   remapdata%sum_area(iset) = sum(remapdata%areapart(iset)%val)
+                  IF (.not. ieee_is_finite(remapdata%sum_area(iset)) .or. &
+                      remapdata%sum_area(iset) <= 0._r8) THEN
+                     CALL CoLM_stop('Invalid total area while building CoLM compute remap data.')
+                  ENDIF
                ENDIF
             ENDDO
          ENDIF
@@ -636,6 +547,78 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE build_compute_remapdata
+
+   ! ----------
+   SUBROUTINE validate_compute_push_layout (pushdata, send_size, recv_size)
+
+   IMPLICIT NONE
+
+   type(compute_pushdata_type), intent(in) :: pushdata
+   integer, intent(in) :: send_size, recv_size
+
+   integer :: irank
+
+      IF (send_size < 0 .or. recv_size < 0 .or. pushdata%num_req_uniq < 0 .or. &
+          pushdata%num_req_uniq > recv_size .or. pushdata%nself < 0) THEN
+         CALL CoLM_stop('Invalid dimensions in CoLM compute push layout.')
+      ENDIF
+
+      IF (pushdata%nself > 0) THEN
+         IF (.not. allocated(pushdata%self_from) .or. .not. allocated(pushdata%self_to)) THEN
+            CALL CoLM_stop('Incomplete self-address vectors in CoLM compute push layout.')
+         ENDIF
+         IF (size(pushdata%self_from) < pushdata%nself .or. size(pushdata%self_to) < pushdata%nself) THEN
+            CALL CoLM_stop('Short self-address vectors in CoLM compute push layout.')
+         ENDIF
+         IF (any(pushdata%self_from(1:pushdata%nself) < 1) .or. &
+             any(pushdata%self_from(1:pushdata%nself) > send_size) .or. &
+             any(pushdata%self_to(1:pushdata%nself) < 1) .or. &
+             any(pushdata%self_to(1:pushdata%nself) > recv_size)) THEN
+            CALL CoLM_stop('Out-of-range self address in CoLM compute push layout.')
+         ENDIF
+      ENDIF
+
+#ifdef MPAS_MPI
+      IF (.not. allocated(pushdata%n_to_other) .or. .not. allocated(pushdata%n_from_other) .or. &
+          .not. allocated(pushdata%to_other) .or. .not. allocated(pushdata%other_to)) THEN
+         CALL CoLM_stop('Incomplete remote-address tables in CoLM compute push layout.')
+      ENDIF
+      IF (lbound(pushdata%n_to_other,1) > 0 .or. ubound(pushdata%n_to_other,1) < mpas_size-1 .or. &
+          lbound(pushdata%n_from_other,1) > 0 .or. ubound(pushdata%n_from_other,1) < mpas_size-1 .or. &
+          lbound(pushdata%to_other,1) > 0 .or. ubound(pushdata%to_other,1) < mpas_size-1 .or. &
+          lbound(pushdata%other_to,1) > 0 .or. ubound(pushdata%other_to,1) < mpas_size-1) THEN
+         CALL CoLM_stop('Remote-address table bounds do not match the CoLM compute communicator.')
+      ENDIF
+      IF (any(pushdata%n_to_other(0:mpas_size-1) < 0) .or. &
+          any(pushdata%n_from_other(0:mpas_size-1) < 0)) THEN
+         CALL CoLM_stop('Negative remote message count in CoLM compute push layout.')
+      ENDIF
+
+      DO irank = 0, mpas_size-1
+         IF (pushdata%n_to_other(irank) > 0) THEN
+            IF (.not. allocated(pushdata%to_other(irank)%val)) THEN
+               CALL CoLM_stop('Missing remote send addresses in CoLM compute push layout.')
+            ENDIF
+            IF (size(pushdata%to_other(irank)%val) < pushdata%n_to_other(irank) .or. &
+                any(pushdata%to_other(irank)%val(1:pushdata%n_to_other(irank)) < 1) .or. &
+                any(pushdata%to_other(irank)%val(1:pushdata%n_to_other(irank)) > send_size)) THEN
+               CALL CoLM_stop('Out-of-range remote send address in CoLM compute push layout.')
+            ENDIF
+         ENDIF
+         IF (pushdata%n_from_other(irank) > 0) THEN
+            IF (.not. allocated(pushdata%other_to(irank)%val)) THEN
+               CALL CoLM_stop('Missing remote receive addresses in CoLM compute push layout.')
+            ENDIF
+            IF (size(pushdata%other_to(irank)%val) < pushdata%n_from_other(irank) .or. &
+                any(pushdata%other_to(irank)%val(1:pushdata%n_from_other(irank)) < 1) .or. &
+                any(pushdata%other_to(irank)%val(1:pushdata%n_from_other(irank)) > recv_size)) THEN
+               CALL CoLM_stop('Out-of-range remote receive address in CoLM compute push layout.')
+            ENDIF
+         ENDIF
+      ENDDO
+#endif
+
+   END SUBROUTINE validate_compute_push_layout
 
    ! ----------
    SUBROUTINE compute_push_data_uniq_real8 ( &
@@ -661,7 +644,12 @@ CONTAINS
    integer :: irank, iproc, idsp, istt, iend, i, i_to
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (.not. present(vec_send) .or. .not. present(vec_recv) .or. .not. present(fillvalue)) THEN
+            CALL CoLM_stop('CoLM real compute push requires send, receive, and fill-value arguments.')
+         ENDIF
+         CALL validate_compute_push_layout(pushdata, size(vec_send), size(vec_recv))
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = fillvalue
@@ -671,7 +659,7 @@ CONTAINS
             vec_recv(pushdata%self_to) = vec_send(pushdata%self_from)
          ENDIF
 
-#ifdef COLM_PARALLEL
+#ifdef MPAS_MPI
          ndatasend = sum(pushdata%n_to_other)
          IF (ndatasend > 0) THEN
 
@@ -680,7 +668,7 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                IF (pushdata%n_to_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
@@ -688,7 +676,8 @@ CONTAINS
 
                   sendcache(istt:iend) = vec_send(pushdata%to_other(irank)%val)
                   CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(irank), MPI_REAL8, &
-                     irank, 101, p_comm_compute, req_send(iproc), p_err)
+                     irank, 101, mpas_comm, req_send(iproc), mpas_mpi_ierr)
+                  CALL mpas_mpi_check('real compute-push data send')
 
                   idsp = iend
                ENDIF
@@ -703,14 +692,15 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                IF (pushdata%n_from_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
                   iend  = idsp + pushdata%n_from_other(irank)
 
                   CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(irank), MPI_REAL8, &
-                     irank, 101, p_comm_compute, req_recv(iproc), p_err)
+                     irank, 101, mpas_comm, req_recv(iproc), mpas_mpi_ierr)
+                  CALL mpas_mpi_check('real compute-push data receive')
 
                   idsp = iend
                ENDIF
@@ -719,10 +709,11 @@ CONTAINS
 
          IF (ndatarecv > 0) THEN
 
-            CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
+            CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, mpas_mpi_ierr)
+            CALL mpas_mpi_check('real compute-push receive completion')
 
             idsp = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                DO i = 1, pushdata%n_from_other(irank)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
@@ -741,7 +732,8 @@ CONTAINS
          ENDIF
 
          IF (ndatasend > 0) THEN
-            CALL mpi_waitall(size(req_send), req_send, MPI_STATUSES_IGNORE, p_err)
+            CALL mpi_waitall(size(req_send), req_send, MPI_STATUSES_IGNORE, mpas_mpi_ierr)
+            CALL mpas_mpi_check('real compute-push send completion')
          ENDIF
 
          IF (allocated(req_send )) deallocate(req_send )
@@ -778,7 +770,12 @@ CONTAINS
    integer :: irank, iproc, idsp, istt, iend, i, i_to
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (.not. present(vec_send) .or. .not. present(vec_recv) .or. .not. present(fillvalue)) THEN
+            CALL CoLM_stop('CoLM integer compute push requires send, receive, and fill-value arguments.')
+         ENDIF
+         CALL validate_compute_push_layout(pushdata, size(vec_send), size(vec_recv))
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = fillvalue
@@ -788,7 +785,7 @@ CONTAINS
             vec_recv(pushdata%self_to) = vec_send(pushdata%self_from)
          ENDIF
 
-#ifdef COLM_PARALLEL
+#ifdef MPAS_MPI
          ndatasend = sum(pushdata%n_to_other)
          IF (ndatasend > 0) THEN
 
@@ -797,7 +794,7 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                IF (pushdata%n_to_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
@@ -805,7 +802,8 @@ CONTAINS
 
                   sendcache(istt:iend) = vec_send(pushdata%to_other(irank)%val)
                   CALL mpi_isend(sendcache(istt:iend), pushdata%n_to_other(irank), MPI_INTEGER, &
-                     irank, 101, p_comm_compute, req_send(iproc), p_err)
+                     irank, 101, mpas_comm, req_send(iproc), mpas_mpi_ierr)
+                  CALL mpas_mpi_check('integer compute-push data send')
 
                   idsp = iend
                ENDIF
@@ -820,14 +818,15 @@ CONTAINS
 
             iproc = 0
             idsp  = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                IF (pushdata%n_from_other(irank) > 0) THEN
                   iproc = iproc + 1
                   istt  = idsp + 1
                   iend  = idsp + pushdata%n_from_other(irank)
 
                   CALL mpi_irecv(recvcache(istt:iend), pushdata%n_from_other(irank), MPI_INTEGER, &
-                     irank, 101, p_comm_compute, req_recv(iproc), p_err)
+                     irank, 101, mpas_comm, req_recv(iproc), mpas_mpi_ierr)
+                  CALL mpas_mpi_check('integer compute-push data receive')
 
                   idsp = iend
                ENDIF
@@ -836,10 +835,11 @@ CONTAINS
 
          IF (ndatarecv > 0) THEN
 
-            CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, p_err)
+            CALL mpi_waitall(size(req_recv), req_recv, MPI_STATUSES_IGNORE, mpas_mpi_ierr)
+            CALL mpas_mpi_check('integer compute-push receive completion')
 
             idsp = 0
-            DO irank = 0, p_np_compute-1
+            DO irank = 0, mpas_size-1
                DO i = 1, pushdata%n_from_other(irank)
 
                   IF (recvcache(idsp+i) /= fillvalue) THEN
@@ -858,7 +858,8 @@ CONTAINS
          ENDIF
 
          IF (ndatasend > 0) THEN
-            CALL mpi_waitall(size(req_send), req_send, MPI_STATUSES_IGNORE, p_err)
+            CALL mpi_waitall(size(req_send), req_send, MPI_STATUSES_IGNORE, mpas_mpi_ierr)
+            CALL mpas_mpi_check('integer compute-push send completion')
          ENDIF
 
          IF (allocated(req_send )) deallocate(req_send )
@@ -885,7 +886,16 @@ CONTAINS
    ! Local Variables
    real(r8), allocatable   :: vec_recv_uniq (:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (size(vec_recv) > 0) vec_recv = fillvalue
+         IF (allocated(pushdata%addr_single)) THEN
+            IF (size(vec_recv) < size(pushdata%addr_single)) THEN
+               CALL CoLM_stop('Receive array is too small for single CoLM compute push data.')
+            ENDIF
+         ELSEIF (pushdata%num_req_uniq > 0) THEN
+            CALL CoLM_stop('Single CoLM compute push data has no request-address map.')
+         ENDIF
 
          ! Always allocate (zero-length if no requests) to avoid passing
          ! unallocated array to compute_push_data_uniq_real8.
@@ -896,8 +906,8 @@ CONTAINS
 
          CALL compute_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
-         IF (pushdata%num_req_uniq > 0) THEN
-            vec_recv = vec_recv_uniq(pushdata%addr_single)
+         IF (pushdata%num_req_uniq > 0 .and. allocated(pushdata%addr_single)) THEN
+            vec_recv(1:size(pushdata%addr_single)) = vec_recv_uniq(pushdata%addr_single)
          ENDIF
          deallocate (vec_recv_uniq)
 
@@ -923,7 +933,19 @@ CONTAINS
    integer  :: i, j
    real(r8) :: val, sumarea
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (trim(mode) /= 'sum' .and. trim(mode) /= 'average') THEN
+            CALL CoLM_stop('CoLM multi compute push mode must be sum or average.')
+         ENDIF
+         IF (size(vec_recv) > 0) vec_recv = fillvalue
+         IF (allocated(pushdata%addr_multi)) THEN
+            IF (size(vec_recv) < size(pushdata%addr_multi, 2)) THEN
+               CALL CoLM_stop('Receive array is too small for multi CoLM compute push data.')
+            ENDIF
+         ELSEIF (pushdata%num_req_uniq > 0) THEN
+            CALL CoLM_stop('Multi CoLM compute push data has no request-address map.')
+         ENDIF
 
          ! Always allocate (zero-length if no requests) to avoid passing
          ! unallocated array to compute_push_data_uniq_real8.
@@ -935,8 +957,6 @@ CONTAINS
          CALL compute_push_data_uniq_real8 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
          IF (pushdata%num_req_uniq > 0) THEN
-
-            vec_recv(:) = fillvalue
 
             DO j = 1, size(pushdata%addr_multi,2)
 
@@ -956,7 +976,11 @@ CONTAINS
 
                IF (trim(mode) == 'average') THEN
                   IF (vec_recv(j) /= fillvalue) THEN
-                     vec_recv(j) = vec_recv(j) / sumarea
+                     IF (sumarea > 0._r8) THEN
+                        vec_recv(j) = vec_recv(j) / sumarea
+                     ELSE
+                        vec_recv(j) = fillvalue
+                     ENDIF
                   ENDIF
                ENDIF
             ENDDO
@@ -982,7 +1006,16 @@ CONTAINS
    ! Local Variables
    integer, allocatable   :: vec_recv_uniq (:)
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+
+         IF (size(vec_recv) > 0) vec_recv = fillvalue
+         IF (allocated(pushdata%addr_single)) THEN
+            IF (size(vec_recv) < size(pushdata%addr_single)) THEN
+               CALL CoLM_stop('Receive array is too small for integer CoLM compute push data.')
+            ENDIF
+         ELSEIF (pushdata%num_req_uniq > 0) THEN
+            CALL CoLM_stop('Integer CoLM compute push data has no request-address map.')
+         ENDIF
 
          allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
@@ -991,8 +1024,8 @@ CONTAINS
 
          CALL compute_push_data_uniq_int32 (pushdata, vec_send, vec_recv_uniq, fillvalue)
 
-         IF (pushdata%num_req_uniq > 0) THEN
-            vec_recv = vec_recv_uniq(pushdata%addr_single)
+         IF (pushdata%num_req_uniq > 0 .and. allocated(pushdata%addr_single)) THEN
+            vec_recv(1:size(pushdata%addr_single)) = vec_recv_uniq(pushdata%addr_single)
          ENDIF
          deallocate (vec_recv_uniq)
 
@@ -1017,7 +1050,13 @@ CONTAINS
    real(r8) :: area
 
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+         IF (size(vec_in) < remapdata%npset .or. size(filter) < remapdata%npset) THEN
+            CALL CoLM_stop('Pixel-set input is too small for CoLM compute remap data.')
+         ENDIF
+         IF (size(vec_out) < remapdata%num_grid) THEN
+            CALL CoLM_stop('Grid output is too small for CoLM compute remap data.')
+         ENDIF
          IF (remapdata%num_grid > 0) THEN
 
             vec_out(:) = fillvalue
@@ -1028,6 +1067,9 @@ CONTAINS
 
                      iloc = remapdata%part_to(iset)%val(ipart)
                      area = remapdata%areapart(iset)%val(ipart)
+                     IF (iloc < 1 .or. iloc > remapdata%num_grid) THEN
+                        CALL CoLM_stop('Pixel-set to grid remap contains an invalid target address.')
+                     ENDIF
 
                      IF (vec_out(iloc) == fillvalue) THEN
                         vec_out(iloc) = vec_in(iset) * area
@@ -1061,7 +1103,16 @@ CONTAINS
    integer  :: iset, ipart, iloc
    real(r8) :: area, sumarea
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
+         IF (trim(mode) /= 'sum' .and. trim(mode) /= 'average') THEN
+            CALL CoLM_stop('CoLM compute remap mode must be sum or average.')
+         ENDIF
+         IF (size(vec_in) < remapdata%num_grid) THEN
+            CALL CoLM_stop('Grid input is too small for CoLM compute remap data.')
+         ENDIF
+         IF (size(vec_out) < remapdata%npset) THEN
+            CALL CoLM_stop('Pixel-set output is too small for CoLM compute remap data.')
+         ENDIF
          IF (remapdata%npset > 0) THEN
 
             vec_out(:) = fillvalue
@@ -1073,6 +1124,9 @@ CONTAINS
                DO ipart = 1, remapdata%npart(iset)
                   iloc = remapdata%part_to(iset)%val(ipart)
                   area = remapdata%areapart(iset)%val(ipart)
+                  IF (iloc < 1 .or. iloc > remapdata%num_grid) THEN
+                     CALL CoLM_stop('Grid to pixel-set remap contains an invalid source address.')
+                  ENDIF
 
                   IF (vec_in(iloc) /= fillvalue) THEN
                      IF (vec_out(iset) == fillvalue) THEN
@@ -1086,7 +1140,11 @@ CONTAINS
 
                IF (trim(mode) == 'average') THEN
                   IF (vec_out(iset) /= fillvalue) THEN
-                     vec_out(iset) = vec_out(iset) / sumarea
+                     IF (sumarea > 0._r8 .and. ieee_is_finite(sumarea)) THEN
+                        vec_out(iset) = vec_out(iset) / sumarea
+                     ELSE
+                        vec_out(iset) = fillvalue
+                     ENDIF
                   ENDIF
                ENDIF
             ENDDO
@@ -1108,7 +1166,7 @@ CONTAINS
       IF (allocated(this%sum_area    )) deallocate(this%sum_area    )
       IF (allocated(this%self_from   )) deallocate(this%self_from   )
       IF (allocated(this%self_to     )) deallocate(this%self_to     )
-#ifdef COLM_PARALLEL
+#ifdef MPAS_MPI
       IF (allocated(this%n_to_other  )) deallocate(this%n_to_other  )
       IF (allocated(this%n_from_other)) deallocate(this%n_from_other)
       IF (allocated(this%to_other    )) deallocate(this%to_other    )

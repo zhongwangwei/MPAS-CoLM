@@ -119,7 +119,7 @@ CONTAINS
    ! -----
    SUBROUTINE read_5x5_data_int32 (dir_5x5, sfx, grid, dataname, rdata)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
@@ -148,7 +148,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -204,7 +204,7 @@ CONTAINS
    SUBROUTINE read_5x5_data_real8 (dir_5x5, sfx, grid, dataname, rdata)
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
@@ -233,7 +233,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -289,7 +289,7 @@ CONTAINS
    SUBROUTINE read_5x5_data_pft (dir_5x5, sfx, grid, dataname, rdata)
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
@@ -319,7 +319,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -378,7 +378,7 @@ CONTAINS
    SUBROUTINE read_5x5_data_time (dir_5x5, sfx, grid, dataname, time, rdata)
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
@@ -408,7 +408,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)
@@ -465,7 +465,7 @@ CONTAINS
    SUBROUTINE read_5x5_data_pft_time (dir_5x5, sfx, grid, dataname, time, rdata)
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_Grid
    USE MOD_DataType
@@ -496,7 +496,7 @@ CONTAINS
       nxbox = nxglb / 360 * 5
       nybox = nyglb / 180 * 5
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          DO iblkme = 1, gblock%nblkme
             iblk = gblock%xblkme(iblkme)

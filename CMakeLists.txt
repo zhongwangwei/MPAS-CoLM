@@ -24,6 +24,10 @@ option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(MPAS_USE_PIO "Build with PIO I/O library" OFF)
 option(MPAS_COLM2024 "Build atmosphere core with embedded CoLM2024 land-surface physics" OFF)
 
+if(MPAS_COLM2024 AND NOT DO_PHYSICS)
+    message(FATAL_ERROR "MPAS_COLM2024 requires DO_PHYSICS=ON because CoLM2024 is built into the atmosphere physics driver.")
+endif()
+
 message(STATUS "[OPTION] MPAS_CORES: ${MPAS_CORES}")
 message(STATUS "[OPTION] MPAS_DOUBLE_PRECISION: ${MPAS_DOUBLE_PRECISION}")
 message(STATUS "[OPTION] MPAS_PROFILE: ${MPAS_PROFILE}")
@@ -45,8 +49,11 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Detect MPAS git version
+if(DEFINED GIT_EXECUTABLE AND NOT EXISTS "${GIT_EXECUTABLE}")
+    unset(GIT_EXECUTABLE CACHE)
+endif()
+find_package(Git QUIET)
 if(NOT MPAS_GIT_VERSION)
-    find_package(Git QUIET)
     if(GIT_FOUND)
         execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty
                         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -72,9 +79,6 @@ find_package(MPI REQUIRED COMPONENTS Fortran)
 find_package(PnetCDF REQUIRED COMPONENTS Fortran)
 if(MPAS_USE_PIO OR MPAS_COLM2024)
     find_package(NetCDF REQUIRED COMPONENTS Fortran C)
-endif()
-if(MPAS_COLM2024)
-    find_package(LAPACK REQUIRED)
 endif()
 if(MPAS_USE_PIO)
     find_package(PIO REQUIRED COMPONENTS Fortran C)

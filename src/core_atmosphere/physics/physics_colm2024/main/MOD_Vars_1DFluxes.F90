@@ -108,11 +108,11 @@ CONTAINS
    ! -------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_Vars_Global
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 
@@ -208,10 +208,10 @@ CONTAINS
    ! --------------------------------------------------------------------
    ! deallocates memory for CoLM 1d [numpatch] variables
    ! --------------------------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPatch
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          IF (numpatch > 0) THEN
 

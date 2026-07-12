@@ -32,18 +32,18 @@ CONTAINS
    SUBROUTINE landelm_build
 
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Mesh
    IMPLICIT NONE
 
    ! Local Variables
    integer :: ielm, nelm_glb
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,'(A)') 'Making land elements:'
       ENDIF
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
 
          allocate (landelm%eindex (numelm))
          allocate (landelm%ipxstt (numelm))
@@ -64,17 +64,20 @@ CONTAINS
       landelm%nset = numelm
       CALL landelm%set_vecgs
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('land-element count reduction entry')
 
-      IF (p_is_compute) THEN
-         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_compute, p_err)
-         IF (p_iam_compute == 0) THEN
+      IF (.true.) THEN
+         CALL mpi_reduce (numelm, nelm_glb, 1, MPI_INTEGER, MPI_SUM, mpas_root, mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('land-element count reduction')
+         IF (mpas_rank == 0) THEN
             write(*,'(A,I12,A)') 'Total: ', nelm_glb, ' elements.'
          ENDIF
       ENDIF
 
-      CALL mpi_barrier (p_comm_glb, p_err)
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('land-element construction completion')
 #else
       write(*,'(A,I12,A)') 'Total: ', numelm, ' elements.'
 #endif

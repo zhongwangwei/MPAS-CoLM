@@ -352,7 +352,9 @@
  real(kind=RKIND),dimension(:,:),pointer:: dzs
 
 !local variables:
- integer:: iCell
+ integer,parameter:: colm_soil_levels = 10
+ integer:: iCell,iSoil
+ real(kind=RKIND):: colm_z(colm_soil_levels),colm_dz(colm_soil_levels)
 
 !-----------------------------------------------------------------------------------------------------------------
 
@@ -364,20 +366,39 @@
  call mpas_pool_get_array(sfc_input,'landmask',landmask)
  call mpas_pool_get_array(sfc_input,'dzs'     , dzs    )
 
+ if(trim(config_lsm_scheme) == "sf_colm2024" .and. size(dzs,1) /= colm_soil_levels) then
+    call physics_error_fatal("CoLM2024 requires num_soil_layers=10 so MPAS retains the complete native soil column.")
+ endif
+
 !initialization of input variables, if needed:
 
  if(.not. config_do_restart) then
 
     lsm_select: select case(trim(config_lsm_scheme))
 
-       case("sf_noah","sf_noahmp")
-       !initialize the thickness of the soil layers for the Noah scheme:
-          do iCell = 1, nCells
-             dzs(1,iCell) = 0.10_RKIND
-             dzs(2,iCell) = 0.30_RKIND
-             dzs(3,iCell) = 0.60_RKIND
-             dzs(4,iCell) = 1.00_RKIND
-          enddo
+	       case("sf_noah","sf_noahmp")
+	          if(size(dzs,1) < 4) then
+	             call physics_error_fatal("Noah/Noah-MP requires at least four MPAS soil layers.")
+	          endif
+	          do iCell = 1, nCells
+	             dzs(1,iCell) = 0.10_RKIND
+	             dzs(2,iCell) = 0.30_RKIND
+	             dzs(3,iCell) = 0.60_RKIND
+	             dzs(4,iCell) = 1.00_RKIND
+	          enddo
+
+	       case("sf_colm2024")
+	          do iSoil = 1, colm_soil_levels
+	             colm_z(iSoil) = 0.025_RKIND * (exp(0.5_RKIND * (real(iSoil,RKIND)-0.5_RKIND)) - 1._RKIND)
+	          enddo
+	          colm_dz(1) = 0.5_RKIND * (colm_z(1) + colm_z(2))
+	          do iSoil = 2, colm_soil_levels-1
+	             colm_dz(iSoil) = 0.5_RKIND * (colm_z(iSoil+1) - colm_z(iSoil-1))
+	          enddo
+	          colm_dz(colm_soil_levels) = colm_z(colm_soil_levels) - colm_z(colm_soil_levels-1)
+	          do iCell = 1, nCells
+	             dzs(:,iCell) = colm_dz
+	          enddo
 
        case default
 

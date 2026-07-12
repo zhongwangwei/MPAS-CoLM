@@ -579,7 +579,7 @@
     qgh_p,            &!
     qsfc_p,           &!specific humidity at lower boundary                                                [kg/kg]
     regime_p,         &!flag indicating PBL regime (stable_p,unstable_p,etc...)                                [-]
-    rmol_p,           &!1 / Monin Ob length                                                                    [-]
+    rmol_p,           &!1 / Monin Ob length                                                                 [m-1]
     t2m_p,            &!temperature at 2m                                                                      [K]
     th2m_p,           &!potential temperature at 2m                                                            [K]
     u10_p,            &!u at 10 m                                                                            [m/s]
@@ -867,7 +867,7 @@
     shdmin_p,         &!minimum areal fractional coverage of annual green vegetation                           [-]
     shdmax_p,         &!maximum areal fractional coverage of annual green vegetation                           [-]
     smstav_p,         &!moisture availability                                                                  [-]
-    smstot_p,         &!total moisture                                                                    [m3 m-3]
+    smstot_p,         &!total frozen and unfrozen soil-column water                                          [mm]
     snopcx_p,         &!snow phase change heat flux                                                        [W m-2]
     snotime_p,        &!
     snowc_p,          &!snow water equivalent                                                             [kg m-2]

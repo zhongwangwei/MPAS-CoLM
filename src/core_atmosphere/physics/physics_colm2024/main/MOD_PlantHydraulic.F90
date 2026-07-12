@@ -4,7 +4,7 @@ MODULE MOD_PlantHydraulic
 !-----------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_RSS_SCHEME
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
    SAVE
 

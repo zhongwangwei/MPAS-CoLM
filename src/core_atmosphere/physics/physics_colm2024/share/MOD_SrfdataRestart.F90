@@ -12,253 +12,17 @@ MODULE MOD_SrfdataRestart
    IMPLICIT NONE
 
    ! ----- subroutines -----
-   PUBLIC :: mesh_save_to_file
    PUBLIC :: mesh_load_from_file
 
-   PUBLIC :: pixelset_save_to_file
    PUBLIC :: pixelset_load_from_file
 
 CONTAINS
-
-   ! -----------------------
-   SUBROUTINE mesh_save_to_file (dir_landdata, lc_year)
-
-   USE MOD_SPMD_Task
-   USE MOD_NetCDFSerial
-   USE MOD_Mesh
-   USE MOD_Block
-   USE MOD_Utils
-   IMPLICIT NONE
-
-   character(len=*), intent(in) :: dir_landdata
-   integer         , intent(in) :: lc_year
-
-   ! Local variables
-   character(len=256) :: filename, fileblock, cyear
-   integer :: ie, je, nelm, totlen, tothis, iblk, jblk, owner_rank, i
-   integer,   allocatable :: nelm_rank(:), ndsp_rank(:)
-   integer*8, allocatable :: elmindx(:)
-   integer,   allocatable :: npxlall(:)
-   integer,   allocatable :: elmpixels(:,:)
-   real(r8),  allocatable :: lon(:), lat(:)
-
-   integer :: nsend, nrecv, ndone, ndsp
-
-#ifdef MPAS_EMBEDDED_COLM
-      CALL CoLM_stop('MPAS embedded CoLM does not support standalone mesh_save_to_file.')
-#endif
-
-      ! add parameter input for time year
-      write(cyear,'(i4.4)') lc_year
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-      IF (p_is_root) THEN
-         write(*,*) 'Saving land elements ...'
-         CALL system('mkdir -p ' // trim(dir_landdata) // '/mesh/' // trim(cyear))
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-      filename = trim(dir_landdata) // '/mesh/' //trim(cyear) // '/mesh.nc'
-
-      DO jblk = 1, gblock%nyblk
-         DO iblk = 1, gblock%nxblk
-
-#ifdef USEMPI
-            IF (p_is_compute) THEN
-               IF (gblock%pio(iblk,jblk) == p_address_active(p_my_group)) THEN
-#endif
-                  nelm = 0
-                  totlen = 0
-                  DO ie = 1, numelm
-                     IF ((mesh(ie)%xblk == iblk) .and. (mesh(ie)%yblk == jblk)) THEN
-                        nelm = nelm + 1
-                        totlen = totlen + mesh(ie)%npxl
-                     ENDIF
-                  ENDDO
-
-                  IF (nelm > 0) THEN
-
-                     allocate (elmindx (nelm))
-                     allocate (npxlall (nelm))
-                     allocate (elmpixels (2,totlen))
-
-                     je = 0
-                     ndsp = 0
-                     DO ie = 1, numelm
-                        IF ((mesh(ie)%xblk == iblk) .and. (mesh(ie)%yblk == jblk)) THEN
-                           je = je + 1
-                           elmindx(je) = mesh(ie)%indx
-                           npxlall(je) = mesh(ie)%npxl
-
-                           elmpixels(1,ndsp+1:ndsp+npxlall(je)) = mesh(ie)%ilon
-                           elmpixels(2,ndsp+1:ndsp+npxlall(je)) = mesh(ie)%ilat
-
-                           ndsp = ndsp + npxlall(je)
-                        ENDIF
-                     ENDDO
-                  ENDIF
-
-#ifdef USEMPI
-                  CALL mpi_gather (nelm, 1, MPI_INTEGER, &
-                     MPI_INULL_P, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
-
-                  CALL mpi_gatherv (elmindx, nelm, MPI_INTEGER8, &
-                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER8, & ! unused on non-root ranks
-                     p_root, p_comm_group, p_err)
-
-                  CALL mpi_gatherv (npxlall, nelm, MPI_INTEGER, &
-                     MPI_INULL_P, MPI_INULL_P, MPI_INULL_P, MPI_INTEGER, & ! unused on non-root ranks
-                     p_root, p_comm_group, p_err)
-
-                  ndone = 0
-                  DO WHILE (ndone < totlen)
-                     nsend = max(min(totlen-ndone, MesgMaxSize/8), 1)
-                     CALL mpi_send (nsend, 1, &
-                        MPI_INTEGER, p_root, mpi_tag_size, p_comm_group, p_err)
-                     CALL mpi_send (elmpixels(:,ndone+1:ndone+nsend), 2*nsend, &
-                        MPI_INTEGER, p_root, mpi_tag_data, p_comm_group, p_err)
-                     ndone = ndone + nsend
-                  ENDDO
-               ENDIF
-            ENDIF
-#endif
-
-#ifdef USEMPI
-            IF (p_is_active) THEN
-               IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
-
-                  allocate (nelm_rank (0:p_np_group-1))
-                  nelm_rank(0) = 0
-                  CALL mpi_gather (MPI_IN_PLACE, 0, MPI_INTEGER, &
-                     nelm_rank, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
-
-                  nelm = sum(nelm_rank)
-
-                  allocate (ndsp_rank(0:p_np_group-1))
-                  ndsp_rank(0) = 0
-                  DO owner_rank = 1, p_np_group-1
-                     ndsp_rank(owner_rank) = ndsp_rank(owner_rank-1) + nelm_rank(owner_rank-1)
-                  ENDDO
-
-                  allocate (elmindx (nelm))
-                  CALL mpi_gatherv (MPI_IN_PLACE, 0, MPI_INTEGER8, &
-                     elmindx, nelm_rank(0:), ndsp_rank(0:), MPI_INTEGER8, &
-                     p_root, p_comm_group, p_err)
-
-                  allocate (npxlall (nelm))
-                  CALL mpi_gatherv (MPI_IN_PLACE, 0, MPI_INTEGER, &
-                     npxlall, nelm_rank(0:), ndsp_rank(0:), MPI_INTEGER, &
-                     p_root, p_comm_group, p_err)
-
-                  totlen = sum(npxlall)
-                  allocate (elmpixels (2, totlen))
-
-                  ndone = 0
-                  DO owner_rank = 1, p_np_group-1
-
-                     ndsp   = ndsp_rank(owner_rank)
-                     tothis = ndone + sum(npxlall(ndsp+1:ndsp+nelm_rank(owner_rank)))
-
-                     DO WHILE (ndone < tothis)
-
-                        CALL mpi_recv (nrecv, 1, &
-                           MPI_INTEGER, owner_rank, mpi_tag_size, p_comm_group, p_stat, p_err)
-                        CALL mpi_recv (elmpixels(:,ndone+1:ndone+nrecv), 2*nrecv, &
-                           MPI_INTEGER, owner_rank, mpi_tag_data, p_comm_group, p_stat, p_err)
-
-                        ndone = ndone + nrecv
-                     ENDDO
-                  ENDDO
-               ENDIF
-            ENDIF
-#endif
-
-            IF (p_is_active) THEN
-               IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
-                  IF (nelm > 0) THEN
-                     CALL get_filename_block (filename, iblk, jblk, fileblock)
-                     CALL ncio_create_file (fileblock)
-
-                     CALL ncio_define_dimension (fileblock, 'element',nelm)
-                     CALL ncio_define_dimension (fileblock, 'ncoor',  2   )
-                     CALL ncio_define_dimension (fileblock, 'pixel',  totlen)
-
-                     CALL ncio_write_serial (fileblock, 'elmindex',  elmindx, 'element')
-                     CALL ncio_write_serial (fileblock, 'elmnpxl',   npxlall, 'element')
-                     CALL ncio_write_serial (fileblock, 'elmpixels', elmpixels, &
-                        'ncoor', 'pixel', compress = 1)
-                  ENDIF
-               ENDIF
-            ENDIF
-
-            IF (allocated (elmindx))   deallocate(elmindx)
-            IF (allocated (npxlall))   deallocate(npxlall)
-            IF (allocated (elmpixels)) deallocate(elmpixels)
-
-            IF (allocated (nelm_rank)) deallocate(nelm_rank)
-            IF (allocated (ndsp_rank)) deallocate(ndsp_rank)
-
-#ifdef USEMPI
-            CALL mpi_barrier (p_comm_group, p_err)
-#endif
-         ENDDO
-      ENDDO
-
-      IF (p_is_root) THEN
-
-         CALL ncio_create_file (filename)
-
-         CALL ncio_define_dimension (filename, 'xblk', gblock%nxblk)
-         CALL ncio_define_dimension (filename, 'yblk', gblock%nyblk)
-         CALL ncio_write_serial (filename, 'nelm_blk', nelm_blk, 'xblk', 'yblk')
-
-         CALL ncio_define_dimension (filename, 'longitude', gridmesh%nlon)
-         CALL ncio_define_dimension (filename, 'latitude' , gridmesh%nlat)
-
-         allocate (lon (gridmesh%nlon))
-         allocate (lat (gridmesh%nlat))
-
-         DO i = 1, gridmesh%nlon
-            lon(i) = (gridmesh%lon_w(i) + gridmesh%lon_e(i)) * 0.5
-            IF (gridmesh%lon_w(i) > gridmesh%lon_e(i)) THEN
-               lon(i) = lon(i) + 180.0
-               CALL normalize_longitude (lon(i))
-            ENDIF
-         ENDDO
-         CALL ncio_write_serial (filename, 'longitude', lon, 'longitude')
-
-         DO i = 1, gridmesh%nlat
-            lat(i) = (gridmesh%lat_s(i) + gridmesh%lat_n(i)) * 0.5
-         ENDDO
-         CALL ncio_write_serial (filename, 'latitude', lat, 'latitude')
-
-#ifdef GRIDBASED
-         CALL ncio_write_serial (filename, 'lat_s', gridmesh%lat_s, 'latitude' )
-         CALL ncio_write_serial (filename, 'lat_n', gridmesh%lat_n, 'latitude' )
-         CALL ncio_write_serial (filename, 'lon_w', gridmesh%lon_w, 'longitude')
-         CALL ncio_write_serial (filename, 'lon_e', gridmesh%lon_e, 'longitude')
-#endif
-
-         deallocate (lon)
-         deallocate (lat)
-
-      ENDIF
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-      IF (p_is_root) write(*,*) 'SAVE land elements done.'
-
-   END SUBROUTINE mesh_save_to_file
 
    !------------------------------------
    SUBROUTINE prepare_subset_eindex(subset_eindex, sorted_subset)
 
    USE MOD_Utils, only: quicksort
+   USE MOD_MPAS_MPI, only: CoLM_stop
    IMPLICIT NONE
 
    integer*8, intent(in) :: subset_eindex(:)
@@ -275,6 +39,10 @@ CONTAINS
          order = (/ (i, i = 1, size(sorted_subset)) /)
          CALL quicksort(size(sorted_subset), sorted_subset, order)
          deallocate(order)
+
+         IF (any(sorted_subset(2:) == sorted_subset(:size(sorted_subset)-1))) THEN
+            CALL CoLM_stop('MPAS supplied duplicate owned cell IDs to embedded CoLM.')
+         ENDIF
       ENDIF
 
    END SUBROUTINE prepare_subset_eindex
@@ -318,7 +86,7 @@ CONTAINS
    !------------------------------------
    SUBROUTINE mesh_load_from_file (dir_landdata, lc_year, subset_eindex)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Namelist
    USE MOD_Block
    USE MOD_NetCDFSerial
@@ -339,25 +107,29 @@ CONTAINS
    logical,   allocatable :: keep_elm(:)
    logical :: use_subset
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('mesh-load entry synchronization')
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading land elements ...'
       ENDIF
 
       ! add parameter input for time year
       write(cyear,'(i4.4)') lc_year
       filename = trim(dir_landdata) // '/mesh/' // trim(cyear) // '/mesh.nc'
+      IF (.true.) CALL mesh_free_mem()
       CALL ncio_read_bcast_serial (filename, 'nelm_blk', nelm_blk)
       use_subset = present(subset_eindex)
       IF (use_subset) CALL prepare_subset_eindex(subset_eindex, subset_sorted)
 
-      IF (p_is_active) THEN
-
-         CALL mesh_free_mem()
-         numelm = sum(nelm_blk, mask = gblock%pio == p_iam_glb)
+      IF (.true.) THEN
+         IF (use_subset) THEN
+            numelm = size(subset_eindex)
+         ELSE
+            numelm = sum(nelm_blk, mask = gblock%owner_rank == mpas_rank)
+         ENDIF
 
          IF (numelm > 0) THEN
 
@@ -377,6 +149,13 @@ CONTAINS
                   CALL ncio_read_serial (fileblock, 'elmindex',  elmindx)
                   CALL ncio_read_serial (fileblock, 'elmnpxl',   npxl   )
 
+                  IF (size(elmindx) /= nelm .or. size(npxl) /= nelm) THEN
+                     CALL CoLM_stop('CoLM mesh block metadata lengths disagree with nelm_blk: '//trim(fileblock))
+                  ENDIF
+                  IF (any(npxl < 1)) THEN
+                     CALL CoLM_stop('CoLM mesh block contains an element with no pixels: '//trim(fileblock))
+                  ENDIF
+
                   IF (use_subset) THEN
                      allocate (keep_elm(nelm))
                      DO ie = 1, nelm
@@ -393,8 +172,17 @@ CONTAINS
                   CALL ncio_inquire_varsize (fileblock, 'elmpixels', datasize)
                   IF (size(datasize) == 3) THEN
                      CALL ncio_read_serial (fileblock, 'elmpixels', pixels2d)
-                  ELSE
+                     IF (size(pixels2d,1) < 2 .or. size(pixels2d,3) < nelm .or. &
+                         size(pixels2d,2) < maxval(npxl)) THEN
+                        CALL CoLM_stop('CoLM mesh block has inconsistent 3-D elmpixels dimensions: '//trim(fileblock))
+                     ENDIF
+                  ELSEIF (size(datasize) == 2) THEN
                      CALL ncio_read_serial (fileblock, 'elmpixels', pixels)
+                     IF (size(pixels,1) < 2 .or. size(pixels,2) < sum(npxl)) THEN
+                        CALL CoLM_stop('CoLM mesh block has inconsistent 2-D elmpixels dimensions: '//trim(fileblock))
+                     ENDIF
+                  ELSE
+                     CALL CoLM_stop('CoLM mesh elmpixels must be a two- or three-dimensional variable: '//trim(fileblock))
                   ENDIF
 
                   pdsp = 0
@@ -407,6 +195,9 @@ CONTAINS
                      ENDIF
 
                      ndsp = ndsp + 1
+                     IF (ndsp > size(mesh)) THEN
+                        CALL CoLM_stop('MPAS embedded CoLM mesh contains duplicate element IDs for an owned cell subset.')
+                     ENDIF
                      mesh(ndsp)%indx = elmindx(ie)
                      mesh(ndsp)%npxl = npxl(ie)
                      mesh(ndsp)%xblk = iblk
@@ -434,6 +225,9 @@ CONTAINS
                ENDIF
             ENDDO
 
+            IF (ndsp /= size(mesh)) THEN
+               CALL CoLM_stop('MPAS embedded CoLM mesh does not contain exactly one element per owned MPAS cell.')
+            ENDIF
             numelm = ndsp
             IF (numelm == 0) CALL mesh_free_mem()
          ENDIF
@@ -456,88 +250,30 @@ CONTAINS
       ENDIF
 
 #ifdef CoLMDEBUG
-      IF (p_is_active) write(*,'(I10,A,I4)') numelm, ' elements on group ', p_iam_active
+      IF (.true.) write(*,'(I10,A,I4)') numelm, ' elements on group ', mpas_rank
 #endif
 
-#ifdef USEMPI
-#ifndef MPAS_EMBEDDED_COLM
-      CALL scatter_mesh_legacy_roles
-#endif
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('mesh-load completion synchronization')
 #endif
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading land elements done.'
       ENDIF
 
    END SUBROUTINE mesh_load_from_file
 
-   !------------------------------------------------
-   SUBROUTINE pixelset_save_to_file (dir_landdata, psetname, pixelset, lc_year)
-
-   USE MOD_Namelist
-   USE MOD_SPMD_Task
-   USE MOD_Block
-   USE MOD_NetCDFVector
-   USE MOD_Pixelset
-   IMPLICIT NONE
-
-   character(len=*),    intent(in) :: dir_landdata
-   character(len=*),    intent(in) :: psetname
-   type(pixelset_type), intent(in) :: pixelset
-   integer         ,    intent(in) :: lc_year
-
-   ! Local variables
-   character(len=256)   :: filename, cyear
-
-#ifdef MPAS_EMBEDDED_COLM
-      CALL CoLM_stop('MPAS embedded CoLM does not support standalone pixelset_save_to_file.')
-#endif
-
-      write(cyear,'(i4.4)') lc_year
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-      IF (p_is_root) THEN
-         write(*,*) 'Saving Pixel Sets ' // trim(psetname) // ' ...'
-         CALL system('mkdir -p ' // trim(dir_landdata) // '/' // trim(psetname) // '/' // trim(cyear))
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-      filename = trim(dir_landdata) // '/' // trim(psetname) // '/' // trim(cyear) // '/' // trim(psetname) // '.nc'
-
-      CALL ncio_create_file_vector (filename, pixelset)
-      CALL ncio_define_dimension_vector (filename, pixelset, trim(psetname))
-
-      CALL ncio_write_vector (filename, 'eindex', trim(psetname), pixelset, pixelset%eindex, DEF_Srfdata_CompressLevel)
-      CALL ncio_write_vector (filename, 'ipxstt', trim(psetname), pixelset, pixelset%ipxstt, DEF_Srfdata_CompressLevel)
-      CALL ncio_write_vector (filename, 'ipxend', trim(psetname), pixelset, pixelset%ipxend, DEF_Srfdata_CompressLevel)
-      CALL ncio_write_vector (filename, 'settyp', trim(psetname), pixelset, pixelset%settyp, DEF_Srfdata_CompressLevel)
-
-      IF (pixelset%has_shared) THEN
-         CALL ncio_write_vector (filename, 'pctshared', trim(psetname), pixelset, pixelset%pctshared, DEF_Srfdata_CompressLevel)
-      ENDIF
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
-      IF (p_is_root) write(*,*) 'SAVE Pixel Sets ' // trim(psetname) // ' done.'
-
-   END SUBROUTINE pixelset_save_to_file
-
-
    !---------------------------
    SUBROUTINE pixelset_load_from_file (dir_landdata, psetname, pixelset, numset, lc_year, subset_eindex)
 
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_Block
    USE MOD_NetCDFSerial
    USE MOD_NetCDFVector
    USE MOD_Mesh
    USE MOD_Pixelset
+   USE MOD_Utils, only: quicksort, find_in_sorted_list1
    IMPLICIT NONE
 
    integer         ,    intent(in) :: lc_year
@@ -548,26 +284,29 @@ CONTAINS
    integer*8, optional, intent(in) :: subset_eindex(:)
 
    ! Local variables
-   character(len=256) :: filename, fileblock, blockname, cyear
-	   integer :: iset, nset, nset_file, ndsp, iblkme, iblk, jblk, ie, je, nave, nres, left, iproc, ipos
-   integer :: nsend, nrecv
-   integer*8, allocatable :: rbuff(:), sbuff(:)
+	   character(len=256) :: filename, fileblock, cyear
+#if (defined VectorInOneFileS || defined VectorInOneFileP)
+	   character(len=256) :: blockname
+#endif
+   integer :: iset, nset, nset_file, ndsp, iblkme, iblk, jblk, ie, ipos
+   integer :: match
+   integer*8, allocatable :: rbuff(:), mesh_sorted(:)
    integer*8, allocatable :: subset_sorted(:)
-   integer,   allocatable :: owner_rank(:)
-   logical,   allocatable :: msk(:)
+   integer,   allocatable :: mesh_order(:)
    logical,   allocatable :: keep_set(:)
    logical :: fexists, fexists_any
    logical :: use_subset
 
       write(cyear,'(i4.4)') lc_year
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
+#ifdef MPAS_MPI
+      CALL mpi_barrier (mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('pixelset-load entry synchronization')
 #endif
 
       use_subset = present(subset_eindex)
       IF (use_subset) CALL prepare_subset_eindex(subset_eindex, subset_sorted)
 
-      IF (p_is_root) THEN
+      IF (mpas_is_root) THEN
          write(*,*) 'Loading Pixel Sets ' // trim(psetname) // ' ...'
       ENDIF
 
@@ -575,7 +314,7 @@ CONTAINS
 
       CALL pixelset%forc_free_mem()
 
-      IF (p_is_active) THEN
+      IF (.true.) THEN
 
          pixelset%nset = 0
 
@@ -619,8 +358,9 @@ CONTAINS
          inquire(file=trim(filename), exist=fexists_any)
 #endif
 
-#ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, fexists_any, 1, MPI_LOGICAL, MPI_LOR, p_comm_active, p_err)
+#ifdef MPAS_MPI
+         CALL mpi_allreduce (MPI_IN_PLACE, fexists_any, 1, MPI_LOGICAL, MPI_LOR, mpas_comm, mpas_mpi_ierr)
+         CALL mpas_mpi_check('pixelset file-presence reduction')
 #endif
          IF (.not. fexists_any) THEN
             write(*,*) 'Warning : restart file ' //trim(filename)// ' not found.'
@@ -659,6 +399,9 @@ CONTAINS
                   ENDIF
 
                   IF (nset > 0) THEN
+	                     IF (ndsp + nset > pixelset%nset) THEN
+	                        CALL CoLM_stop('CoLM pixelset count changed while loading '//trim(psetname)//'.')
+	                     ENDIF
 	                     IF (use_subset) THEN
 	                        pixelset%eindex(ndsp+1:ndsp+nset) = pack(rbuff, keep_set)
 	                        pixelset%srcpos(ndsp+1:ndsp+nset) = &
@@ -693,6 +436,9 @@ CONTAINS
 	                  ENDIF
 
 	                  IF (nset > 0) THEN
+	                     IF (ndsp + nset > pixelset%nset) THEN
+	                        CALL CoLM_stop('CoLM pixelset count changed while loading '//trim(psetname)//'.')
+	                     ENDIF
 	                     IF (use_subset) THEN
 	                        pixelset%eindex(ndsp+1:ndsp+nset) = pack(rbuff, keep_set)
 	                        pixelset%srcpos(ndsp+1:ndsp+nset) = &
@@ -711,75 +457,49 @@ CONTAINS
 #endif
 
             ENDDO
+
+            IF (ndsp /= pixelset%nset) THEN
+               CALL CoLM_stop('CoLM pixelset count changed between metadata and data reads for '//trim(psetname)//'.')
+            ENDIF
          ENDIF
       ENDIF
 
 
-#if defined(USEMPI) && !defined(MPAS_EMBEDDED_COLM)
-      IF (p_is_active) THEN
-         IF (pixelset%nset > 0) THEN
-            allocate (owner_rank (pixelset%nset))
-            allocate (msk     (pixelset%nset))
-
-            ie = 1
-            je = 1
-            iblk = mesh(ie)%xblk
-            jblk = mesh(ie)%yblk
-            DO iset = 1, pixelset%nset
-               DO WHILE (pixelset%eindex(iset) /= mesh(ie)%indx)
-                  ie = ie + 1
-                  je = je + 1
-                  IF ((mesh(ie)%xblk /= iblk) .or. (mesh(ie)%yblk /= jblk)) THEN
-                     je = 1
-                     iblk = mesh(ie)%xblk
-                     jblk = mesh(ie)%yblk
-                  ENDIF
-               ENDDO
-
-               nave = nelm_blk(iblk,jblk) / (p_np_group-1)
-               nres = mod(nelm_blk(iblk,jblk), p_np_group-1)
-               left = (nave+1) * nres
-               IF (je <= left) THEN
-                  owner_rank(iset) = (je-1) / (nave+1) + 1
-               ELSE
-                  owner_rank(iset) = (je-left-1) / nave + 1 + nres
-               ENDIF
-            ENDDO
-
-            DO iproc = 1, p_np_group-1
-               msk = (owner_rank == iproc)
-               nsend = count(msk)
-               CALL mpi_send (nsend, 1, MPI_INTEGER, iproc, mpi_tag_size, p_comm_group, p_err)
-
-               IF (nsend > 0) THEN
-                  allocate (sbuff(nsend))
-                  sbuff = pack(pixelset%eindex, msk)
-                  CALL mpi_send (sbuff, nsend, MPI_INTEGER8, iproc, mpi_tag_data, p_comm_group, p_err)
-                  deallocate (sbuff)
-               ENDIF
-            ENDDO
-         ELSE
-            DO iproc = 1, p_np_group-1
-               nsend = 0
-               CALL mpi_send (nsend, 1, MPI_INTEGER, iproc, mpi_tag_size, p_comm_group, p_err)
-            ENDDO
+      IF (.true. .and. pixelset%nset > 0) THEN
+         IF (.not. allocated(mesh) .or. numelm < 1 .or. size(mesh) /= numelm) THEN
+            CALL CoLM_stop('Cannot map '//trim(psetname)//' because the local CoLM element mesh is empty or inconsistent.')
+         ENDIF
+         IF (.not. allocated(pixelset%eindex) .or. size(pixelset%eindex) /= pixelset%nset) THEN
+            CALL CoLM_stop('Invalid element-index vector while loading '//trim(psetname)//'.')
          ENDIF
 
-      ENDIF
-
-      IF (p_is_compute) THEN
-
-         CALL mpi_recv (nrecv, 1, MPI_INTEGER, p_root, mpi_tag_size, p_comm_group, p_stat, p_err)
-
-         pixelset%nset = nrecv
-         IF (nrecv > 0) THEN
-            allocate (pixelset%eindex (nrecv))
-            CALL mpi_recv (pixelset%eindex, nrecv, MPI_INTEGER8, &
-               p_root, mpi_tag_data, p_comm_group, p_stat, p_err)
+         allocate (mesh_sorted(numelm))
+         allocate (mesh_order (numelm))
+         DO ie = 1, numelm
+            mesh_sorted(ie) = mesh(ie)%indx
+            mesh_order(ie) = ie
+         ENDDO
+         IF (numelm > 1) CALL quicksort(numelm, mesh_sorted, mesh_order)
+         IF (numelm > 1) THEN
+            IF (any(mesh_sorted(2:numelm) == mesh_sorted(1:numelm-1))) THEN
+               CALL CoLM_stop('The local CoLM mesh contains duplicate element IDs while loading '//trim(psetname)//'.')
+            ENDIF
          ENDIF
-      ENDIF
-#endif
 
+         allocate (pixelset%ielm(pixelset%nset))
+         DO iset = 1, pixelset%nset
+            match = find_in_sorted_list1(pixelset%eindex(iset), numelm, mesh_sorted)
+            IF (match < 1) THEN
+               write(*,'(A,A,A,I0,A,I0)') 'CoLM ', trim(psetname), ' entry ', iset, &
+                  ' references missing element ', pixelset%eindex(iset)
+               CALL CoLM_stop('CoLM pixelset and MPAS-owned element mesh are inconsistent.')
+            ENDIF
+            pixelset%ielm(iset) = mesh_order(match)
+         ENDDO
+
+         deallocate (mesh_sorted)
+         deallocate (mesh_order)
+      ENDIF
 
       CALL pixelset%set_vecgs
 
@@ -787,27 +507,41 @@ CONTAINS
       CALL ncio_read_vector (filename, 'ipxend', pixelset, pixelset%ipxend)
       CALL ncio_read_vector (filename, 'settyp', pixelset, pixelset%settyp)
 
-      IF (p_is_compute) THEN
-         IF (pixelset%nset > 0) THEN
+      IF (.true. .and. pixelset%nset > 0) THEN
+         IF (.not. allocated(pixelset%ipxstt) .or. .not. allocated(pixelset%ipxend) .or. &
+             .not. allocated(pixelset%settyp)) THEN
+            CALL CoLM_stop('CoLM pixelset identity vectors are incomplete for '//trim(psetname)//'.')
+         ENDIF
+         IF (size(pixelset%ipxstt) /= pixelset%nset .or. size(pixelset%ipxend) /= pixelset%nset .or. &
+             size(pixelset%settyp) /= pixelset%nset) THEN
+            CALL CoLM_stop('CoLM pixelset identity vector lengths are inconsistent for '//trim(psetname)//'.')
+         ENDIF
+         DO iset = 1, pixelset%nset
+            ie = pixelset%ielm(iset)
+            IF (ie < 1 .or. ie > numelm) THEN
+               CALL CoLM_stop('CoLM pixelset references an invalid local element for '//trim(psetname)//'.')
+            ENDIF
+            IF (pixelset%ipxstt(iset) == -1) THEN
+               IF (pixelset%ipxend(iset) /= -1) THEN
+                  CALL CoLM_stop('CoLM virtual pixelset has inconsistent pixel bounds for '//trim(psetname)//'.')
+               ENDIF
+            ELSEIF (pixelset%ipxstt(iset) < 1 .or. pixelset%ipxend(iset) < pixelset%ipxstt(iset) .or. &
+                    pixelset%ipxend(iset) > mesh(ie)%npxl) THEN
+               CALL CoLM_stop('CoLM pixelset references pixels outside its element for '//trim(psetname)//'.')
+            ENDIF
+         ENDDO
+      ENDIF
 
-            allocate (pixelset%ielm (pixelset%nset))
-            ie = 1
-            DO iset = 1, pixelset%nset
-               DO WHILE (pixelset%eindex(iset) /= mesh(ie)%indx)
-                  ie = ie + 1
-               ENDDO
-               pixelset%ielm(iset) = ie
-            ENDDO
-
-         ELSE
-            write(*,*) 'Warning: 0 ',trim(psetname), ' on rank :', p_iam_glb
+      IF (.true.) THEN
+         IF (pixelset%nset == 0) THEN
+            write(*,*) 'Warning: 0 ',trim(psetname), ' on rank :', mpas_rank
          ENDIF
       ENDIF
 
       numset = pixelset%nset
 
       pixelset%has_shared = .false.
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          DO iset = 1, pixelset%nset-1
             IF ((pixelset%ielm(iset) == pixelset%ielm(iset+1)) &
                .and. (pixelset%ipxstt(iset) == pixelset%ipxstt(iset+1))) THEN
@@ -817,9 +551,10 @@ CONTAINS
          ENDDO
       ENDIF
 
-#ifdef USEMPI
+#ifdef MPAS_MPI
       CALL mpi_allreduce (MPI_IN_PLACE, pixelset%has_shared, 1, MPI_LOGICAL, &
-         MPI_LOR, p_comm_glb, p_err)
+         MPI_LOR, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('shared-pixelset presence reduction')
 #endif
 
       IF (pixelset%has_shared) THEN
@@ -827,7 +562,7 @@ CONTAINS
       ENDIF
 
 #ifdef CoLMDEBUG
-      IF (p_is_active)  write(*,*) numset, trim(psetname), ' on group', p_iam_active
+      IF (.true.)  write(*,*) numset, trim(psetname), ' on group', mpas_rank
 #endif
 
       IF (allocated(subset_sorted)) deallocate(subset_sorted)

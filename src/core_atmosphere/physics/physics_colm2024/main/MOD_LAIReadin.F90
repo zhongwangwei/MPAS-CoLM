@@ -28,7 +28,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_Namelist
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_UserDefFun
    USE MOD_NetCDFVector
    USE MOD_LandPatch
@@ -110,7 +110,7 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpatch > 0) THEN
 
             DO npatch = 1, numpatch
@@ -189,7 +189,7 @@ CONTAINS
 
 #endif
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpatch > 0) THEN
             DO npatch = 1, numpatch
                m = patchclass(npatch)

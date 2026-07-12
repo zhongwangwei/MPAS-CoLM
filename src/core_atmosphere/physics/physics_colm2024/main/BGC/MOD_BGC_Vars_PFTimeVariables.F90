@@ -409,12 +409,12 @@ CONTAINS
 ! Allocates memory for CoLM 1d [numpft] variables
 ! ------------------------------------------------------
    USE MOD_Precision
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
    USE MOD_Vars_Global
    IMPLICIT NONE
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
   ! bgc variables
             allocate (leafc_p                  (numpft)); leafc_p                  (:) = spval
@@ -1946,10 +1946,10 @@ CONTAINS
 ! --------------------------------------------------
 ! Deallocates memory for CoLM 1d [numpft/numpc] variables
 ! --------------------------------------------------
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    USE MOD_LandPFT
 
-      IF (p_is_compute) THEN
+      IF (.true.) THEN
          IF (numpft > 0) THEN
 ! bgc variables
             deallocate (leafc_p                  )
@@ -2323,7 +2323,7 @@ CONTAINS
    SUBROUTINE check_BGCPFTimeVariables
 
    USE MOD_RangeCheck
-   USE MOD_SPMD_Task
+   USE MOD_MPAS_MPI
    IMPLICIT NONE
 
 ! bgc variables
