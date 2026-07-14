@@ -1,3 +1,7 @@
+#if defined(GRIDBASED) || defined(CATCHMENT) || defined(SinglePoint) || defined(BGC) || defined(CROP) || defined(LULCC) || defined(URBAN_MODEL) || defined(DataAssimilation) || defined(HYPERSPECTRAL) || defined(GridRiverLakeSediment) || defined(USESplitAI) || defined(EXTERNAL_LAKE)
+#error "Unsupported CoLM options cannot be injected into the MPAS embedded build"
+#endif
+
 ! 1. Spatial structure:
 !    Select one of the following options.
 #undef GRIDBASED
@@ -89,10 +93,18 @@
 #undef EXTERNAL_LAKE
 
 ! 12. Hyperspectral scheme.
-#define HYPERSPECTRAL
+#undef HYPERSPECTRAL
 
 ! MPAS embeds CoLM as a land-surface physics package on every MPAS rank.
 ! CoLM keeps patch/PFT state below MPAS-owned cells and communicates through the
 ! MPAS communicator. MPAS supplies CoLM VIS/NIR direct/diffuse forcing.
 #define MPAS_EMBEDDED_COLM
-#undef HYPERSPECTRAL
+
+! Keep the embedded build contract explicit. These optional CoLM source trees
+! and interfaces have not been integrated into the MPAS-owned execution path.
+#if !defined(UNSTRUCTURED)
+#error "MPAS_EMBEDDED_COLM requires the UNSTRUCTURED spatial structure"
+#endif
+#if defined(BGC) || defined(CROP) || defined(LULCC) || defined(URBAN_MODEL) || defined(DataAssimilation) || defined(HYPERSPECTRAL) || defined(GridRiverLakeSediment) || defined(USESplitAI) || defined(EXTERNAL_LAKE)
+#error "MPAS_EMBEDDED_COLM does not support BGC, CROP, LULCC, URBAN, DA, hyperspectral, sediment, AI, or external-lake options"
+#endif

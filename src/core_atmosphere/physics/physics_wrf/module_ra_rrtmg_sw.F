@@ -10026,6 +10026,7 @@ CONTAINS
  subroutine rrtmg_swrad( &
                        p3d,p8w,pi3d,t3d,t8w,dz8w,qv3d,qc3d,qr3d,       &
                        qi3d,qs3d,qg3d,cldfra3d,o33d,tsk,albedo,        &
+                       alswvisdir,alswvisdif,alswnirdir,alswnirdif,    &
                        xland,xice,snow,coszr,xtime,gmt,julday,radt,    &
                        degrad,declin,solcon,xlat,xlong,icloud,         &
                        cldovrlp,idcor,o3input, &
@@ -10040,7 +10041,7 @@ CONTAINS
                        swvisdir,swvisdif,swnirdir,swnirdif,            &
                        ids,ide, jds,jde, kds,kde,                      & 
                        ims,ime, jms,jme, kms,kme,                      &
-                       its,ite, jts,jte, kts,kte                       &
+                       its,ite, jts,jte, kts,kte, co2vmr_input         &
                        )
 
  implicit none
@@ -10057,8 +10058,10 @@ CONTAINS
  integer,intent(in),optional:: o3input
 
  real,intent(in):: radt,degrad,xtime,declin,solcon,gmt
+ real,intent(in),optional:: co2vmr_input
  real,intent(in),dimension(ims:ime,jms:jme):: xlat,xlong
  real,intent(in),dimension(ims:ime,jms:jme):: albedo,tsk,snow,xice,xland
+ real,intent(in),dimension(ims:ime,jms:jme):: alswvisdir,alswvisdif,alswnirdir,alswnirdif
  real,intent(in),dimension(ims:ime,kms:kme,jms:jme):: t3d,p3d,pi3d
  real,intent(in),dimension(ims:ime,kms:kme,jms:jme):: dz8w,p8w,t8w
 
@@ -10140,10 +10143,9 @@ CONTAINS
 !    local here:
  real,dimension(1,kts:kte+1,naerec):: ecaer
 
-!--- set trace gas volume mixing ratios, 2005 values, IPCC (2007):
-!carbon dioxide (379 ppmv)
+!--- set trace gas volume mixing ratios:
+!carbon dioxide (379 ppmv fallback; CoLM supplies its monthly value)
  real :: co2
- data co2 / 379.e-6 / 
 !methane (1774 ppbv)
  real :: ch4
  data ch4 / 1774.e-9 / 
@@ -10176,6 +10178,8 @@ CONTAINS
 !-----------------------------------------------------------------------------------------------------------------
 
 !--- all fields are ordered vertically from bottom to top (pressures are in mb):
+ co2 = 379.e-6
+ if(present(co2vmr_input)) co2 = co2vmr_input
  ncol = 1
 
 !--- select cloud overlap asumption (1=random, 2=maximum-random, 3=maximum, 4=exponential, 5=exponential-random).
@@ -10381,6 +10385,15 @@ CONTAINS
           asdif(ncol) = albedo(i,j)
           aldir(ncol) = albedo(i,j)
           aldif(ncol) = albedo(i,j)
+          if(alswvisdir(i,j) >= 0.0 .and. alswvisdir(i,j) <= 1.0 .and. &
+             alswvisdif(i,j) >= 0.0 .and. alswvisdif(i,j) <= 1.0 .and. &
+             alswnirdir(i,j) >= 0.0 .and. alswnirdir(i,j) <= 1.0 .and. &
+             alswnirdif(i,j) >= 0.0 .and. alswnirdif(i,j) <= 1.0) then
+             asdir(ncol) = alswvisdir(i,j)
+             asdif(ncol) = alswvisdif(i,j)
+             aldir(ncol) = alswnirdir(i,j)
+             aldif(ncol) = alswnirdif(i,j)
+          endif
 
           !--- set solar constant:
           scon = solcon

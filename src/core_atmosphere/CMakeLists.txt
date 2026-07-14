@@ -517,7 +517,7 @@ if (MPAS_COLM2024)
     set_property(SOURCE ${ATMOSPHERE_CORE_PHYSICS_COLM2024_SOURCES}
                  PROPERTY Fortran_PREPROCESS ON)
     if(CMAKE_Fortran_COMPILER_ID MATCHES GNU)
-        set(_colm2024_compile_options -fdefault-real-8 -ffree-line-length-none)
+        set(_colm2024_compile_options -fdefault-real-8 -fdefault-double-8 -ffree-line-length-none)
     elseif(CMAKE_Fortran_COMPILER_ID MATCHES Intel)
         set(_colm2024_compile_options -real-size 64)
     elseif(CMAKE_Fortran_COMPILER_ID MATCHES NVHPC)

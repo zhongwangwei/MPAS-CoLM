@@ -29,7 +29,7 @@ CONTAINS
    IMPLICIT NONE
 
    ! Local Variables
-   character(len=256) :: file_restart
+   character(len=:), allocatable :: file_restart
 
 
       file_restart = trim(DEF_dir_restart) // '/ParaOpt/' // trim(DEF_CASE_NAME) //'_baseflow.nc'
@@ -88,7 +88,7 @@ CONTAINS
    ! Local Variables
    real(r8), allocatable :: recharge(:)
    integer  :: ipatch
-   character(len=256) :: file_restart
+   character(len=:), allocatable :: file_restart
    character(len=5)   :: strcyc
 
       IF (DEF_Optimize_Baseflow .and. is_spinup) THEN

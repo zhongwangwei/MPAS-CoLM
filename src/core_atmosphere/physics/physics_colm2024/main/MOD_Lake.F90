@@ -306,7 +306,8 @@ CONTAINS
            olrg         , fgrnd       , tref         , qref      ,&
            trad         , emis        , z0m          , zol       ,&
            rib          , ustar       , qstar        , tstar     ,&
-           fm           , fh          , fq           , sm        ,&
+           fm           , fh          , fq           , fh2m      ,&
+           fq2m         , fm10m       , sm           ,&
            urban_call)
 
 ! ------------------------ code history ---------------------------
@@ -473,6 +474,9 @@ CONTAINS
    real(r8), intent(out) :: fm     ! integral of profile function for momentum
    real(r8), intent(out) :: fh     ! integral of profile function for heat
    real(r8), intent(out) :: fq     ! integral of profile function for moisture
+   real(r8), intent(out) :: fh2m   ! relation for temperature at 2m
+   real(r8), intent(out) :: fq2m   ! relation for specific humidity at 2m
+   real(r8), intent(out) :: fm10m  ! integral of profile function for momentum at 10m
    real(r8), intent(out) :: sm     ! rate of snowmelt [mm/s, kg/(m2 s)]
    logical, optional, intent(in) :: urban_call   ! whether it is a urban CALL
 
@@ -506,9 +510,6 @@ CONTAINS
    real(r8) rah      ! thermal resistance [s/m]
    real(r8) raw      ! moisture resistance [s/m]
    real(r8) stftg3   ! emg*sb*t_grnd*t_grnd*t_grnd
-   real(r8) fh2m     ! relation for temperature at 2m
-   real(r8) fq2m     ! relation for specific humidity at 2m
-   real(r8) fm10m    ! integral of profile function for momentum at 10m
    real(r8) t_grnd_bef0   ! initial ground temperature
    real(r8) t_grnd_bef    ! initial ground temperature
    real(r8) thm      ! intermediate variable (forc_t+0.0098*forc_hgt_t)

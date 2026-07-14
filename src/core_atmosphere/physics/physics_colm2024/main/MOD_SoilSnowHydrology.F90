@@ -10,6 +10,7 @@ MODULE MOD_SoilSnowHydrology
                            DEF_DA_TWS_GRACE,        DEF_Optimize_Baseflow, &
                            DEF_USE_Dynamic_Wetland
    USE MOD_LandPatch, only: landpatch
+   USE MOD_MPAS_MPI, only: CoLM_stop
    USE MOD_Runoff
    USE MOD_Hydro_VIC
    USE MOD_Hydro_VIC_Variables
@@ -399,14 +400,12 @@ ENDIF
 
 ELSE
       IF(patchtype==2)THEN        ! WETLAND
-         ! 09/20/2019, by Chaoqun Li: a potential bug below
-         ! surface runoff could > total runoff
-         ! original CoLM: rusr=0., qinfl=gwat, rsubst=0., rnof=0.
-         ! i.e., all water to be infiltration
+         ! Wetland precipitation becomes surface runoff; keep total runoff
+         ! consistent with its surface and subsurface components.
          qinfl = 0.
          rsur = max(0.,gwat)
          rsubst = 0.
-         rnof = 0.
+         rnof = rsur + rsubst
          DO j = 1, nl_soil
             IF(t_soisno(j)>tfrz)THEN
                wice_soisno(j) = 0.0
@@ -611,6 +610,8 @@ ENDIF
 
    real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
    real(r8) :: qgtop
+   real(r8) :: qgtop_deficit, imperv_surface_loss
+   real(r8) :: imperv_soil_deficit, imperv_liq_loss
 
    real(r8) :: zwtmm
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
@@ -871,14 +872,25 @@ IF((patchtype<=1) .or. is_dry_lake &
       wdsrf = max(0., wdsrf)
 
       IF ((.not. is_permeable(1)) .and. (qgtop < 0.)) THEN
-         IF (wdsrf > 0) THEN
-            wdsrf = wdsrf + qgtop * deltim
-            IF (wdsrf < 0) THEN
-               wliq_soisno(1) = max(0., wliq_soisno(1) + wdsrf)
-               wdsrf = 0
+         qgtop_deficit = -qgtop * deltim
+
+         imperv_surface_loss = min(max(wdsrf, 0._r8), qgtop_deficit)
+         IF (imperv_surface_loss > 0._r8) THEN
+            wdsrf = max(0._r8, wdsrf - imperv_surface_loss)
+         ENDIF
+
+         imperv_soil_deficit = max(qgtop_deficit - imperv_surface_loss, 0._r8)
+         IF (imperv_soil_deficit > 0._r8) THEN
+            ! qgtop contains qseva/qseva_soil, which Thermal has already
+            ! limited to available liquid water.  Sublimation is carried by
+            ! qsubl/qsubl_soil and removes ice separately below; charging this
+            ! liquid evaporation deficit to ice would double-count the phase
+            ! change and use the wrong latent heat.
+            imperv_liq_loss = min(max(wliq_soisno(1), 0._r8), imperv_soil_deficit)
+            wliq_soisno(1) = max(0._r8, wliq_soisno(1) - imperv_liq_loss)
+            IF (imperv_soil_deficit - imperv_liq_loss > 1.e-10_r8) THEN
+               CALL CoLM_Stop ('ERROR: impermeable-surface liquid evaporation exceeds available liquid water.')
             ENDIF
-         ELSE
-            wliq_soisno(1) = max(0., wliq_soisno(1) + qgtop * deltim)
          ENDIF
 
          qgtop = 0.

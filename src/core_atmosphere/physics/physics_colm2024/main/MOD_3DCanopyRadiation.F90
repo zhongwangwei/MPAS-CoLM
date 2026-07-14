@@ -110,7 +110,9 @@ CONTAINS
       ps = patch_pft_s(ipatch)
       pe = patch_pft_e(ipatch)
 
-      ! Calculate the end index of natrue PFT
+      ! Calculate the end index of natrue PFT. Some patches can have an
+      ! empty PFT slice (ps > pe); keep pn below ps in that case.
+      pn = ps - 1
       DO i = ps, pe
          pn = i
          p = pftclass(i)

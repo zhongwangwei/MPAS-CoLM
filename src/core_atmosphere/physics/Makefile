@@ -9,10 +9,9 @@ COLM2024_ENABLED = true
 COLM2024_CORE = core_physics_colm2024_embedded
 COLM2024_BUILD_DIR = physics_colm2024/.mpas_bld
 COLM2024_HEADER = physics_colm2024/include/define.h
-COLM2024_STAMP = $(COLM2024_BUILD_DIR)/.built
 NF_CONFIG ?= nf-config
 COLM2024_NETCDF_INC ?= $(shell $(NF_CONFIG) --includedir 2>/dev/null || nc-config --includedir 2>/dev/null)
-COLM2024_INCLUDES = -I./physics_colm2024/include -I./$(COLM2024_BUILD_DIR)
+COLM2024_INCLUDES = $(FCINCLUDES) -I./physics_colm2024/include -I./$(COLM2024_BUILD_DIR)
 ifneq ($(strip $(COLM2024_NETCDF_INC)),)
 COLM2024_INCLUDES += -I$(COLM2024_NETCDF_INC)
 endif
@@ -46,6 +45,8 @@ COLM2024_SOURCE_DIRS = \
 	physics_colm2024/main/ParaOpt \
 	physics_colm2024/drivers/mpas
 COLM2024_SOURCES = $(foreach dir,$(COLM2024_SOURCE_DIRS),$(wildcard $(dir)/*.F90))
+COLM2024_CONFIG = $(COLM2024_BUILD_DIR)/.config
+COLM2024_STAMP = $(COLM2024_BUILD_DIR)/.built
 endif
 
 all:
@@ -207,13 +208,81 @@ COLM2024_OBJS_MAIN_NAMES = \
 COLM2024_OBJ_NAMES = $(COLM2024_OBJS_SHARED_NAMES) $(COLM2024_OBJS_BASIC_NAMES) $(COLM2024_OBJS_MAIN_NAMES)
 COLM2024_OBJS = $(addprefix $(COLM2024_BUILD_DIR)/,$(COLM2024_OBJ_NAMES))
 
-.PHONY: core_physics_colm2024_embedded
+# Keep the hand-ordered module list deterministic, but fail when the embedded
+# source set changes without an explicit build-order or exclusion decision.
+COLM2024_EXCLUDED_OBJ_NAMES = \
+	MOD_5x5DataReadin.o \
+	MOD_Albedo_HiRes.o \
+	MOD_dataSpec_PDB.o \
+	MOD_FireData.o \
+	MOD_HighRes_Parameters.o \
+	MOD_Irrigation.o \
+	MOD_LightningData.o \
+	MOD_NdepData.o \
+	MOD_NetCDFPoint.o \
+	MOD_NetSolar_Hyper.o \
+	MOD_NitrifData.o \
+	MOD_OrbCosazi.o \
+	MOD_ParameterOptimization.o \
+	MOD_prospect_DB.o \
+	MOD_SnowSnicar_HiRes.o \
+	MOD_tav_abs.o \
+	MOD_VicParaReadin.o
+COLM2024_DISCOVERED_OBJ_NAMES = $(notdir $(COLM2024_SOURCES:.F90=.o))
+COLM2024_UNKNOWN_OBJ_NAMES = $(filter-out $(COLM2024_OBJ_NAMES) $(COLM2024_EXCLUDED_OBJ_NAMES),$(sort $(COLM2024_DISCOVERED_OBJ_NAMES)))
+COLM2024_MISSING_OBJ_NAMES = $(filter-out $(sort $(COLM2024_DISCOVERED_OBJ_NAMES)),$(COLM2024_OBJ_NAMES))
+ifneq ($(words $(COLM2024_DISCOVERED_OBJ_NAMES)),$(words $(sort $(COLM2024_DISCOVERED_OBJ_NAMES))))
+$(error CoLM2024 source directories contain duplicate F90 basenames)
+endif
+ifneq ($(strip $(COLM2024_UNKNOWN_OBJ_NAMES)),)
+$(error New CoLM2024 sources require an ordered or excluded build decision: $(COLM2024_UNKNOWN_OBJ_NAMES))
+endif
+ifneq ($(strip $(COLM2024_MISSING_OBJ_NAMES)),)
+$(error Ordered CoLM2024 sources are missing: $(COLM2024_MISSING_OBJ_NAMES))
+endif
+
+.PHONY: core_physics_colm2024_embedded colm2024_force_config
 core_physics_colm2024_embedded: $(COLM2024_STAMP)
+
+colm2024_force_config:
 
 $(COLM2024_BUILD_DIR):
 	mkdir -p $(COLM2024_BUILD_DIR)
 
-$(COLM2024_STAMP): $(COLM2024_HEADER) $(COLM2024_SOURCES) | $(COLM2024_BUILD_DIR)
+$(COLM2024_CONFIG): colm2024_force_config | $(COLM2024_BUILD_DIR)
+	@set -e; \
+	tmp="$@.tmp"; \
+	trap 'rm -f "$$tmp"' EXIT; \
+	{ \
+		printf '%s\n' 'FC=$(FC)'; \
+		printf '%s\n' 'FC_VERSION=$(COLM2024_FC_VERSION)'; \
+		printf '%s\n' 'FOPTS=$(COLM2024_FOPTS)'; \
+		printf '%s\n' 'INCLUDES=$(COLM2024_INCLUDES)'; \
+		printf '%s\n' 'MOD_FLAGS=$(COLM2024_MOD_FLAGS)'; \
+		fc_path=$$(command -v '$(firstword $(FC))' 2>/dev/null || true); \
+		printf 'FC_BINARY=%s\n' "$$fc_path"; \
+		if [ -n "$$fc_path" ] && [ -f "$$fc_path" ]; then cksum "$$fc_path"; fi; \
+		next_is_include=false; \
+		for arg in $(COLM2024_INCLUDES); do \
+			include_dir=; \
+			if $$next_is_include; then include_dir="$$arg"; next_is_include=false; \
+			elif [ "$$arg" = -I ]; then next_is_include=true; \
+			else case "$$arg" in -I*) include_dir=$${arg#-I} ;; esac; fi; \
+			for mod in "$$include_dir/netcdf.mod" "$$include_dir/NETCDF.mod"; do \
+				if [ -n "$$include_dir" ] && [ -f "$$mod" ]; then \
+					printf 'NETCDF_MODULE=%s\n' "$$mod"; \
+					cksum "$$mod"; \
+				fi; \
+			done; \
+		done; \
+	} > "$$tmp"; \
+	if [ -r "$@" ] && cmp -s "$$tmp" "$@"; then \
+		rm -f "$$tmp"; \
+	else \
+		mv -f "$$tmp" "$@"; \
+	fi
+
+$(COLM2024_STAMP): $(COLM2024_CONFIG) $(COLM2024_HEADER) $(COLM2024_SOURCES) | $(COLM2024_BUILD_DIR)
 	@echo 'compiling embedded CoLM2024 physics >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@set -e; \
 	for obj in $(COLM2024_OBJ_NAMES); do \

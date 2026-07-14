@@ -72,6 +72,8 @@ CONTAINS
                        respc         ,errore        ,emis          ,z0m           ,&
                        zol           ,rib           ,ustar         ,qstar         ,&
                        tstar         ,fm            ,fh            ,fq            ,&
+                       fh2m          ,fq2m          ,fm10m         ,&
+                       u10m          ,v10m          ,chs2          ,cqs2          ,cd10          ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                 )
 
@@ -365,7 +367,15 @@ CONTAINS
        tstar,                    &! t* in similarity theory [K]
        fm,                       &! integral of profile function for momentum
        fh,                       &! integral of profile function for heat
-       fq                         ! integral of profile function for moisture
+       fq,                       &! integral of profile function for moisture
+       fh2m,                     &! relation for temperature at 2m
+       fq2m,                     &! relation for specific humidity at 2m
+       fm10m,                    &! integral of profile function for momentum at 10m
+       u10m,                     &! area-effective 10 m zonal wind [m/s]
+       v10m,                     &! area-effective 10 m meridional wind [m/s]
+       chs2,                     &! area-effective 2 m heat exchange velocity [m/s]
+       cqs2,                     &! area-effective 2 m moisture exchange velocity [m/s]
+       cd10                       ! area-effective 10 m momentum coefficient
 
 !Ozone stress variables
    real(r8),intent(inout) ::     &
@@ -435,9 +445,10 @@ CONTAINS
        dheatl                     ! vegetation heat change [W/m2]
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
-   real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
+   real(r8) :: fm_g,fh_g,fq_g,um,obu
 
    integer p, ps, pe, pn
+   real(r8) :: pft_wt
 
    real(r8), allocatable :: rootr_p     (:,:)
    real(r8), allocatable :: rootflux_p  (:,:)
@@ -469,6 +480,9 @@ CONTAINS
    real(r8), allocatable :: fm_p          (:)
    real(r8), allocatable :: fh_p          (:)
    real(r8), allocatable :: fq_p          (:)
+   real(r8), allocatable :: fh2m_p        (:)
+   real(r8), allocatable :: fq2m_p        (:)
+   real(r8), allocatable :: fm10m_p       (:)
    real(r8), allocatable :: hprl_p        (:)
    real(r8), allocatable :: assimsun_p    (:)
    real(r8), allocatable :: etrsun_p      (:)
@@ -503,6 +517,8 @@ CONTAINS
       ustar  = 0.;  qstar  = 0.
       tstar  = 0.;  rootr  = 0.
       rootflux = 0.
+      fh2m = spval;  fq2m = spval;  fm10m = spval
+      u10m = spval;  v10m = spval;  chs2 = spval;  cqs2 = spval;  cd10 = spval
 
       dlrad  = frl
 
@@ -639,7 +655,8 @@ ELSE
                          !taux,tauy,fseng,fevpg,tref,qref, &
                          taux,tauy,fseng,fseng_soil,fseng_snow, &
                          fevpg,fevpg_soil,fevpg_snow,tref,qref, &
-                         z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g)
+                         z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g, &
+                         fh2m,fq2m,fm10m)
 
       obu_g = forc_hgt_u / zol_g
 
@@ -695,7 +712,8 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
                  tref        ,qref        ,rst         ,assim       ,respc       ,&
                  fsenl       ,fevpl       ,etr         ,dlrad       ,ulrad       ,&
                  z0m         ,zol         ,rib         ,ustar       ,qstar       ,&
-                 tstar       ,fm          ,fh          ,fq          ,rootfr      ,&
+                 tstar       ,fm          ,fh          ,fq          ,fh2m        ,&
+                 fq2m        ,fm10m       ,rootfr      ,&
                  kmax_sun    ,kmax_sha    ,kmax_xyl    ,kmax_root   ,psi50_sun   ,&
                  psi50_sha   ,psi50_xyl   ,psi50_root  ,ck          ,vegwp       ,&
                  gs0sun      ,gs0sha                                             ,&
@@ -733,6 +751,12 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 
 ENDIF
 
+      u10m = forc_us * fm10m / fm
+      v10m = forc_vs * fm10m / fm
+      chs2 = vonkar * ustar / fh2m
+      cqs2 = vonkar * ustar / fq2m
+      cd10 = (vonkar / fm10m)**2
+
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 IF (patchtype == 0) THEN
@@ -769,6 +793,9 @@ IF (patchtype == 0) THEN
       allocate ( fm_p             (ps:pe) )
       allocate ( fh_p             (ps:pe) )
       allocate ( fq_p             (ps:pe) )
+      allocate ( fh2m_p           (ps:pe) )
+      allocate ( fq2m_p           (ps:pe) )
+      allocate ( fm10m_p          (ps:pe) )
 
       allocate ( hprl_p           (ps:pe) )
       allocate ( assimsun_p       (ps:pe) )
@@ -902,7 +929,8 @@ IF (patchtype == 0) THEN
                  tref_p(i)       ,qref_p(i)       ,rst_p(i)        ,assim_p(i)      ,respc_p(i)     ,&
                  fsenl_p(i)      ,fevpl_p(i)      ,etr_p(i)        ,dlrad_p(i)      ,ulrad_p(i)     ,&
                  z0m_p(i)        ,zol_p(i)        ,rib_p(i)        ,ustar_p(i)      ,qstar_p(i)     ,&
-                 tstar_p(i)      ,fm_p(i)         ,fh_p(i)         ,fq_p(i)         ,rootfr_p(:,p)  ,&
+                 tstar_p(i)      ,fm_p(i)         ,fh_p(i)         ,fq_p(i)         ,fh2m_p(i)      ,&
+                 fq2m_p(i)       ,fm10m_p(i)      ,rootfr_p(:,p)  ,&
                  kmax_sun_p(p)   ,kmax_sha_p(p)   ,kmax_xyl_p(p)   ,kmax_root_p(p)  ,psi50_sun_p(p) ,&
                  psi50_sha_p(p)  ,psi50_xyl_p(p)  ,psi50_root_p(p) ,ck_p(p)         ,vegwp_p(:,i)   ,&
                  gs0sun_p(i)     ,gs0sha_p(i)                                                       ,&
@@ -927,7 +955,8 @@ IF (patchtype == 0) THEN
                                taux_p(i),tauy_p(i),fseng_p(i),fseng_soil_p(i),fseng_snow_p(i), &
                                fevpg_p(i),fevpg_soil_p(i),fevpg_snow_p(i),tref_p(i),qref_p(i), &
                                z0m_p(i),z0h_g,zol_p(i),rib_p(i),ustar_p(i),&
-                               qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i))
+                               qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i), &
+                               fh2m_p(i),fq2m_p(i),fm10m_p(i))
 
             tleaf_p      (i) = forc_t
             gssun_p      (i) = 0.
@@ -959,7 +988,9 @@ ENDIF
          ENDIF
       ENDDO
 
-      ! Calculate end index of natrue PFTs
+      ! Calculate end index of natrue PFTs. Some patches can have an empty
+      ! PFT slice (ps > pe); keep pn below ps in that case.
+      pn = ps - 1
       DO i = ps, pe
          pn = i
          p = pftclass(i)
@@ -1013,7 +1044,8 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          assim_p(ps:pe)    ,respc_p(ps:pe)    ,fsenl_p(ps:pe)    ,fevpl_p(ps:pe)    ,etr_p(ps:pe)      ,&
          dlrad             ,ulrad             ,z0m               ,zol               ,rib               ,&
          ustar             ,qstar             ,tstar             ,fm                ,fh                ,&
-         fq                ,vegwp_p(:,ps:pe)  ,gs0sun_p(ps:pe)   ,gs0sha_p(ps:pe)   ,assimsun_p(:)     ,&
+         fq                ,fh2m              ,fq2m              ,fm10m             ,vegwp_p(:,ps:pe)  ,&
+         gs0sun_p(ps:pe)   ,gs0sha_p(ps:pe)   ,assimsun_p(:)     ,&
          etrsun_p(:)       ,assimsha_p(:)     ,etrsha_p(:)       ,&
 !Ozone stress variables
          o3coefv_sun_p(ps:pe) ,o3coefv_sha_p(ps:pe) ,o3coefg_sun_p(ps:pe) ,o3coefg_sha_p(ps:pe) ,&
@@ -1048,6 +1080,9 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
+      fh2m_p       (ps:pe) = fh2m
+      fq2m_p       (ps:pe) = fq2m
+      fm10m_p      (ps:pe) = fm10m
 ENDIF
 
       pe = patch_pft_e(ipatch)
@@ -1092,6 +1127,15 @@ ENDIF
       fm            = sum( fm_p        (ps:pe)*pftfrac(ps:pe) )
       fh            = sum( fh_p        (ps:pe)*pftfrac(ps:pe) )
       fq            = sum( fq_p        (ps:pe)*pftfrac(ps:pe) )
+      fh2m          = sum( fh2m_p      (ps:pe)*pftfrac(ps:pe) )
+      fq2m          = sum( fq2m_p      (ps:pe)*pftfrac(ps:pe) )
+      fm10m         = sum( fm10m_p     (ps:pe)*pftfrac(ps:pe) )
+      pft_wt        = sum( pftfrac(ps:pe) )
+      u10m          = forc_us * sum( fm10m_p(ps:pe) / fm_p(ps:pe) * pftfrac(ps:pe) ) / pft_wt
+      v10m          = forc_vs * sum( fm10m_p(ps:pe) / fm_p(ps:pe) * pftfrac(ps:pe) ) / pft_wt
+      chs2          = vonkar * sum( ustar_p(ps:pe) / fh2m_p(ps:pe) * pftfrac(ps:pe) ) / pft_wt
+      cqs2          = vonkar * sum( ustar_p(ps:pe) / fq2m_p(ps:pe) * pftfrac(ps:pe) ) / pft_wt
+      cd10          = vonkar**2 * sum( pftfrac(ps:pe) / fm10m_p(ps:pe)**2 ) / pft_wt
 
       rstfacsun_out = sum( rstfacsun_p (ps:pe)*pftfrac(ps:pe) )
       rstfacsha_out = sum( rstfacsha_p (ps:pe)*pftfrac(ps:pe) )
@@ -1154,6 +1198,9 @@ END IF
       deallocate ( fm_p        )
       deallocate ( fh_p        )
       deallocate ( fq_p        )
+      deallocate ( fh2m_p      )
+      deallocate ( fq2m_p      )
+      deallocate ( fm10m_p     )
 
       deallocate ( hprl_p      )
       deallocate ( assimsun_p  )

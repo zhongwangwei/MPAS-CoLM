@@ -162,6 +162,8 @@
  real(kind=RKIND),public:: dt_microp  !time-step for cloud microphysics parameterization.
  real(kind=RKIND),public:: dt_radtlw  !time-step for longwave radiation parameterization      [mns]
  real(kind=RKIND),public:: dt_radtsw  !time-step for shortwave radiation parameterization     [mns]
+
+ real(kind=RKIND),public:: rrtmg_co2vmr = 379.e-6_RKIND !atmospheric CO2 volume mixing ratio  [-]
  
  real(kind=RKIND),public:: xice_threshold
 
@@ -878,6 +880,8 @@
     vegfra_p,         &!vegetation fraction                                                                    [-]
     z0_p               !background roughness length                                                            [m]
 
+!.. spectral surface albedos passed to RRTMG-SW; the radiation driver initializes all four from the scalar
+!.. surface albedo and replaces them with CoLM2024 values when that land-surface scheme is active.
  real(kind=RKIND),dimension(:,:),allocatable:: &
     alswvisdir_p,     &!direct-beam surface albedo in visible spectrum                                         [-]
     alswvisdif_p,     &!diffuse-beam surface albedo in visible spectrum                                        [-]

@@ -24,8 +24,8 @@ MODULE MOD_MPAS_MPI
 
    logical :: mpas_is_root = .false.
 
-   ! mpas_comm is borrowed from the MPAS LSM driver and never duplicated or
-   ! freed here. MPAS owns the isolated message context and its lifetime.
+   ! mpas_comm is a caller-owned duplicate dedicated to CoLM. It is borrowed
+   ! here and never freed here; MPAS owns the message context and its lifetime.
    integer :: mpas_comm = MPI_COMM_NULL
    integer :: mpas_rank = -1
    integer :: mpas_size = 0
@@ -52,6 +52,13 @@ CONTAINS
       IF (mpas_comm /= MPI_COMM_NULL) CALL CoLM_stop('Embedded CoLM communicator was initialized more than once.')
 
       mpas_comm = mpas_domain_comm
+
+      ! A failed collective cannot be recovered safely. Make errors fatal on
+      ! CoLM's dedicated communicator so a later call cannot overwrite ierr.
+      CALL mpi_comm_set_errhandler (mpas_comm, MPI_ERRORS_ARE_FATAL, mpas_mpi_ierr)
+      IF (mpas_mpi_ierr /= MPI_SUCCESS) THEN
+         CALL CoLM_stop('Embedded CoLM could not set the MPI communicator error handler.')
+      ENDIF
 
       CALL mpi_comm_rank (mpas_comm, mpas_rank, mpas_mpi_ierr)
       IF (mpas_mpi_ierr /= MPI_SUCCESS) CALL CoLM_stop('Embedded CoLM could not query its MPAS communicator rank.')

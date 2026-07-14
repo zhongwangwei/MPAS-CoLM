@@ -641,12 +641,16 @@ CONTAINS
       global_owned = nfound
 #endif
 
-      IF (global_owned /= covered_count) THEN
+      ! owner_blk is the communicator-wide minimum candidate rank, so every
+      ! covered unit catchment is assigned to exactly one rank.  Requiring both
+      ! counts to match the file length also rejects disconnected, uncovered
+      ! basins instead of silently dropping them from the routed network.
+      IF (covered_count /= totalnumucat .or. global_owned /= totalnumucat) THEN
          IF (mpas_is_root) THEN
-            write(*,'(A,I0,A,I0)') 'ERROR: MPAS embedded CoLM river network covered ', covered_count, &
-               ' unit-catchment(s), but assigned ', global_owned
+            write(*,'(A,I0,A,I0,A,I0)') 'ERROR: MPAS embedded CoLM river network contains ', totalnumucat, &
+               ' unit catchment(s), covered ', covered_count, ', and assigned ', global_owned
          ENDIF
-         CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network ownership partition is inconsistent.')
+         CALL CoLM_Stop ('ERROR: MPAS embedded CoLM river network coverage is incomplete or inconsistent.')
       ENDIF
 
       numucat = nfound

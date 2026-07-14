@@ -560,6 +560,9 @@ CONTAINS
         fm_lake            ,&! integral of profile function for momentum
         fh_lake            ,&! integral of profile function for heat
         fq_lake            ,&! integral of profile function for moisture
+        fh2m_lake          ,&! relation for temperature at 2 m
+        fq2m_lake          ,&! relation for specific humidity at 2 m
+        fm10m_lake         ,&! integral of profile function for momentum at 10 m
         dheatl               ! vegetation heat change [W/m2]
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,ustar_g,qstar_g,tstar_g
@@ -1051,7 +1054,8 @@ CONTAINS
            olrg_lake      ,fgrnd_lake     ,tref_lake      ,qref_lake      ,&
            trad_lake      ,emis_lake      ,z0m_lake       ,zol_lake       ,&
            rib_lake       ,ustar_lake     ,qstar_lake     ,tstar_lake     ,&
-           fm_lake        ,fh_lake        ,fq_lake        ,sm_lake        ,&
+           fm_lake        ,fh_lake        ,fq_lake        ,fh2m_lake      ,&
+           fq2m_lake      ,fm10m_lake     ,sm_lake        ,&
            urban_call=.true.                                               )
 
       lnet_lake = forc_frl - olrg_lake

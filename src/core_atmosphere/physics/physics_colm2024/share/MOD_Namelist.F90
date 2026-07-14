@@ -107,10 +107,10 @@ MODULE MOD_Namelist
 
    character(len=256) :: DEF_dir_rawdata  = 'path/to/rawdata/'
    character(len=256) :: DEF_dir_runtime  = 'path/to/runtime/'
-   character(len=256) :: DEF_dir_output   = 'path/to/output/data'
+   character(len=512) :: DEF_dir_output   = 'path/to/output/data'
 
    character(len=256) :: DEF_dir_landdata = 'path/to/landdata'
-   character(len=256) :: DEF_dir_restart  = 'path/to/restart'
+   character(len=1024) :: DEF_dir_restart = 'path/to/restart'
    character(len=256) :: DEF_dir_history  = 'path/to/history'
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1247,6 +1247,29 @@ CONTAINS
          ENDIF
          close(10)
 
+         IF (DEF_RSTFAC < 1 .or. DEF_RSTFAC > 2) THEN
+            write(*,'(A,I0,A)') 'ERROR: DEF_RSTFAC is ', DEF_RSTFAC, '; supported values are 1-2.'
+            CALL CoLM_stop ()
+         ENDIF
+
+         IF (DEF_THERMAL_CONDUCTIVITY_SCHEME < 1 .or. DEF_THERMAL_CONDUCTIVITY_SCHEME > 8) THEN
+            write(*,'(A,I0,A)') 'ERROR: DEF_THERMAL_CONDUCTIVITY_SCHEME is ', &
+               DEF_THERMAL_CONDUCTIVITY_SCHEME, '; supported values are 1-8.'
+            CALL CoLM_stop ()
+         ENDIF
+
+         IF (DEF_Runoff_SCHEME < 0 .or. DEF_Runoff_SCHEME > 3) THEN
+            write(*,'(A,I0,A)') 'ERROR: DEF_Runoff_SCHEME is ', DEF_Runoff_SCHEME, &
+               '; supported values are 0-3.'
+            CALL CoLM_stop ()
+         ENDIF
+
+         IF (DEF_Interception_scheme < 1 .or. DEF_Interception_scheme > 7) THEN
+            write(*,'(A,I0,A)') 'ERROR: DEF_Interception_scheme is ', DEF_Interception_scheme, &
+               '; supported values are 1-7; scheme 8 is not complete.'
+            CALL CoLM_stop ()
+         ENDIF
+
 #ifndef MPAS_EMBEDDED_COLM
 	         open(10, status='OLD', file=trim(DEF_forcing_namelist), form="FORMATTED")
 	         read(10, nml=nl_colm_forcing, iostat=ierr, iomsg=iomesg)
@@ -1643,11 +1666,11 @@ CONTAINS
 
       CALL mpi_bcast (DEF_dir_rawdata                        ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
       CALL mpi_bcast (DEF_dir_runtime                        ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
-      CALL mpi_bcast (DEF_dir_output                         ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
+	      CALL mpi_bcast (DEF_dir_output             ,len(DEF_dir_output)  ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
       CALL mpi_bcast (DEF_dir_forcing                        ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
 
       CALL mpi_bcast (DEF_dir_landdata                       ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
-      CALL mpi_bcast (DEF_dir_restart                        ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
+	      CALL mpi_bcast (DEF_dir_restart            ,len(DEF_dir_restart) ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
       CALL mpi_bcast (DEF_dir_history                        ,256 ,mpi_character ,mpas_root ,mpas_comm ,mpas_mpi_ierr)
 
 #if (defined GRIDBASED || defined UNSTRUCTURED)
@@ -2491,6 +2514,7 @@ CONTAINS
 
 #ifdef MPAS_MPI
       CALL mpi_bcast (onoff, 1, mpi_logical, mpas_root, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('CoLM history-option broadcast')
 #endif
 
    END SUBROUTINE sync_hist_vars_one

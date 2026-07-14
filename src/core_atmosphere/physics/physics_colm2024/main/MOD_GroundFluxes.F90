@@ -23,7 +23,8 @@ CONTAINS
                             t_soil, t_snow, q_soil, q_snow, &
                             taux, tauy, fseng, fseng_soil, fseng_snow, &
                             fevpg, fevpg_soil, fevpg_snow, tref, qref, &
-                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq)
+                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq, &
+                            fh2m, fq2m, fm10m)
 
 !-----------------------------------------------------------------------
 !  This is the main SUBROUTINE to execute the calculation of thermal
@@ -106,7 +107,10 @@ CONTAINS
           qstar,     &! moisture scaling parameter
           fm,        &! integral of profile FUNCTION for momentum
           fh,        &! integral of profile FUNCTION for heat
-          fq          ! integral of profile FUNCTION for moisture
+          fq,        &! integral of profile FUNCTION for moisture
+          fh2m,      &! relation for temperature at 2m
+          fq2m,      &! relation for specific humidity at 2m
+          fm10m       ! integral of profile FUNCTION for momentum at 10m
 
 !-------------------------- Local Variables ----------------------------
    integer niters,   &! maximum number of iterations for surface temperature
@@ -126,9 +130,6 @@ CONTAINS
          raw,        &! moisture resistance [s/m]
          raih,       &! temporary variable [kg/m2/s]
          raiw,       &! temporary variable [kg/m2/s]
-         fh2m,       &! relation for temperature at 2m
-         fq2m,       &! relation for specific humidity at 2m
-         fm10m,      &! integral of profile FUNCTION for momentum at 10m
          thvstar,    &! virtual potential temperature scaling parameter
          um,         &! wind speed including the stability effect [m/s]
          wc,         &! convective velocity [m/s]

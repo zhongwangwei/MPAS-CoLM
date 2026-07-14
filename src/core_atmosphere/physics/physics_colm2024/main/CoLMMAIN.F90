@@ -116,7 +116,9 @@ SUBROUTINE CoLMMAIN ( &
          ! additional variables required by coupling with WRF model
            emis,         z0m,          zol,          rib,          &
            ustar,        qstar,        tstar,        fm,           &
-           fh,           fq                                        )
+           fh,           fq,           fh2m,         fq2m,         &
+           fm10m,        u10m,         v10m,         chs2,          &
+           cqs2,         cd10                                      )
 
 !=======================================================================
 !
@@ -158,7 +160,7 @@ SUBROUTINE CoLMMAIN ( &
 
    USE MOD_Precision
    USE MOD_Vars_Global
-   USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice
+   USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice, vonkar
    USE MOD_Vars_TimeVariables, only: tlai, tsai, waterstorage
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
@@ -547,7 +549,15 @@ SUBROUTINE CoLMMAIN ( &
         tstar       ,&! t* in similarity theory [K]
         fm          ,&! integral of profile function for momentum
         fh          ,&! integral of profile function for heat
-        fq            ! integral of profile function for moisture
+        fq          ,&! integral of profile function for moisture
+        fh2m        ,&! relation for temperature at 2m
+        fq2m        ,&! relation for specific humidity at 2m
+        fm10m       ,&! integral of profile function for momentum at 10m
+        u10m        ,&! area-effective 10 m zonal wind [m/s]
+        v10m        ,&! area-effective 10 m meridional wind [m/s]
+        chs2        ,&! area-effective 2 m heat exchange velocity [m/s]
+        cqs2        ,&! area-effective 2 m moisture exchange velocity [m/s]
+        cd10         ! area-effective 10 m momentum coefficient
 
 !-------------------------- Local Variables ----------------------------
    logical  :: is_dry_lake
@@ -852,6 +862,8 @@ SUBROUTINE CoLMMAIN ( &
               respc             ,errore            ,emis              ,z0m               ,&
               zol               ,rib               ,ustar             ,qstar             ,&
               tstar             ,fm                ,fh                ,fq                ,&
+              fh2m              ,fq2m              ,fm10m             ,&
+              u10m              ,v10m              ,chs2              ,cqs2              ,cd10              ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
 
@@ -1115,7 +1127,8 @@ SUBROUTINE CoLMMAIN ( &
                       sm          ,tref        ,qref       ,trad        ,&
                       errore      ,emis        ,z0m        ,zol         ,&
                       rib         ,ustar       ,qstar      ,tstar       ,&
-                      fm          ,fh          ,fq         ,pg_rain     ,&
+                      fm          ,fh          ,fq         ,fh2m        ,&
+                      fq2m        ,fm10m       ,pg_rain     ,&
                       pg_snow     ,t_precip    ,&
                       snofrz(lbsn:0), sabg_snow_lyr(lb:1)                )
 
@@ -1291,7 +1304,8 @@ SUBROUTINE CoLMMAIN ( &
               olrg         ,fgrnd        ,tref            ,qref            ,&
               trad         ,emis         ,z0m             ,zol             ,&
               rib          ,ustar        ,qstar           ,tstar           ,&
-              fm           ,fh           ,fq              ,sm               )
+              fm           ,fh           ,fq              ,fh2m             ,&
+              fq2m         ,fm10m        ,sm               )
 
          CALL snowwater_lake ( DEF_USE_Dynamic_Lake, &
               ! "in" snowater_lake arguments
@@ -1423,10 +1437,10 @@ SUBROUTINE CoLMMAIN ( &
          tssea = t_grnd
          tssub (1:7) = t_soisno (1:7)
          CALL SOCEAN (dosst,deltim,oro,forc_hgt_u,forc_hgt_t,forc_hgt_q,&
-                    forc_us,forc_vs,forc_t,forc_t,forc_rhoair,forc_psrf,&
+                    forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,&
                     sabg,forc_frl,tssea,tssub(1:7),scv,&
                     taux,tauy,fsena,fevpa,lfevpa,fseng,fevpg,tref,qref,&
-                    z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,emis,olrg)
+                    z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m,emis,olrg)
 
                   ! null data for sea component
                     z_soisno   (:) = 0.0
@@ -1448,6 +1462,17 @@ SUBROUTINE CoLMMAIN ( &
                     xerr    = 0.0
 
 !======================================================================
+      ENDIF
+
+      ! THERMAL performs PFT-level aggregation for these nonlinear
+      ! diagnostics. Single-surface glacier, lake, and ocean branches can
+      ! derive them directly from their native similarity profiles.
+      IF ((patchtype > 2) .and. (.not. is_dry_lake)) THEN
+         u10m = forc_us * fm10m / fm
+         v10m = forc_vs * fm10m / fm
+         chs2 = vonkar * ustar / fh2m
+         cqs2 = vonkar * ustar / fq2m
+         cd10 = (vonkar / fm10m)**2
       ENDIF
 
 !======================================================================

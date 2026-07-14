@@ -376,12 +376,15 @@
  logical,pointer:: config_o3climatology
  logical,pointer:: config_microp_re
  character(len=StrKIND),pointer:: radt_sw_scheme
+ character(len=StrKIND),pointer:: lsm_scheme
  character(len=StrKIND),pointer:: microp_scheme
 
  real(kind=RKIND),dimension(:),pointer    :: latCell,lonCell
  real(kind=RKIND),dimension(:),pointer    :: skintemp,snow,xice,xland
  real(kind=RKIND),dimension(:),pointer    :: m_ps,pin
  real(kind=RKIND),dimension(:),pointer    :: sfc_albedo,sfc_emiss
+ real(kind=RKIND),dimension(:),pointer    :: sfc_albedo_vis_dir,sfc_albedo_vis_dif
+ real(kind=RKIND),dimension(:),pointer    :: sfc_albedo_nir_dir,sfc_albedo_nir_dif
  real(kind=RKIND),dimension(:),pointer    :: taod5502d
  real(kind=RKIND),dimension(:,:),pointer  :: zgrid
  real(kind=RKIND),dimension(:,:),pointer  :: cldfrac,m_hybi,o3clim
@@ -394,6 +397,7 @@
  call mpas_pool_get_config(configs,'config_microp_re'     ,config_microp_re    )
  call mpas_pool_get_config(configs,'config_o3climatology' ,config_o3climatology)
  call mpas_pool_get_config(configs,'config_radt_sw_scheme',radt_sw_scheme      )
+ call mpas_pool_get_config(configs,'config_lsm_scheme'    ,lsm_scheme          )
  call mpas_pool_get_config(configs,'config_microp_scheme' ,microp_scheme       )
 
  call mpas_pool_get_array(mesh,'latCell',latCell)
@@ -411,6 +415,13 @@
 
  call mpas_pool_get_array(diag_physics,'sfc_albedo',sfc_albedo)
  call mpas_pool_get_array(diag_physics,'sfc_emiss' ,sfc_emiss )
+
+ if(trim(lsm_scheme) == 'sf_colm2024') then
+    call mpas_pool_get_array(diag_physics,'sfc_albedo_vis_dir',sfc_albedo_vis_dir)
+    call mpas_pool_get_array(diag_physics,'sfc_albedo_vis_dif',sfc_albedo_vis_dif)
+    call mpas_pool_get_array(diag_physics,'sfc_albedo_nir_dir',sfc_albedo_nir_dir)
+    call mpas_pool_get_array(diag_physics,'sfc_albedo_nir_dif',sfc_albedo_nir_dif)
+ endif
  call mpas_pool_get_array(diag_physics,'cldfrac'   ,cldfrac   )
  call mpas_pool_get_array(diag_physics,'o3clim'    ,o3clim    )
  call mpas_pool_get_array(diag_physics,'m_hybi'    ,m_hybi    )
@@ -422,6 +433,24 @@
     xlon_p(i,j)       = lonCell(i) / degrad
 
     sfc_albedo_p(i,j) = sfc_albedo(i)
+    if(trim(radt_sw_scheme) == 'rrtmg_sw') then
+       alswvisdir_p(i,j) = sfc_albedo(i)
+       alswvisdif_p(i,j) = sfc_albedo(i)
+       alswnirdir_p(i,j) = sfc_albedo(i)
+       alswnirdif_p(i,j) = sfc_albedo(i)
+       if(trim(lsm_scheme) == 'sf_colm2024' .and. xland(i) < 1.5_RKIND .and. &
+          xice(i) < xice_threshold) then
+          if(sfc_albedo_vis_dir(i) >= 0.0_RKIND .and. sfc_albedo_vis_dir(i) <= 1.0_RKIND .and. &
+             sfc_albedo_vis_dif(i) >= 0.0_RKIND .and. sfc_albedo_vis_dif(i) <= 1.0_RKIND .and. &
+             sfc_albedo_nir_dir(i) >= 0.0_RKIND .and. sfc_albedo_nir_dir(i) <= 1.0_RKIND .and. &
+             sfc_albedo_nir_dif(i) >= 0.0_RKIND .and. sfc_albedo_nir_dif(i) <= 1.0_RKIND) then
+             alswvisdir_p(i,j) = sfc_albedo_vis_dir(i)
+             alswvisdif_p(i,j) = sfc_albedo_vis_dif(i)
+             alswnirdir_p(i,j) = sfc_albedo_nir_dir(i)
+             alswnirdif_p(i,j) = sfc_albedo_nir_dif(i)
+          endif
+       endif
+    endif
     snow_p(i,j)       = snow(i)
     tsk_p(i,j)        = skintemp(i)
     xice_p(i,j)       = xice(i)
@@ -939,7 +968,9 @@
 !             qs3d       = qs_p          , cldfra3d = cldfrac_p   , tsk      = tsk_p          , &
               qv3d       = qvrad_p       , qc3d     = qcrad_p     , qi3d     = qirad_p        , &
               qs3d       = qsrad_p       , cldfra3d = cldfrac_p   , tsk      = tsk_p          , &
-              albedo     = sfc_albedo_p  , xland    = xland_p     , xice     = xice_p         , &
+              albedo     = sfc_albedo_p  , alswvisdir = alswvisdir_p, alswvisdif = alswvisdif_p, &
+              alswnirdir = alswnirdir_p  , alswnirdif = alswnirdif_p, &
+              xland      = xland_p       , xice       = xice_p       , &
               snow       = snow_p        , coszr    = coszr_p     , xtime    = xtime_m        , &
               gmt        = gmt           , julday   = julday      , radt     = radt           , &
               degrad     = degrad        , declin   = declin      , solcon   = solcon         , &
@@ -955,7 +986,7 @@
               swupbc     = swupbc_p      , swdnb    = swdnb_p     , swdnbc     = swdnbc_p     , &
               swddir     = swddir_p      , swddni   = swddni_p    , swddif     = swddif_p     , &
               swvisdir   = swvisdir_p    , swvisdif = swvisdif_p  , swnirdir   = swnirdir_p   , &
-              swnirdif   = swnirdif_p    , &
+              swnirdif   = swnirdif_p    , co2vmr_input = rrtmg_co2vmr, &
               ids = ids , ide = ide , jds = jds , jde = jde , kds = kds , kde = kde ,           &
               ims = ims , ime = ime , jms = jms , jme = jme , kms = kms , kme = kme ,           &
               its = its , ite = ite , jts = jts , jte = jte , kts = kts , kte = kte             &

@@ -31,15 +31,21 @@ MODULE MOD_NetCDFVector
 
 
    USE MOD_DataType
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 #ifdef MPAS_EMBEDDED_COLM
-   USE mpi, only: MPI_Barrier
+   USE mpi, only: MPI_Barrier, MPI_Allreduce, MPI_Bcast, MPI_INTEGER8, MPI_SUM, MPI_MIN, MPI_MAX, &
+                  MPI_CHARACTER
    USE MOD_MPAS_MPI, only: CoLM_stop
 #endif
    IMPLICIT NONE
 
+   integer, parameter :: distributed_path_length = 2048
 #ifdef MPAS_EMBEDDED_COLM
+   integer, parameter :: distributed_marker_version = 2
+   character(len=*), parameter :: distributed_marker_format = 'distributed-pixelset-v2'
+
    type :: distributed_vector_map_type
-      character(len=512) :: filename = ''
+      character(len=distributed_path_length) :: filename = ''
       integer :: iblk = 0
       integer :: jblk = 0
       integer :: istt = 0
@@ -55,8 +61,17 @@ MODULE MOD_NetCDFVector
    END type distributed_vector_map_type
 
    type(distributed_vector_map_type), allocatable, save :: distributed_vector_maps(:)
-   character(len=512), allocatable, save :: validated_distributed_markers(:)
+   character(len=distributed_path_length), allocatable, save :: validated_distributed_markers(:)
    integer, allocatable, save :: distributed_marker_ranks(:)
+   character(len=14), allocatable, save :: distributed_marker_times(:)
+   character(len=96), allocatable, save :: distributed_marker_family_ids(:)
+   character(len=16), allocatable, save :: distributed_marker_roles(:)
+   character(len=distributed_path_length), allocatable, save :: distributed_marker_patch_files(:)
+   character(len=distributed_path_length), allocatable, save :: distributed_marker_pft_files(:)
+   character(len=distributed_path_length), allocatable, save :: distributed_marker_gridriver_files(:)
+   character(len=:), allocatable, save :: distributed_run_identity
+   character(len=:), allocatable, save :: distributed_grid_identity
+   integer, save :: distributed_family_sequence = 0
 #endif
 
    ! PUBLIC subroutines
@@ -76,6 +91,10 @@ MODULE MOD_NetCDFVector
    PUBLIC :: ncio_define_dimension_vector
    PUBLIC :: ncio_begin_distributed_write
    PUBLIC :: ncio_complete_distributed_write
+   PUBLIC :: ncio_create_checkpoint_family_id
+   PUBLIC :: ncio_set_distributed_identity
+   PUBLIC :: ncio_require_distributed_identity
+   PUBLIC :: ncio_validate_distributed_restart
    PUBLIC :: ncio_reset_distributed_validation
 
    INTERFACE ncio_write_vector
@@ -106,6 +125,366 @@ MODULE MOD_NetCDFVector
 CONTAINS
 
    !---------------------------------------------------------
+   SUBROUTINE ncio_set_distributed_identity(run_identity, local_element_ids, local_element_lat, &
+                                            local_element_lon, local_element_area)
+
+#ifdef MPAS_EMBEDDED_COLM
+      USE MOD_MPAS_MPI, only: mpas_comm, mpas_mpi_ierr, mpas_mpi_check, CoLM_stop
+#endif
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: run_identity
+      integer*8, intent(in) :: local_element_ids(:)
+      real(r8), intent(in) :: local_element_lat(:)
+      real(r8), intent(in) :: local_element_lon(:)
+      real(r8), intent(in) :: local_element_area(:)
+
+#ifdef MPAS_EMBEDDED_COLM
+      integer*8, parameter :: checksum_prime_1 = 2147483647_8
+      integer*8, parameter :: checksum_prime_2 = 2147483629_8
+      integer*8 :: local_sums(5), global_sums(5)
+      integer*8 :: local_minimum, global_minimum
+      integer*8 :: local_maximum, global_maximum
+      integer*8 :: id_residue, lat_residue, lon_residue, area_residue
+      integer*8 :: tuple_residue_1, tuple_residue_2
+      integer*8 :: real_bits
+      integer :: i
+      character(len=256) :: grid_identity
+
+      IF (len_trim(run_identity) < 1 .or. index(run_identity, new_line('a')) > 0 .or. &
+          index(run_identity, achar(13)) > 0) THEN
+         CALL CoLM_stop('MPAS embedded CoLM restart run identity is empty or invalid.')
+      ENDIF
+      IF (size(local_element_lat) /= size(local_element_ids) .or. &
+          size(local_element_lon) /= size(local_element_ids) .or. &
+          size(local_element_area) /= size(local_element_ids)) THEN
+         CALL CoLM_stop('MPAS embedded CoLM restart grid identity arrays have inconsistent sizes.')
+      ENDIF
+      IF (size(local_element_ids) > 0) THEN
+         IF (any(local_element_ids <= 0_8)) THEN
+            CALL CoLM_stop('MPAS embedded CoLM restart grid identity contains a non-positive cell ID.')
+         ENDIF
+         IF (.not. all(ieee_is_finite(local_element_lat)) .or. &
+             .not. all(ieee_is_finite(local_element_lon)) .or. &
+             .not. all(ieee_is_finite(local_element_area)) .or. &
+             any(local_element_area <= 0._r8)) THEN
+            CALL CoLM_stop('MPAS embedded CoLM restart grid identity contains invalid cell geometry.')
+         ENDIF
+         local_minimum = minval(local_element_ids)
+         local_maximum = maxval(local_element_ids)
+      ELSE
+         local_minimum = huge(local_minimum)
+         local_maximum = -huge(local_maximum)
+      ENDIF
+
+      local_sums = 0_8
+      local_sums(1) = int(size(local_element_ids), kind=8)
+      DO i = 1, size(local_element_ids)
+         id_residue = modulo(local_element_ids(i), checksum_prime_1)
+         real_bits = transfer(local_element_lat(i), real_bits)
+         lat_residue = modulo(real_bits, checksum_prime_1)
+         real_bits = transfer(local_element_lon(i), real_bits)
+         lon_residue = modulo(real_bits, checksum_prime_1)
+         real_bits = transfer(local_element_area(i), real_bits)
+         area_residue = modulo(real_bits, checksum_prime_1)
+         tuple_residue_1 = modulo(id_residue + 3_8 * lat_residue + 5_8 * lon_residue + &
+                                  7_8 * area_residue, checksum_prime_1)
+
+         id_residue = modulo(local_element_ids(i), checksum_prime_2)
+         real_bits = transfer(local_element_lat(i), real_bits)
+         lat_residue = modulo(real_bits, checksum_prime_2)
+         real_bits = transfer(local_element_lon(i), real_bits)
+         lon_residue = modulo(real_bits, checksum_prime_2)
+         real_bits = transfer(local_element_area(i), real_bits)
+         area_residue = modulo(real_bits, checksum_prime_2)
+         tuple_residue_2 = modulo(modulo(modulo(modulo(id_residue * 31_8 + lat_residue, &
+                                  checksum_prime_2) * 31_8 + lon_residue, checksum_prime_2) * 31_8 + &
+                                  area_residue, checksum_prime_2), checksum_prime_2)
+
+         local_sums(2) = modulo(local_sums(2) + tuple_residue_1, checksum_prime_1)
+         local_sums(3) = modulo(local_sums(3) + modulo(tuple_residue_1 * tuple_residue_1, &
+                                checksum_prime_1), checksum_prime_1)
+         local_sums(4) = modulo(local_sums(4) + tuple_residue_2, checksum_prime_2)
+         local_sums(5) = modulo(local_sums(5) + modulo(tuple_residue_2 * tuple_residue_2, &
+                                checksum_prime_2), checksum_prime_2)
+      ENDDO
+
+      CALL MPI_Allreduce(local_sums, global_sums, 5, MPI_INTEGER8, MPI_SUM, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('restart grid-identity sums')
+      CALL MPI_Allreduce(local_minimum, global_minimum, 1, MPI_INTEGER8, MPI_MIN, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('restart grid-identity minimum')
+      CALL MPI_Allreduce(local_maximum, global_maximum, 1, MPI_INTEGER8, MPI_MAX, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('restart grid-identity maximum')
+      IF (global_sums(1) < 1_8) THEN
+         CALL CoLM_stop('MPAS embedded CoLM cannot identify an empty global cell set.')
+      ENDIF
+      global_sums(2) = modulo(global_sums(2), checksum_prime_1)
+      global_sums(3) = modulo(global_sums(3), checksum_prime_1)
+      global_sums(4) = modulo(global_sums(4), checksum_prime_2)
+      global_sums(5) = modulo(global_sums(5), checksum_prime_2)
+      write(grid_identity,'("mpas-cellgeom-v2;n=",I0,";min=",I0,";max=",I0,";h1=",I0,";h2=",I0,";h3=",I0,";h4=",I0)') &
+         global_sums(1), global_minimum, global_maximum, global_sums(2), global_sums(3), &
+         global_sums(4), global_sums(5)
+
+      IF (allocated(distributed_run_identity)) THEN
+         IF (trim(distributed_run_identity) /= trim(run_identity)) THEN
+            CALL CoLM_stop('MPAS embedded CoLM restart run identity changed after initialization.')
+         ENDIF
+      ELSE
+         distributed_run_identity = trim(run_identity)
+      ENDIF
+      IF (allocated(distributed_grid_identity)) THEN
+         IF (trim(distributed_grid_identity) /= trim(grid_identity)) THEN
+            CALL CoLM_stop('MPAS embedded CoLM restart grid identity changed after initialization.')
+         ENDIF
+      ELSE
+         distributed_grid_identity = trim(grid_identity)
+      ENDIF
+#endif
+
+   END SUBROUTINE ncio_set_distributed_identity
+
+   !---------------------------------------------------------
+   SUBROUTINE ncio_require_distributed_identity(run_identity)
+
+#ifdef MPAS_EMBEDDED_COLM
+      USE MOD_MPAS_MPI, only: CoLM_stop
+#endif
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: run_identity
+
+#ifdef MPAS_EMBEDDED_COLM
+      IF (.not. allocated(distributed_run_identity) .or. .not. allocated(distributed_grid_identity)) THEN
+         CALL CoLM_stop('MPAS embedded CoLM restart identity was not configured from MPAS cell geometry.')
+      ENDIF
+      IF (trim(distributed_run_identity) /= trim(run_identity)) THEN
+         CALL CoLM_stop('MPAS embedded CoLM restart run identity changed after initialization.')
+      ENDIF
+#endif
+
+   END SUBROUTINE ncio_require_distributed_identity
+
+   !---------------------------------------------------------
+   LOGICAL FUNCTION valid_distributed_checkpoint_time(checkpoint_time)
+
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: checkpoint_time
+      integer :: i, ios, year, day_of_year, second_of_day
+
+      valid_distributed_checkpoint_time = .false.
+      IF (len_trim(checkpoint_time) /= 14) RETURN
+      IF (checkpoint_time(5:5) /= '-' .or. checkpoint_time(9:9) /= '-') RETURN
+      DO i = 1, 14
+         IF (i == 5 .or. i == 9) CYCLE
+         IF (checkpoint_time(i:i) < '0' .or. checkpoint_time(i:i) > '9') RETURN
+      ENDDO
+      read(checkpoint_time(1:4),*,iostat=ios) year
+      IF (ios /= 0) RETURN
+      read(checkpoint_time(6:8),*,iostat=ios) day_of_year
+      IF (ios /= 0) RETURN
+      read(checkpoint_time(10:14),*,iostat=ios) second_of_day
+      IF (ios /= 0) RETURN
+      valid_distributed_checkpoint_time = year >= 1 .and. day_of_year >= 1 .and. day_of_year <= 366 .and. &
+                                          second_of_day >= 0 .and. second_of_day < 86400
+
+   END FUNCTION valid_distributed_checkpoint_time
+
+   !---------------------------------------------------------
+   LOGICAL FUNCTION valid_checkpoint_family_id(family_id)
+
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: family_id
+
+      valid_checkpoint_family_id = len_trim(family_id) >= 16 .and. &
+                                   index(trim(family_id), 'colm-v2-') == 1 .and. &
+                                   index(family_id, new_line('a')) == 0 .and. &
+                                   index(family_id, achar(13)) == 0 .and. &
+                                   index(trim(family_id), ' ') == 0 .and. &
+                                   index(trim(family_id), '/') == 0 .and. &
+                                   index(trim(family_id), achar(92)) == 0
+
+   END FUNCTION valid_checkpoint_family_id
+
+   !---------------------------------------------------------
+   LOGICAL FUNCTION valid_manifest_basename(filename, allow_none)
+
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: filename
+      logical, intent(in) :: allow_none
+
+      valid_manifest_basename = .false.
+      IF (allow_none .and. trim(filename) == 'NONE') THEN
+         valid_manifest_basename = .true.
+         RETURN
+      ENDIF
+      IF (len_trim(filename) < 1) RETURN
+      IF (index(filename, new_line('a')) > 0 .or. index(filename, achar(13)) > 0) RETURN
+      IF (index(trim(filename), '/') > 0 .or. index(trim(filename), achar(92)) > 0) RETURN
+      valid_manifest_basename = .true.
+
+   END FUNCTION valid_manifest_basename
+
+   !---------------------------------------------------------
+   SUBROUTINE distributed_restart_basename(filename, basename)
+
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: filename
+      character(len=*), intent(out) :: basename
+
+      integer :: path_separator
+
+      basename = ''
+      IF (trim(filename) == 'NONE') THEN
+         basename = 'NONE'
+         RETURN
+      ENDIF
+      path_separator = max(scan(trim(filename), '/', back=.true.), &
+                           scan(trim(filename), achar(92), back=.true.))
+      IF (path_separator >= len_trim(filename)) RETURN
+      basename = filename(path_separator+1:len_trim(filename))
+
+   END SUBROUTINE distributed_restart_basename
+
+#ifdef MPAS_EMBEDDED_COLM
+   !---------------------------------------------------------
+   SUBROUTINE write_distributed_shard_identity(shard_file, checkpoint_family_id, family_role, parent_file)
+
+      USE netcdf, only: nf90_open, nf90_write, nf90_global, nf90_redef, nf90_put_att, &
+                        nf90_enddef, nf90_close, nf90_noerr
+      USE MOD_MPAS_MPI, only: CoLM_stop
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: shard_file
+      character(len=*), intent(in) :: checkpoint_family_id
+      character(len=*), intent(in) :: family_role
+      character(len=*), intent(in) :: parent_file
+
+      character(len=distributed_path_length) :: parent_basename
+      integer :: ncid, ierr
+
+      CALL distributed_restart_basename(parent_file, parent_basename)
+      IF (.not. valid_checkpoint_family_id(checkpoint_family_id) .or. &
+          (trim(family_role) /= 'patch' .and. trim(family_role) /= 'pft') .or. &
+          .not. valid_manifest_basename(parent_basename, .false.)) THEN
+         CALL CoLM_stop('Cannot attach an invalid checkpoint identity to distributed CoLM restart shard: '// &
+                        trim(shard_file))
+      ENDIF
+
+      ierr = nf90_open(trim(shard_file), nf90_write, ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot open distributed CoLM restart shard for identity write: '// &
+                                             trim(shard_file))
+      ierr = nf90_redef(ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot enter define mode for distributed CoLM restart shard: '// &
+                                             trim(shard_file))
+      ierr = nf90_put_att(ncid, nf90_global, 'colm_checkpoint_family_id', trim(checkpoint_family_id))
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot write checkpoint family ID to distributed CoLM restart shard: '// &
+                                             trim(shard_file))
+      ierr = nf90_put_att(ncid, nf90_global, 'colm_checkpoint_role', trim(family_role))
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot write checkpoint role to distributed CoLM restart shard: '// &
+                                             trim(shard_file))
+      ierr = nf90_put_att(ncid, nf90_global, 'colm_checkpoint_parent_file', trim(parent_basename))
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot write checkpoint parent to distributed CoLM restart shard: '// &
+                                             trim(shard_file))
+      ierr = nf90_enddef(ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot leave define mode for distributed CoLM restart shard: '// &
+                                             trim(shard_file))
+      ierr = nf90_close(ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot close distributed CoLM restart shard after identity write: '// &
+                                             trim(shard_file))
+
+   END SUBROUTINE write_distributed_shard_identity
+
+   !---------------------------------------------------------
+   SUBROUTINE validate_distributed_shard_identity(shard_file, checkpoint_family_id, family_role, parent_file)
+
+      USE netcdf, only: nf90_open, nf90_nowrite, nf90_global, nf90_get_att, nf90_close, nf90_noerr
+      USE MOD_MPAS_MPI, only: CoLM_stop
+      IMPLICIT NONE
+
+      character(len=*), intent(in) :: shard_file
+      character(len=*), intent(in) :: checkpoint_family_id
+      character(len=*), intent(in) :: family_role
+      character(len=*), intent(in) :: parent_file
+
+      character(len=96) :: actual_family_id
+      character(len=16) :: actual_role
+      character(len=distributed_path_length) :: actual_parent_file, expected_parent_file
+      integer :: ncid, ierr
+
+      actual_family_id = ''
+      actual_role = ''
+      actual_parent_file = ''
+      CALL distributed_restart_basename(parent_file, expected_parent_file)
+      ierr = nf90_open(trim(shard_file), nf90_nowrite, ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot open distributed CoLM restart shard for identity validation: '// &
+                                             trim(shard_file))
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_family_id', actual_family_id)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Distributed CoLM restart shard is missing its checkpoint family ID: '// &
+                                             trim(shard_file))
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_role', actual_role)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Distributed CoLM restart shard is missing its checkpoint role: '// &
+                                             trim(shard_file))
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_parent_file', actual_parent_file)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Distributed CoLM restart shard is missing its parent manifest: '// &
+                                             trim(shard_file))
+      ierr = nf90_close(ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot close distributed CoLM restart shard after identity validation: '// &
+                                             trim(shard_file))
+
+      IF (trim(actual_family_id) /= trim(checkpoint_family_id) .or. &
+          trim(actual_role) /= trim(family_role) .or. &
+          trim(actual_parent_file) /= trim(expected_parent_file)) THEN
+         CALL CoLM_stop('Distributed CoLM restart shard belongs to a different checkpoint family: '//trim(shard_file))
+      ENDIF
+
+   END SUBROUTINE validate_distributed_shard_identity
+#endif
+
+   !---------------------------------------------------------
+   SUBROUTINE ncio_create_checkpoint_family_id(checkpoint_family_id)
+
+#ifdef MPAS_EMBEDDED_COLM
+      USE MOD_MPAS_MPI, only: mpas_is_root, mpas_comm, mpas_mpi_ierr, mpas_mpi_check, CoLM_stop
+#endif
+      IMPLICIT NONE
+
+      character(len=*), intent(out) :: checkpoint_family_id
+
+#ifdef MPAS_EMBEDDED_COLM
+      character(len=96) :: generated_id
+      integer :: values(8)
+      integer(kind=8) :: clock_count
+
+      generated_id = ''
+      IF (mpas_is_root) THEN
+         distributed_family_sequence = distributed_family_sequence + 1
+         CALL date_and_time(values=values)
+         CALL system_clock(count=clock_count)
+         write(generated_id,'("colm-v2-",I4.4,5I2.2,".",I3.3,"-",I18.18,"-",I8.8)') &
+            values(1), values(2), values(3), values(5), values(6), values(7), values(8), &
+            modulo(clock_count, 1000000000000000000_8), distributed_family_sequence
+         IF (.not. valid_checkpoint_family_id(generated_id)) THEN
+            CALL CoLM_stop('Failed to generate an MPAS embedded CoLM checkpoint family ID.')
+         ENDIF
+      ENDIF
+      CALL MPI_Bcast(generated_id, len(generated_id), MPI_CHARACTER, 0, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('checkpoint family ID broadcast')
+      IF (len(checkpoint_family_id) < len_trim(generated_id)) THEN
+         CALL CoLM_stop('Checkpoint family ID output buffer is too short.')
+      ENDIF
+      checkpoint_family_id = trim(generated_id)
+#else
+      checkpoint_family_id = ''
+#endif
+
+   END SUBROUTINE ncio_create_checkpoint_family_id
+
+   !---------------------------------------------------------
    SUBROUTINE get_filename_vector_block (filename, iblk, jblk, fileblock, for_write, use_srcpos, distributed_restart)
 
    USE MOD_Block, only: get_filename_block
@@ -122,8 +501,8 @@ CONTAINS
    logical, intent(out), optional :: distributed_restart
 
 #ifdef MPAS_EMBEDDED_COLM
-   character(len=512) :: complete_marker
-   character(len=256) :: fileblock_rank
+   character(len=distributed_path_length) :: complete_marker
+   character(len=distributed_path_length) :: fileblock_rank
    logical :: marker_exists, rank_file_exists, distributed_file
 #endif
 
@@ -189,26 +568,65 @@ CONTAINS
 	   END SUBROUTINE add_rank_suffix
 
 	   !---------------------------------------------------------
-	   SUBROUTINE read_distributed_marker(complete_marker, marker_ranks)
+	   SUBROUTINE read_distributed_marker(filename, marker_ranks, expected_checkpoint_time, &
+	                                      expected_role, expected_family_id, expected_patch_file, &
+	                                      expected_pft_file, expected_gridriver_file, checkpoint_family_id, &
+	                                      checkpoint_family_role)
 
 #ifdef MPAS_EMBEDDED_COLM
 	   USE MOD_MPAS_MPI, only: CoLM_stop
 #endif
 	   IMPLICIT NONE
 
-	   character(len=*), intent(in) :: complete_marker
+	   character(len=*), intent(in) :: filename
 	   integer, intent(out) :: marker_ranks
+	   character(len=*), intent(in), optional :: expected_checkpoint_time
+	   character(len=*), intent(in), optional :: expected_role
+	   character(len=*), intent(in), optional :: expected_family_id
+	   character(len=*), intent(in), optional :: expected_patch_file
+	   character(len=*), intent(in), optional :: expected_pft_file
+	   character(len=*), intent(in), optional :: expected_gridriver_file
+	   character(len=*), intent(out), optional :: checkpoint_family_id
+	   character(len=*), intent(out), optional :: checkpoint_family_role
 
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=512) :: line
-	   character(len=512), allocatable :: markers_new(:)
+	   character(len=:), allocatable :: complete_marker
+	   character(len=distributed_path_length) :: line, value
+	   character(len=distributed_path_length) :: marker_restart_file, expected_restart_file
+	   character(len=distributed_path_length) :: marker_patch_file, marker_pft_file, marker_gridriver_file
+	   character(len=96) :: marker_family_id
+	   character(len=16) :: marker_role
+	   character(len=distributed_path_length), allocatable :: markers_new(:)
 	   integer, allocatable :: marker_ranks_new(:)
-	   integer :: i, iunit, ios, nvalidated, separator
+	   character(len=14), allocatable :: marker_times_new(:)
+	   character(len=96), allocatable :: marker_family_ids_new(:)
+	   character(len=16), allocatable :: marker_roles_new(:)
+	   character(len=distributed_path_length), allocatable :: marker_patch_files_new(:)
+	   character(len=distributed_path_length), allocatable :: marker_pft_files_new(:)
+	   character(len=distributed_path_length), allocatable :: marker_gridriver_files_new(:)
+	   character(len=14) :: marker_checkpoint_time
+	   integer :: i, iunit, ios, nvalidated, path_separator, format_version
+
+	      complete_marker = trim(filename)//'.mpas_complete'
+	      IF (index(filename, new_line('a')) > 0 .or. index(filename, achar(13)) > 0) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart filename contains a line break.')
+	      ENDIF
+	      IF (.not. allocated(distributed_run_identity) .or. .not. allocated(distributed_grid_identity)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart identity was not initialized before marker validation.')
+	      ENDIF
 
 	      IF (allocated(validated_distributed_markers)) THEN
 	         DO i = 1, size(validated_distributed_markers)
 	            IF (trim(validated_distributed_markers(i)) == trim(complete_marker)) THEN
 	               marker_ranks = distributed_marker_ranks(i)
+	               CALL validate_distributed_marker_expectations(complete_marker, &
+	                  distributed_marker_times(i), distributed_marker_family_ids(i), &
+	                  distributed_marker_roles(i), distributed_marker_patch_files(i), &
+	                  distributed_marker_pft_files(i), distributed_marker_gridriver_files(i), &
+	                  expected_checkpoint_time, expected_role, expected_family_id, expected_patch_file, &
+	                  expected_pft_file, expected_gridriver_file)
+	               IF (present(checkpoint_family_id)) checkpoint_family_id = distributed_marker_family_ids(i)
+	               IF (present(checkpoint_family_role)) checkpoint_family_role = distributed_marker_roles(i)
 	               RETURN
 	            ENDIF
 	         ENDDO
@@ -216,35 +634,259 @@ CONTAINS
 
 	      open(newunit=iunit, file=trim(complete_marker), status='old', action='read', iostat=ios)
 	      IF (ios /= 0) CALL CoLM_stop('Cannot read MPAS embedded CoLM restart marker: '//trim(complete_marker))
-	      read(iunit,'(A)',iostat=ios) line
-	      close(iunit)
-	      separator = index(line, ':')
-	      IF (ios /= 0 .or. separator < 1 .or. separator >= len_trim(line)) THEN
-	         CALL CoLM_stop('Invalid MPAS embedded CoLM restart marker: '//trim(complete_marker))
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Format-Version', value)
+	      read(value,*,iostat=ios) format_version
+	      IF (ios /= 0 .or. format_version /= distributed_marker_version) THEN
+	         CALL CoLM_stop('Unsupported MPAS embedded CoLM restart marker version: '//trim(complete_marker))
 	      ENDIF
-	      read(line(separator+1:),*,iostat=ios) marker_ranks
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Format', value)
+	      IF (trim(value) /= distributed_marker_format) THEN
+	         CALL CoLM_stop('Invalid MPAS embedded CoLM restart marker format: '//trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Family-ID', marker_family_id)
+	      IF (.not. valid_checkpoint_family_id(marker_family_id)) THEN
+	         CALL CoLM_stop('Invalid checkpoint family ID in MPAS embedded CoLM restart marker: '//trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Family-Role', marker_role)
+	      IF (trim(marker_role) /= 'patch' .and. trim(marker_role) /= 'pft') THEN
+	         CALL CoLM_stop('Invalid checkpoint family role in MPAS embedded CoLM restart marker: '//trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Run-Identity', value)
+	      IF (trim(value) /= trim(distributed_run_identity)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart marker belongs to a different run: '//trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Grid-Identity', value)
+	      IF (trim(value) /= trim(distributed_grid_identity)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart marker belongs to a different MPAS grid: '//trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Patch-File', marker_patch_file)
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'PFT-File', marker_pft_file)
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'GridRiver-File', marker_gridriver_file)
+	      IF (.not. valid_manifest_basename(marker_patch_file, .false.) .or. &
+	          .not. valid_manifest_basename(marker_pft_file, .true.) .or. &
+	          .not. valid_manifest_basename(marker_gridriver_file, .true.)) THEN
+	         CALL CoLM_stop('Invalid checkpoint family filename manifest in MPAS embedded CoLM restart marker: '// &
+	                        trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Restart-File', marker_restart_file)
+	      path_separator = scan(trim(filename), '/', back=.true.)
+	      expected_restart_file = filename(path_separator+1:len_trim(filename))
+	      IF (trim(marker_restart_file) /= trim(expected_restart_file)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart marker refers to a different restart file: '//trim(complete_marker))
+	      ENDIF
+	      IF ((trim(marker_role) == 'patch' .and. trim(marker_restart_file) /= trim(marker_patch_file)) .or. &
+	          (trim(marker_role) == 'pft' .and. trim(marker_restart_file) /= trim(marker_pft_file))) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart marker role does not match its family manifest: '// &
+	                        trim(complete_marker))
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'Checkpoint-Time', value)
+	      IF (.not. valid_distributed_checkpoint_time(trim(value))) THEN
+	         CALL CoLM_stop('Invalid checkpoint time in MPAS embedded CoLM restart marker: '//trim(complete_marker))
+	      ENDIF
+	      marker_checkpoint_time = trim(value)
+	      IF (index(trim(expected_restart_file), trim(marker_checkpoint_time)) < 1) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart marker time does not match its restart filename: '// &
+	                        trim(complete_marker))
+	      ENDIF
+	      IF (present(expected_checkpoint_time)) THEN
+	         IF (trim(marker_checkpoint_time) /= trim(expected_checkpoint_time)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker checkpoint time does not match the requested time: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      CALL read_distributed_marker_field(iunit, complete_marker, 'MPAS-Ranks', value)
+	      read(value,*,iostat=ios) marker_ranks
 	      IF (ios /= 0 .or. marker_ranks < 1) THEN
 	         CALL CoLM_stop('Invalid MPI rank count in MPAS embedded CoLM restart marker: '//trim(complete_marker))
 	      ENDIF
+	      CALL validate_distributed_marker_expectations(complete_marker, marker_checkpoint_time, &
+	         marker_family_id, marker_role, marker_patch_file, marker_pft_file, marker_gridriver_file, &
+	         expected_checkpoint_time, expected_role, expected_family_id, expected_patch_file, &
+	         expected_pft_file, expected_gridriver_file)
+	      DO
+	         read(iunit,'(A)',iostat=ios) line
+	         IF (ios < 0) EXIT
+	         IF (ios > 0 .or. len_trim(line) > 0) THEN
+	            CALL CoLM_stop('Unexpected trailing content in MPAS embedded CoLM restart marker: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDDO
+	      close(iunit, iostat=ios)
+	      IF (ios /= 0) CALL CoLM_stop('Cannot close MPAS embedded CoLM restart marker: '//trim(complete_marker))
 	      IF (allocated(validated_distributed_markers)) THEN
 	         nvalidated = size(validated_distributed_markers)
 	         allocate(markers_new(nvalidated + 1))
 	         allocate(marker_ranks_new(nvalidated + 1))
+	         allocate(marker_times_new(nvalidated + 1))
+	         allocate(marker_family_ids_new(nvalidated + 1))
+	         allocate(marker_roles_new(nvalidated + 1))
+	         allocate(marker_patch_files_new(nvalidated + 1))
+	         allocate(marker_pft_files_new(nvalidated + 1))
+	         allocate(marker_gridriver_files_new(nvalidated + 1))
 	         markers_new(1:nvalidated) = validated_distributed_markers
 	         marker_ranks_new(1:nvalidated) = distributed_marker_ranks
+	         marker_times_new(1:nvalidated) = distributed_marker_times
+	         marker_family_ids_new(1:nvalidated) = distributed_marker_family_ids
+	         marker_roles_new(1:nvalidated) = distributed_marker_roles
+	         marker_patch_files_new(1:nvalidated) = distributed_marker_patch_files
+	         marker_pft_files_new(1:nvalidated) = distributed_marker_pft_files
+	         marker_gridriver_files_new(1:nvalidated) = distributed_marker_gridriver_files
 	         markers_new(nvalidated + 1) = complete_marker
 	         marker_ranks_new(nvalidated + 1) = marker_ranks
+	         marker_times_new(nvalidated + 1) = marker_checkpoint_time
+	         marker_family_ids_new(nvalidated + 1) = marker_family_id
+	         marker_roles_new(nvalidated + 1) = marker_role
+	         marker_patch_files_new(nvalidated + 1) = marker_patch_file
+	         marker_pft_files_new(nvalidated + 1) = marker_pft_file
+	         marker_gridriver_files_new(nvalidated + 1) = marker_gridriver_file
 	         CALL move_alloc(markers_new, validated_distributed_markers)
 	         CALL move_alloc(marker_ranks_new, distributed_marker_ranks)
+	         CALL move_alloc(marker_times_new, distributed_marker_times)
+	         CALL move_alloc(marker_family_ids_new, distributed_marker_family_ids)
+	         CALL move_alloc(marker_roles_new, distributed_marker_roles)
+	         CALL move_alloc(marker_patch_files_new, distributed_marker_patch_files)
+	         CALL move_alloc(marker_pft_files_new, distributed_marker_pft_files)
+	         CALL move_alloc(marker_gridriver_files_new, distributed_marker_gridriver_files)
 	      ELSE
 	         allocate(validated_distributed_markers(1))
 	         allocate(distributed_marker_ranks(1))
+	         allocate(distributed_marker_times(1))
+	         allocate(distributed_marker_family_ids(1))
+	         allocate(distributed_marker_roles(1))
+	         allocate(distributed_marker_patch_files(1))
+	         allocate(distributed_marker_pft_files(1))
+	         allocate(distributed_marker_gridriver_files(1))
 	         validated_distributed_markers(1) = complete_marker
 	         distributed_marker_ranks(1) = marker_ranks
+	         distributed_marker_times(1) = marker_checkpoint_time
+	         distributed_marker_family_ids(1) = marker_family_id
+	         distributed_marker_roles(1) = marker_role
+	         distributed_marker_patch_files(1) = marker_patch_file
+	         distributed_marker_pft_files(1) = marker_pft_file
+	         distributed_marker_gridriver_files(1) = marker_gridriver_file
 	      ENDIF
+	      IF (present(checkpoint_family_id)) checkpoint_family_id = marker_family_id
+	      IF (present(checkpoint_family_role)) checkpoint_family_role = marker_role
 #endif
 
 	   END SUBROUTINE read_distributed_marker
+
+#ifdef MPAS_EMBEDDED_COLM
+	   !---------------------------------------------------------
+	   SUBROUTINE validate_distributed_marker_expectations(complete_marker, marker_checkpoint_time, &
+	                                                       marker_family_id, marker_role, marker_patch_file, &
+	                                                       marker_pft_file, marker_gridriver_file, &
+	                                                       expected_checkpoint_time, expected_role, &
+	                                                       expected_family_id, expected_patch_file, &
+	                                                       expected_pft_file, expected_gridriver_file)
+
+	   IMPLICIT NONE
+
+	   character(len=*), intent(in) :: complete_marker
+	   character(len=*), intent(in) :: marker_checkpoint_time, marker_family_id, marker_role
+	   character(len=*), intent(in) :: marker_patch_file, marker_pft_file, marker_gridriver_file
+	   character(len=*), intent(in), optional :: expected_checkpoint_time, expected_role, expected_family_id
+	   character(len=*), intent(in), optional :: expected_patch_file, expected_pft_file, expected_gridriver_file
+	   character(len=distributed_path_length) :: expected_basename
+
+	      IF (present(expected_checkpoint_time)) THEN
+	         IF (trim(marker_checkpoint_time) /= trim(expected_checkpoint_time)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker checkpoint time does not match the requested time: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      IF (present(expected_role)) THEN
+	         IF (trim(marker_role) /= trim(expected_role)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker has the wrong checkpoint family role: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      IF (present(expected_family_id)) THEN
+	         IF (trim(marker_family_id) /= trim(expected_family_id)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart companion belongs to a different checkpoint generation: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      IF (present(expected_patch_file)) THEN
+	         CALL distributed_restart_basename(expected_patch_file, expected_basename)
+	         IF (trim(marker_patch_file) /= trim(expected_basename)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker names a different patch companion: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      IF (present(expected_pft_file)) THEN
+	         CALL distributed_restart_basename(expected_pft_file, expected_basename)
+	         IF (trim(marker_pft_file) /= trim(expected_basename)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker names a different PFT companion: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+	      IF (present(expected_gridriver_file)) THEN
+	         CALL distributed_restart_basename(expected_gridriver_file, expected_basename)
+	         IF (trim(marker_gridriver_file) /= trim(expected_basename)) THEN
+	            CALL CoLM_stop('MPAS embedded CoLM restart marker names a different grid-river companion: '// &
+	                           trim(complete_marker))
+	         ENDIF
+	      ENDIF
+
+	   END SUBROUTINE validate_distributed_marker_expectations
+#endif
+
+#ifdef MPAS_EMBEDDED_COLM
+	   !---------------------------------------------------------
+	   SUBROUTINE read_distributed_marker_field(iunit, complete_marker, field_name, field_value)
+
+	   IMPLICIT NONE
+
+	   integer, intent(in) :: iunit
+	   character(len=*), intent(in) :: complete_marker
+	   character(len=*), intent(in) :: field_name
+	   character(len=*), intent(out) :: field_value
+
+	   character(len=distributed_path_length) :: line
+	   character(len=64) :: prefix
+	   integer :: ios
+
+	      prefix = trim(field_name)//':'
+	      read(iunit,'(A)',iostat=ios) line
+	      IF (ios /= 0 .or. index(line, trim(prefix)) /= 1 .or. &
+	          len_trim(line) <= len_trim(prefix)) THEN
+	         CALL CoLM_stop('Missing or invalid '//trim(field_name)//' in MPAS embedded CoLM restart marker: '// &
+	                        trim(complete_marker))
+	      ENDIF
+	      field_value = adjustl(line(len_trim(prefix)+1:))
+	      IF (len_trim(field_value) < 1) THEN
+	         CALL CoLM_stop('Empty '//trim(field_name)//' in MPAS embedded CoLM restart marker: '//trim(complete_marker))
+	      ENDIF
+
+	   END SUBROUTINE read_distributed_marker_field
+#endif
+
+	   !---------------------------------------------------------
+	   SUBROUTINE ncio_validate_distributed_restart(filename, expected_checkpoint_time, expected_role, &
+	                                                expected_family_id, expected_patch_file, &
+	                                                expected_pft_file, expected_gridriver_file, &
+	                                                checkpoint_family_id)
+
+	   IMPLICIT NONE
+
+	   character(len=*), intent(in) :: filename
+	   character(len=*), intent(in) :: expected_checkpoint_time
+	   character(len=*), intent(in), optional :: expected_role
+	   character(len=*), intent(in), optional :: expected_family_id
+	   character(len=*), intent(in), optional :: expected_patch_file
+	   character(len=*), intent(in), optional :: expected_pft_file
+	   character(len=*), intent(in), optional :: expected_gridriver_file
+	   character(len=*), intent(out), optional :: checkpoint_family_id
+	   integer :: marker_ranks
+
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL read_distributed_marker(filename, marker_ranks, expected_checkpoint_time, expected_role, &
+	                                   expected_family_id, expected_patch_file, expected_pft_file, &
+	                                   expected_gridriver_file, checkpoint_family_id)
+#endif
+
+	   END SUBROUTINE ncio_validate_distributed_restart
 
 	   !---------------------------------------------------------
 	   SUBROUTINE remove_rank_distributed_shards(filename)
@@ -258,7 +900,7 @@ CONTAINS
 	   character(len=*), intent(in) :: filename
 
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=512) :: fileblock, fileblock_rank
+	   character(len=distributed_path_length) :: fileblock, fileblock_rank
 	   integer :: iblk, jblk, iunit, iostat_open, iostat_close
 	   logical :: shard_exists
 
@@ -299,7 +941,7 @@ CONTAINS
 	   character(len=*), intent(in) :: filename
 
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=512) :: complete_marker
+	   character(len=distributed_path_length) :: complete_marker
 	   integer :: iunit, iostat_open, iostat_close
 	   logical :: marker_exists
 
@@ -317,6 +959,15 @@ CONTAINS
 	      ENDIF
 	      CALL mpi_barrier(mpas_comm, mpas_mpi_ierr)
 	      CALL mpas_mpi_check('distributed restart marker removal')
+	      IF (allocated(distributed_vector_maps)) deallocate(distributed_vector_maps)
+	      IF (allocated(validated_distributed_markers)) deallocate(validated_distributed_markers)
+	      IF (allocated(distributed_marker_ranks)) deallocate(distributed_marker_ranks)
+	      IF (allocated(distributed_marker_times)) deallocate(distributed_marker_times)
+	      IF (allocated(distributed_marker_family_ids)) deallocate(distributed_marker_family_ids)
+	      IF (allocated(distributed_marker_roles)) deallocate(distributed_marker_roles)
+	      IF (allocated(distributed_marker_patch_files)) deallocate(distributed_marker_patch_files)
+	      IF (allocated(distributed_marker_pft_files)) deallocate(distributed_marker_pft_files)
+	      IF (allocated(distributed_marker_gridriver_files)) deallocate(distributed_marker_gridriver_files)
 	      CALL remove_rank_distributed_shards(filename)
 	      CALL mpi_barrier(mpas_comm, mpas_mpi_ierr)
 	      CALL mpas_mpi_check('distributed restart shard cleanup')
@@ -325,7 +976,8 @@ CONTAINS
 	   END SUBROUTINE ncio_begin_distributed_write
 
 	   !---------------------------------------------------------
-	   SUBROUTINE ncio_complete_distributed_write(filename)
+	   SUBROUTINE ncio_complete_distributed_write(filename, checkpoint_time, checkpoint_family_id, &
+	                                              family_role, patch_file, pft_file, gridriver_file)
 
 #ifdef MPAS_EMBEDDED_COLM
 	   USE MOD_MPAS_MPI, only: mpas_is_root, mpas_comm, mpas_mpi_ierr, mpas_size, CoLM_stop, mpas_mpi_check
@@ -333,20 +985,74 @@ CONTAINS
 	   IMPLICIT NONE
 
 	   character(len=*), intent(in) :: filename
+	   character(len=*), intent(in) :: checkpoint_time
+	   character(len=*), intent(in), optional :: checkpoint_family_id
+	   character(len=*), intent(in), optional :: family_role
+	   character(len=*), intent(in), optional :: patch_file
+	   character(len=*), intent(in), optional :: pft_file
+	   character(len=*), intent(in), optional :: gridriver_file
 
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=512) :: complete_marker
-	   integer :: iunit, iostat_open, iostat_close
+	   character(len=:), allocatable :: complete_marker
+	   character(len=distributed_path_length) :: restart_file
+	   character(len=distributed_path_length) :: marker_patch_file, marker_pft_file, marker_gridriver_file
+	   integer :: iunit, iostat_open, iostat_close, path_separator
 
+	      IF (.not. allocated(distributed_run_identity) .or. .not. allocated(distributed_grid_identity)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart identity was not initialized before checkpoint publication.')
+	      ENDIF
+	      IF (.not. present(checkpoint_family_id) .or. .not. present(family_role) .or. &
+	          .not. present(patch_file) .or. .not. present(pft_file) .or. .not. present(gridriver_file)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint publication requires a complete family manifest.')
+	         RETURN
+	      ENDIF
+	      IF (.not. valid_checkpoint_family_id(checkpoint_family_id)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint publication received an invalid family ID.')
+	      ENDIF
+	      IF (trim(family_role) /= 'patch' .and. trim(family_role) /= 'pft') THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint publication received an invalid family role.')
+	      ENDIF
+	      CALL distributed_restart_basename(patch_file, marker_patch_file)
+	      CALL distributed_restart_basename(pft_file, marker_pft_file)
+	      CALL distributed_restart_basename(gridriver_file, marker_gridriver_file)
+	      IF (.not. valid_manifest_basename(marker_patch_file, .false.) .or. &
+	          .not. valid_manifest_basename(marker_pft_file, .true.) .or. &
+	          .not. valid_manifest_basename(marker_gridriver_file, .true.)) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint publication received invalid family filenames.')
+	      ENDIF
+	      IF (index(filename, new_line('a')) > 0 .or. index(filename, achar(13)) > 0) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM restart filename contains a line break.')
+	      ENDIF
+	      IF (.not. valid_distributed_checkpoint_time(checkpoint_time) .or. &
+	          index(checkpoint_time, new_line('a')) > 0 .or. &
+	          index(checkpoint_time, achar(13)) > 0) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint time must use YYYY-DDD-SSSSS format.')
+	      ENDIF
 	      CALL mpi_barrier(mpas_comm, mpas_mpi_ierr)
 	      CALL mpas_mpi_check('distributed restart shard completion')
 	      complete_marker = trim(filename)//'.mpas_complete'
+	      path_separator = scan(trim(filename), '/', back=.true.)
+	      restart_file = filename(path_separator+1:len_trim(filename))
+	      IF ((trim(family_role) == 'patch' .and. trim(restart_file) /= trim(marker_patch_file)) .or. &
+	          (trim(family_role) == 'pft' .and. trim(restart_file) /= trim(marker_pft_file))) THEN
+	         CALL CoLM_stop('MPAS embedded CoLM checkpoint family role does not match the restart filename.')
+	      ENDIF
 	      IF (mpas_is_root) THEN
 	         open(newunit=iunit, file=trim(complete_marker), status='replace', action='write', iostat=iostat_open)
 	         IF (iostat_open /= 0) CALL CoLM_stop('Cannot create MPAS embedded CoLM restart marker: '// &
 	                                             trim(complete_marker))
-	         write(iunit,'(A,I0)') 'MPAS ranks: ', mpas_size
-	         write(iunit,'(A)') 'Format: distributed-pixelset-v1'
+	         write(iunit,'(A,I0)') 'Format-Version: ', distributed_marker_version
+	         write(iunit,'(A)') 'Format: '//distributed_marker_format
+	         write(iunit,'(A)') 'Family-ID: '//trim(checkpoint_family_id)
+	         write(iunit,'(A)') 'Family-Role: '//trim(family_role)
+	         write(iunit,'(A)') 'Run-Identity: '//trim(distributed_run_identity)
+	         write(iunit,'(A)') 'Grid-Identity: '//trim(distributed_grid_identity)
+	         write(iunit,'(A)') 'Patch-File: '//trim(marker_patch_file)
+	         write(iunit,'(A)') 'PFT-File: '//trim(marker_pft_file)
+	         write(iunit,'(A)') 'GridRiver-File: '//trim(marker_gridriver_file)
+	         write(iunit,'(A)') 'Restart-File: '//trim(restart_file)
+	         write(iunit,'(A)') 'Checkpoint-Time: '//trim(checkpoint_time)
+	         write(iunit,'(A,I0)') 'MPAS-Ranks: ', mpas_size
 	         close(iunit, iostat=iostat_close)
 	         IF (iostat_close /= 0) CALL CoLM_stop('Cannot close MPAS embedded CoLM restart marker: '// &
 	                                               trim(complete_marker))
@@ -363,6 +1069,14 @@ CONTAINS
 	      IF (allocated(distributed_vector_maps)) deallocate(distributed_vector_maps)
 	      IF (allocated(validated_distributed_markers)) deallocate(validated_distributed_markers)
 	      IF (allocated(distributed_marker_ranks)) deallocate(distributed_marker_ranks)
+	      IF (allocated(distributed_marker_times)) deallocate(distributed_marker_times)
+	      IF (allocated(distributed_marker_family_ids)) deallocate(distributed_marker_family_ids)
+	      IF (allocated(distributed_marker_roles)) deallocate(distributed_marker_roles)
+	      IF (allocated(distributed_marker_patch_files)) deallocate(distributed_marker_patch_files)
+	      IF (allocated(distributed_marker_pft_files)) deallocate(distributed_marker_pft_files)
+	      IF (allocated(distributed_marker_gridriver_files)) deallocate(distributed_marker_gridriver_files)
+	      IF (allocated(distributed_run_identity)) deallocate(distributed_run_identity)
+	      IF (allocated(distributed_grid_identity)) deallocate(distributed_grid_identity)
 
 	   END SUBROUTINE ncio_reset_distributed_validation
 
@@ -382,8 +1096,9 @@ CONTAINS
 
 #ifdef MPAS_EMBEDDED_COLM
 	   type(distributed_vector_map_type), allocatable :: maps_new(:)
-	   character(len=256) :: fileblock, source_file
-	   character(len=512) :: complete_marker
+	   character(len=distributed_path_length) :: fileblock, source_file
+	   character(len=96) :: marker_family_id
+	   character(len=16) :: marker_family_role
 	   integer :: istt, iend, nlocal, marker_ranks, irank, isource, ilocal
 	   integer :: imap, nmaps, nused, iused
 	   integer*8, allocatable :: file_eindex(:)
@@ -427,8 +1142,9 @@ CONTAINS
 	         ENDDO
 	      ENDIF
 
-	      complete_marker = trim(filename)//'.mpas_complete'
-	      CALL read_distributed_marker(complete_marker, marker_ranks)
+	      CALL read_distributed_marker(filename, marker_ranks, &
+	                                   checkpoint_family_id=marker_family_id, &
+	                                   checkpoint_family_role=marker_family_role)
 	      CALL get_filename_block(filename, iblk, jblk, fileblock)
 	      allocate(rank_lengths(marker_ranks), used_rank(marker_ranks))
 	      rank_lengths = 0
@@ -460,6 +1176,7 @@ CONTAINS
 	         CALL add_rank_suffix(fileblock, irank, source_file)
 	         inquire(file=trim(source_file), exist=source_exists)
 	         IF (.not. source_exists) CYCLE
+	         CALL validate_distributed_shard_identity(source_file, marker_family_id, marker_family_role, filename)
 	         IF (.not. ncio_var_exist(source_file, 'mpas_eindex', readflag=.false.) .or. &
 	             .not. ncio_var_exist(source_file, 'mpas_ipxstt', readflag=.false.) .or. &
 	             .not. ncio_var_exist(source_file, 'mpas_ipxend', readflag=.false.) .or. &
@@ -621,7 +1338,7 @@ CONTAINS
 	   integer, intent(out) :: source_rank, source_length
 
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 
 	      IF (.not. allocated(distributed_vector_maps) .or. map_index < 1 .or. &
 	          map_index > size(distributed_vector_maps)) THEN
@@ -660,7 +1377,7 @@ CONTAINS
 	   integer, intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   integer, allocatable :: source_data(:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -703,7 +1420,7 @@ CONTAINS
 	   integer*8, intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   integer*8, allocatable :: source_data(:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -746,7 +1463,7 @@ CONTAINS
 	   logical, intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   integer(1), allocatable :: source_data(:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -800,7 +1517,7 @@ CONTAINS
 	   real(r8), intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   real(r8), allocatable :: source_data(:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -844,7 +1561,7 @@ CONTAINS
 	   real(r8), intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   real(r8), allocatable :: source_data(:,:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -890,7 +1607,7 @@ CONTAINS
 	   real(r8), intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   real(r8), allocatable :: source_data(:,:,:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -937,7 +1654,7 @@ CONTAINS
 	   real(r8), intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   real(r8), allocatable :: source_data(:,:,:,:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -985,7 +1702,7 @@ CONTAINS
 	   real(r8), intent(in), optional :: defval
 
 	   integer :: map_index, isource, source_rank, source_length, ilocal
-	   character(len=256) :: source_file
+	   character(len=distributed_path_length) :: source_file
 	   real(r8), allocatable :: source_data(:,:,:,:,:)
 
 	      CALL prepare_distributed_vector_map(filename, pixelset, iblk, jblk, map_index)
@@ -1114,7 +1831,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   integer, allocatable :: sbuff(:)
 			   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1206,7 +1923,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   integer*8, allocatable :: sbuff(:)
 			   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1298,7 +2015,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   integer(1), allocatable :: sbuff(:)
 			   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1395,7 +2112,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   real(r8), allocatable :: sbuff(:)
 			   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1489,7 +2206,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   real(r8), allocatable :: sbuff(:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1585,7 +2302,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   real(r8), allocatable :: sbuff(:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1682,7 +2399,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   real(r8), allocatable :: sbuff(:,:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1780,7 +2497,7 @@ CONTAINS
 
    ! Local variables
 	   integer :: iblkgrp, iblk, jblk, istt, iend, iset
-	   character(len=256) :: fileblock
+	   character(len=distributed_path_length) :: fileblock
 	   real(r8), allocatable :: sbuff(:,:,:,:,:)
 		   logical :: any_data_exists, block_has_data, use_srcpos, distributed_restart
 
@@ -1859,7 +2576,7 @@ CONTAINS
 
 
    !---------------------------------------------------------
-   SUBROUTINE ncio_create_file_vector (filename, pixelset)
+   SUBROUTINE ncio_create_file_vector (filename, pixelset, checkpoint_family_id, family_role)
 
    USE MOD_NetCDFSerial
    USE MOD_MPAS_MPI
@@ -1869,13 +2586,15 @@ CONTAINS
 
    character(len=*), intent(in) :: filename
    type(pixelset_type), intent(in) :: pixelset
+   character(len=*), intent(in), optional :: checkpoint_family_id
+   character(len=*), intent(in), optional :: family_role
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk
 #ifdef MPAS_EMBEDDED_COLM
    integer :: istt, iend
 #endif
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
 
       IF (.true.) THEN
          DO iblkgrp = 1, pixelset%nblkgrp
@@ -1885,6 +2604,12 @@ CONTAINS
             CALL get_filename_vector_block (filename, iblk, jblk, fileblock, for_write = .true.)
             CALL ncio_create_file (fileblock)
 #ifdef MPAS_EMBEDDED_COLM
+	            IF (present(checkpoint_family_id) .neqv. present(family_role)) THEN
+	               CALL CoLM_stop('Distributed CoLM restart shard identity requires both family ID and role.')
+	            ENDIF
+	            IF (present(checkpoint_family_id)) THEN
+	               CALL write_distributed_shard_identity(fileblock, checkpoint_family_id, family_role, filename)
+	            ENDIF
 	            istt = pixelset%vecgs%vstt(iblk,jblk)
 	            iend = pixelset%vecgs%vend(iblk,jblk)
 	            IF (iend >= istt) THEN
@@ -1922,7 +2647,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    logical :: fexists
 
       IF (.true.) THEN
@@ -2049,7 +2774,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    integer, allocatable :: rbuff(:)
 
       IF (.true.) THEN
@@ -2102,7 +2827,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend, i
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    integer(1), allocatable :: rbuff(:)
 
       IF (.true.) THEN
@@ -2163,7 +2888,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    integer, allocatable :: rbuff(:,:,:)
 
       IF (.true.) THEN
@@ -2218,7 +2943,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    integer*8, allocatable :: rbuff(:)
 
       IF (.true.) THEN
@@ -2272,7 +2997,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    real(r8), allocatable :: rbuff(:)
 
       IF (.true.) THEN
@@ -2327,7 +3052,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    real(r8), allocatable :: rbuff(:,:)
 
       IF (.true.) THEN
@@ -2385,7 +3110,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    real(r8), allocatable :: rbuff(:,:,:)
 
       IF (.true.) THEN
@@ -2442,7 +3167,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    real(r8), allocatable :: rbuff(:,:,:,:)
 
       IF (.true.) THEN
@@ -2501,7 +3226,7 @@ CONTAINS
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
-   character(len=256) :: fileblock
+   character(len=distributed_path_length) :: fileblock
    real(r8), allocatable :: rbuff(:,:,:,:,:)
 
       IF (.true.) THEN

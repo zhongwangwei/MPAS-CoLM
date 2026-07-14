@@ -16,7 +16,7 @@
 
  use mpas_atmphys_constants, only: R_d, R_v, cp
  use mpas_atmphys_utilities, only: physics_error_fatal
- use mpas_atmphys_vars, only: dt_pbl, xice_threshold
+ use mpas_atmphys_vars, only: dt_pbl, xice_threshold, rrtmg_co2vmr
 
 #ifdef MPAS_COLM2024
 	 use mpi, only: MPI_COMM_NULL, MPI_SUCCESS, MPI_Comm_dup, MPI_Comm_free
@@ -24,6 +24,7 @@
  use MOD_CoLM_MPAS_Interface, only: colm_mpas_initialize_from_namelist, colm_mpas_ready, &
                                     colm_mpas_set_element_forcing, &
 	                                    colm_mpas_step, colm_mpas_get_element_surface, &
+	                                    colm_mpas_get_element_albedo, &
 	                                    colm_mpas_get_element_boundary_state, &
 	                                    colm_mpas_get_element_state, &
 	                                    colm_mpas_get_element_river_state, &
@@ -36,8 +37,7 @@
                             colm_julian2monthday => julian2monthday
  use MOD_MonthlyinSituCO2MaunaLoa, only: colm_init_monthly_co2_mlo => init_monthly_co2_mlo, &
                                          colm_get_monthly_co2_mlo => get_monthly_co2_mlo
- use MOD_Namelist, only: colm_use_ozone_data => DEF_USE_OZONEDATA, &
-                         colm_use_cbl_height => DEF_USE_CBL_HEIGHT
+ use MOD_Namelist, only: colm_use_ozone_data => DEF_USE_OZONEDATA
 #endif
 
  implicit none
@@ -86,15 +86,16 @@
  integer :: mpas_start_idate(3), mpas_stop_idate(3)
  character(len=StrKIND),pointer:: config_colm2024_namelist
  character(len=StrKIND),pointer:: config_calendar_type
+ character(len=StrKIND),pointer:: config_pbl_interval
  character(len=StrKIND),pointer:: config_pbl_scheme
  character(len=StrKIND),pointer:: config_radt_lw_scheme
  character(len=StrKIND),pointer:: config_radt_sw_scheme
  character(len=StrKIND),pointer:: config_sfclayer_scheme
  integer,pointer:: nCellsSolve
- integer,dimension(:),pointer:: indexToCellID
- integer,allocatable:: cell_to_element(:), mpas_cell_id(:)
- real(kind=RKIND),dimension(:),pointer:: latCell, lonCell
- real(kind=colm_r8),allocatable:: mpas_cell_lat(:), mpas_cell_lon(:)
+ integer,dimension(:),pointer:: indexToCellID, landmask
+ integer,allocatable:: cell_to_element(:), mpas_cell_id(:), mpas_cell_landmask(:)
+ real(kind=RKIND),dimension(:),pointer:: latCell, lonCell, areaCell
+ real(kind=colm_r8),allocatable:: mpas_cell_lat(:), mpas_cell_lon(:), mpas_cell_area(:)
  real(kind=colm_r8) :: mpas_colm_timestep
  type(MPAS_Time_type):: start_time, stop_time
  type(block_type),pointer:: block_cursor
@@ -110,6 +111,7 @@
 	 endif
 
  call mpas_pool_get_config(configs,'config_pbl_scheme'     ,config_pbl_scheme     )
+ call mpas_pool_get_config(configs,'config_pbl_interval'   ,config_pbl_interval   )
  call mpas_pool_get_config(configs,'config_radt_lw_scheme' ,config_radt_lw_scheme )
  call mpas_pool_get_config(configs,'config_radt_sw_scheme' ,config_radt_sw_scheme )
  call mpas_pool_get_config(configs,'config_sfclayer_scheme',config_sfclayer_scheme)
@@ -121,6 +123,12 @@
  endif
  if(trim(config_sfclayer_scheme) == 'off') then
     call physics_error_fatal("CoLM2024 requires an active MPAS surface-layer scheme for PBL coupling.")
+ endif
+ if(trim(config_pbl_scheme) == 'off') then
+    call physics_error_fatal("CoLM2024 requires an active MPAS PBL scheme to feed surface fluxes back to the atmosphere.")
+ endif
+ if(trim(config_pbl_interval) /= 'none') then
+    call physics_error_fatal("CoLM2024 requires config_pbl_interval='none' so its timestep matches each MPAS physics step.")
  endif
 
 	 if(colm_initialized) return
@@ -173,8 +181,9 @@
     n_mpas_cells = n_mpas_cells + nCellsSolve
     block_cursor => block_cursor % next
  enddo
- allocate(mpas_cell_id(n_mpas_cells), mpas_cell_lat(n_mpas_cells), mpas_cell_lon(n_mpas_cells), &
-          cell_to_element(n_mpas_cells))
+ allocate(mpas_cell_id(n_mpas_cells), mpas_cell_landmask(n_mpas_cells), &
+          mpas_cell_lat(n_mpas_cells), mpas_cell_lon(n_mpas_cells), &
+          mpas_cell_area(n_mpas_cells), cell_to_element(n_mpas_cells))
 
  offset = 0
  block_cursor => block % domain % blocklist
@@ -184,12 +193,17 @@
     call mpas_pool_get_array(block_mesh,'indexToCellID',indexToCellID)
     call mpas_pool_get_array(block_mesh,'latCell',latCell)
     call mpas_pool_get_array(block_mesh,'lonCell',lonCell)
+    call mpas_pool_get_array(block_mesh,'areaCell',areaCell)
+    call mpas_pool_get_subpool(block_cursor % structs,'sfc_input',block_sfc_input)
+    call mpas_pool_get_array(block_sfc_input,'landmask',landmask)
 
     block_cells = nCellsSolve
     if(block_cells > 0) then
        mpas_cell_id(offset+1:offset+block_cells) = indexToCellID(1:block_cells)
        mpas_cell_lat(offset+1:offset+block_cells) = real(latCell(1:block_cells), colm_r8)
        mpas_cell_lon(offset+1:offset+block_cells) = real(lonCell(1:block_cells), colm_r8)
+       mpas_cell_area(offset+1:offset+block_cells) = real(areaCell(1:block_cells), colm_r8)
+       mpas_cell_landmask(offset+1:offset+block_cells) = landmask(1:block_cells)
     endif
     call colm2024_add_block_map(block_cursor % localBlockID, size(indexToCellID))
     offset = offset + block_cells
@@ -214,15 +228,21 @@
                                         mpas_cell_id=mpas_cell_id, &
                                         mpas_cell_lat=mpas_cell_lat, &
                                         mpas_cell_lon=mpas_cell_lon, &
+                                        mpas_cell_area=mpas_cell_area, &
+                                        mpas_cell_landmask=mpas_cell_landmask, &
                                         n_mpas_cells=n_mpas_cells, &
                                         cell_to_element=cell_to_element, &
                                         mpas_start_idate=mpas_start_idate, &
                                         mpas_stop_idate=mpas_stop_idate, &
 	                                        mpas_timestep=mpas_colm_timestep, &
 	                                        mpas_is_restart=config_do_restart)
- if(colm_ierr /= 0) call physics_error_fatal("CoLM2024 initialization from config_colm2024_namelist failed.")
- if(colm_use_cbl_height .and. trim(config_pbl_scheme) == 'off') then
-    call physics_error_fatal("CoLM2024 DEF_USE_CBL_HEIGHT requires an active MPAS PBL scheme.")
+ if(colm_ierr /= 0) then
+    call colm2024_free_block_maps()
+    if(colm_mpas_comm /= MPI_COMM_NULL) then
+       call MPI_Comm_free(colm_mpas_comm, mpi_ierr)
+       colm_mpas_comm = MPI_COMM_NULL
+    endif
+    call physics_error_fatal("CoLM2024 initialization from config_colm2024_namelist failed.")
  endif
  call colm_init_monthly_co2_mlo()
 
@@ -246,6 +266,7 @@
 	 colm_update_lai_next_step = .true.
 	 colm_step_idate(:) = mpas_start_idate(:)
 	 call colm_adj2end(colm_step_idate)
+	 call colm2024_update_atmospheric_co2(colm_step_idate)
 	 colm_initialized = .true.
 
 	 block_cursor => block % domain % blocklist
@@ -332,9 +353,10 @@
  colm_current_date(:) = colm_step_idate(:)
  call colm_adj2begin(colm_current_date)
  colm_update_daily_lai = colm_update_lai_next_step
- call colm_mpas_step(colm_step_idate, colm_dt, colm_update_daily_lai, .true., .false., colm_ierr)
- if(colm_ierr /= 0) call physics_error_fatal("CoLM2024 driver returned before completing a land-surface step.")
- colm_update_lai_next_step = any(colm_current_date(1:2) /= colm_previous_date(1:2))
+	 call colm_mpas_step(colm_step_idate, colm_dt, colm_update_daily_lai, .true., .false., colm_ierr)
+	 if(colm_ierr /= 0) call physics_error_fatal("CoLM2024 driver returned before completing a land-surface step.")
+	 call colm2024_update_atmospheric_co2(colm_step_idate)
+	 colm_update_lai_next_step = any(colm_current_date(1:2) /= colm_previous_date(1:2))
 #else
  call colm2024_adapter_not_built
 #endif
@@ -405,12 +427,32 @@
 			 call colm2024_free_block_maps()
 		 colm_update_lai_next_step = .true.
 		 colm_step_idate(:) = -1
+		 rrtmg_co2vmr = 379.e-6_RKIND
 		 colm_initialized = .false.
 #endif
 
 	 end subroutine finalize_lsm_colm2024
 
 #ifdef MPAS_COLM2024
+!=================================================================================================================
+ subroutine colm2024_update_atmospheric_co2(idate)
+!=================================================================================================================
+
+ integer,intent(in):: idate(3)
+ integer:: lookup_idate(3), lookup_month, lookup_mday
+ real(kind=colm_r8):: co2_mole_fraction
+
+ lookup_idate(:) = idate(:)
+ call colm_adj2begin(lookup_idate)
+ call colm_julian2monthday(lookup_idate(1), lookup_idate(2), lookup_month, lookup_mday)
+ co2_mole_fraction = 1.e-6_colm_r8 * colm_get_monthly_co2_mlo(lookup_idate(1), lookup_month)
+ if(.not. ieee_is_finite(co2_mole_fraction) .or. co2_mole_fraction <= 0._colm_r8) then
+    call physics_error_fatal("CoLM2024 produced an invalid atmospheric CO2 mole fraction.")
+ endif
+ rrtmg_co2vmr = real(co2_mole_fraction, RKIND)
+
+ end subroutine colm2024_update_atmospheric_co2
+
 !=================================================================================================================
  subroutine colm2024_add_block_map(local_block_id, nCells)
 !=================================================================================================================
@@ -492,8 +534,8 @@
 	 integer,pointer:: index_qv
 	 integer:: i, k
 	 integer:: ierr, ozone_ierr
-	 integer:: forcing_idate(3), forcing_month, forcing_mday
 	 real(kind=colm_r8):: aerdep(14)
+	 real(kind=colm_r8),parameter:: precip_negative_tolerance = 1.e-10_colm_r8
 	 real(kind=colm_r8):: co2_mole_fraction, dt, micro_rain, micro_snow, micro_total, precip_tolerance, &
 	                      hgt, hpbl_forcing, oro, ozone_ppbv, &
 	                      pbot, psrf, prc, prl, qair, &
@@ -559,10 +601,7 @@
  if(.not. ieee_is_finite(dt) .or. dt <= 0._colm_r8) then
     call physics_error_fatal("CoLM2024 precipitation forcing requires a positive finite timestep.")
  endif
-	 forcing_idate(:) = colm_step_idate(:)
-	 call colm_adj2begin(forcing_idate)
-	 call colm_julian2monthday(forcing_idate(1), forcing_idate(2), forcing_month, forcing_mday)
-	 co2_mole_fraction = 1.e-6_colm_r8 * colm_get_monthly_co2_mlo(forcing_idate(1), forcing_month)
+	 co2_mole_fraction = real(rrtmg_co2vmr, colm_r8)
 	 if(.not. ieee_is_finite(co2_mole_fraction) .or. co2_mole_fraction <= 0._colm_r8) then
 	    call physics_error_fatal("CoLM2024 produced an invalid atmospheric CO2 mole fraction.")
 	 endif
@@ -582,14 +621,17 @@
 	       if(.not. ieee_is_finite(raincv(i))) then
 	          call physics_error_fatal("MPAS supplied non-finite convective precipitation to CoLM2024.")
 	       endif
-	       if(raincv(i) < 0._RKIND) call physics_error_fatal("MPAS supplied negative convective precipitation to CoLM2024.")
+	       if(real(raincv(i), colm_r8) < -precip_negative_tolerance) &
+	          call physics_error_fatal("MPAS supplied negative convective precipitation to CoLM2024.")
 	    endif
 	    if(config_microp_scheme .ne. 'off') then
-	       if(.not. ieee_is_finite(rainncv(i)) .or. rainncv(i) < 0._RKIND) &
+	       if(.not. ieee_is_finite(rainncv(i)) .or. &
+	          real(rainncv(i), colm_r8) < -precip_negative_tolerance) &
 	          call physics_error_fatal("MPAS supplied invalid total microphysics precipitation to CoLM2024.")
 	       if(micro_has_solid) then
 	          if(.not. all(ieee_is_finite((/snowncv(i), graupelncv(i)/))) .or. &
-	             snowncv(i) < 0._RKIND .or. graupelncv(i) < 0._RKIND) &
+	             real(snowncv(i), colm_r8) < -precip_negative_tolerance .or. &
+	             real(graupelncv(i), colm_r8) < -precip_negative_tolerance) &
 	             call physics_error_fatal("MPAS supplied invalid solid microphysics precipitation to CoLM2024.")
 	       endif
 	    endif
@@ -623,9 +665,10 @@
 	       rain = rain + prc
 	    endif
 	    if(config_microp_scheme .ne. 'off') then
-	       micro_total = real(rainncv(i), colm_r8)
+	       micro_total = max(0._colm_r8, real(rainncv(i), colm_r8))
 	       micro_snow = 0._colm_r8
-	       if(micro_has_solid) micro_snow = real(snowncv(i) + graupelncv(i), colm_r8)
+	       if(micro_has_solid) micro_snow = max(0._colm_r8, real(snowncv(i), colm_r8)) + &
+	                                          max(0._colm_r8, real(graupelncv(i), colm_r8))
 	       precip_tolerance = max(1.e-10_colm_r8, 1.e-6_colm_r8 * max(1._colm_r8, micro_total))
 	       if(micro_snow > micro_total + precip_tolerance) then
 	          call physics_error_fatal("MPAS solid grid-scale precipitation exceeds total precipitation for CoLM2024.")
@@ -779,9 +822,13 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
  real(kind=colm_r8):: sensible, latent, evaporation, ground_heat, runoff
 	 real(kind=colm_r8):: surface_runoff, subsurface_runoff, skin_temp, t2m_colm, q2m_colm, u10m_colm, v10m_colm, qsfc_colm
  real(kind=colm_r8):: emissivity, roughness, albedo
- real(kind=colm_r8):: friction_velocity, stability_zeta, bulk_richardson, momentum_profile, heat_profile
+ real(kind=colm_r8):: albedo_vis_direct, albedo_vis_diffuse, albedo_nir_direct, albedo_nir_diffuse
+ real(kind=colm_r8):: friction_velocity, mechanical_friction_velocity
+ real(kind=colm_r8):: stability_zeta, bulk_richardson, momentum_profile, heat_profile
  real(kind=colm_r8):: moisture_profile, air_density, heat_exchange_velocity, moisture_exchange_velocity
- real(kind=colm_r8):: momentum_coefficient, enthalpy_coefficient, inverse_monin_obukhov
+ real(kind=colm_r8):: heat_exchange_velocity_2m, moisture_exchange_velocity_2m
+ real(kind=colm_r8):: momentum_coefficient, enthalpy_coefficient
+ real(kind=colm_r8):: momentum_coefficient_10m, inverse_monin_obukhov
  real(kind=colm_r8):: canopy_water, snow_water, snow_depth, snow_cover, leaf_area_index, ground_temperature
 	 real(kind=colm_r8):: vegetation_fraction, soil_availability
 	 real(kind=colm_r8):: river_water_depth, river_velocity, river_discharge
@@ -792,8 +839,11 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 
  real(kind=RKIND),dimension(:),pointer:: hfx, lh, qfx, grdflx, sfcrunoff, udrunoff
 	 real(kind=RKIND),dimension(:),pointer:: sfc_albedo, sfc_emiss, z0, znt, qsfc, t2m, q2, u10, v10
- real(kind=RKIND),dimension(:),pointer:: ust, ustm, zol, br, fm, fh, rmol, ch, chs, cda, cka, flhc, flqc
- real(kind=RKIND),dimension(:),pointer:: skintemp, canwat, smstav, smstot, snow, snowc, snowh, lai, vegfra, xland
+	 real(kind=RKIND),dimension(:),pointer:: sfc_albedo_vis_dir, sfc_albedo_vis_dif
+	 real(kind=RKIND),dimension(:),pointer:: sfc_albedo_nir_dir, sfc_albedo_nir_dif
+ real(kind=RKIND),dimension(:),pointer:: ust, ustm, zol, br, fm, fh, rmol, ch, chs, chs2, cqs2
+ real(kind=RKIND),dimension(:),pointer:: cd, cda, cka, flhc, flqc
+	 real(kind=RKIND),dimension(:),pointer:: skintemp, canwat, smstav, smstot, snow, snowc, snowh, lai, vegfra, xice, xland
  real(kind=RKIND),dimension(:,:),pointer:: dzs, sh2o, smois, tslb
  real(kind=RKIND),dimension(:,:),pointer:: colm_soil_liquid, colm_soil_ice, colm_soil_moisture
 	 real(kind=RKIND),dimension(:,:),pointer:: colm_soil_temperature, colm_soil_layer_thickness, colm_soil_layer_depth
@@ -809,6 +859,10 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
  call mpas_pool_get_array(diag_physics,'sfcrunoff' ,sfcrunoff )
  call mpas_pool_get_array(diag_physics,'udrunoff'  ,udrunoff  )
  call mpas_pool_get_array(diag_physics,'sfc_albedo',sfc_albedo)
+	 call mpas_pool_get_array(diag_physics,'sfc_albedo_vis_dir',sfc_albedo_vis_dir)
+	 call mpas_pool_get_array(diag_physics,'sfc_albedo_vis_dif',sfc_albedo_vis_dif)
+	 call mpas_pool_get_array(diag_physics,'sfc_albedo_nir_dir',sfc_albedo_nir_dir)
+	 call mpas_pool_get_array(diag_physics,'sfc_albedo_nir_dif',sfc_albedo_nir_dif)
  call mpas_pool_get_array(diag_physics,'sfc_emiss' ,sfc_emiss )
  call mpas_pool_get_array(diag_physics,'z0'        ,z0        )
  call mpas_pool_get_array(diag_physics,'znt'       ,znt       )
@@ -826,6 +880,9 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	 call mpas_pool_get_array(diag_physics,'rmol'      ,rmol      )
 	 call mpas_pool_get_array(diag_physics,'ch'        ,ch        )
 	 call mpas_pool_get_array(diag_physics,'chs'       ,chs       )
+	 call mpas_pool_get_array(diag_physics,'chs2'      ,chs2      )
+	 call mpas_pool_get_array(diag_physics,'cqs2'      ,cqs2      )
+	 call mpas_pool_get_array(diag_physics,'cd'        ,cd        )
 	 call mpas_pool_get_array(diag_physics,'cda'       ,cda       )
 	 call mpas_pool_get_array(diag_physics,'cka'       ,cka       )
 	 call mpas_pool_get_array(diag_physics,'flhc'      ,flhc      )
@@ -840,6 +897,7 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
  call mpas_pool_get_array(sfc_input,'snowh'   ,snowh   )
 	 call mpas_pool_get_array(sfc_input,'vegfra'  ,vegfra  )
 	 call mpas_pool_get_array(sfc_input,'xland'   ,xland   )
+	 call mpas_pool_get_array(sfc_input,'xice'    ,xice    )
 	 call mpas_pool_get_array(sfc_input,'dzs'     ,dzs     )
  call mpas_pool_get_array(sfc_input,'sh2o'    ,sh2o    )
  call mpas_pool_get_array(sfc_input,'smois'   ,smois   )
@@ -869,10 +927,20 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	 allocate(soil_liquid(colm_nl_soil), soil_ice(colm_nl_soil), soil_moisture(colm_nl_soil), &
 	          soil_temperature(colm_nl_soil), soil_water_equivalent(colm_nl_soil))
 
- do i = its,ite
-    if(element_for_cell(i) <= 0) call physics_error_fatal("CoLM2024 MPAS cell-to-element map has an invalid element index.")
-	    if(.not. ieee_is_finite(xland(i))) call physics_error_fatal("MPAS supplied a non-finite land-ocean mask to CoLM2024.")
-	    if(xland(i) >= 1.5_RKIND) then
+	 do i = its,ite
+	    if(element_for_cell(i) <= 0) call physics_error_fatal("CoLM2024 MPAS cell-to-element map has an invalid element index.")
+	    if(.not. ieee_is_finite(xland(i)) .or. .not. ieee_is_finite(xice(i))) &
+	       call physics_error_fatal("MPAS supplied a non-finite land-ocean or sea-ice mask to CoLM2024.")
+	    if(xland(i) < 1._RKIND .or. xland(i) > 2._RKIND .or. xice(i) < 0._RKIND .or. xice(i) > 1._RKIND) &
+	       call physics_error_fatal("MPAS supplied an out-of-range land-ocean or sea-ice mask to CoLM2024.")
+	    sfc_albedo_vis_dir(i) = sfc_albedo(i)
+	    sfc_albedo_vis_dif(i) = sfc_albedo(i)
+	    sfc_albedo_nir_dir(i) = sfc_albedo(i)
+	    sfc_albedo_nir_dif(i) = sfc_albedo(i)
+	    vegfra(i) = -9999._RKIND
+	    smstav(i) = -9999._RKIND
+	    if(xland(i) >= 1.5_RKIND .or. xice(i) >= xice_threshold) then
+	       vegfra(i) = 0._RKIND
 	       colm_soil_liquid(:,i) = -9999._RKIND
 	       colm_soil_ice(:,i) = -9999._RKIND
 	       colm_soil_moisture(:,i) = -9999._RKIND
@@ -888,17 +956,28 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	    if(pull_fluxes) then
 	       call colm_mpas_get_element_surface(element_for_cell(i), sensible, latent, evaporation, ground_heat, runoff, &
 		                                          surface_runoff, subsurface_runoff, skin_temp, t2m_colm, q2m_colm, &
-		                                          u10m_colm, v10m_colm, qsfc_colm, emissivity, roughness, albedo, &
-		                                          friction_velocity, &
+	                                          u10m_colm, v10m_colm, qsfc_colm, emissivity, roughness, albedo, &
+	                                          friction_velocity, mechanical_friction_velocity, &
 	                                          stability_zeta, bulk_richardson, momentum_profile, heat_profile, &
 	                                          moisture_profile, air_density, heat_exchange_velocity, &
-	                                          moisture_exchange_velocity, momentum_coefficient, enthalpy_coefficient, &
+	                                          moisture_exchange_velocity, heat_exchange_velocity_2m, &
+	                                          moisture_exchange_velocity_2m, momentum_coefficient, enthalpy_coefficient, &
+	                                          momentum_coefficient_10m, &
 	                                          inverse_monin_obukhov, ierr)
 	       if(ierr /= 0) call physics_error_fatal("Failed to retrieve CoLM2024 surface fluxes.")
 	    else
 	       call colm_mpas_get_element_boundary_state(element_for_cell(i), skin_temp, qsfc_colm, emissivity, &
 	                                                   roughness, albedo, ierr)
 	       if(ierr /= 0) call physics_error_fatal("Failed to retrieve the initial CoLM2024 surface boundary state.")
+	    endif
+	    call colm_mpas_get_element_albedo(element_for_cell(i), albedo_vis_direct, albedo_vis_diffuse, &
+	                                      albedo_nir_direct, albedo_nir_diffuse, ierr)
+	    if(ierr /= 0) call physics_error_fatal("Failed to retrieve the CoLM2024 spectral surface albedo.")
+	    if(.not. all(ieee_is_finite((/albedo_vis_direct, albedo_vis_diffuse, &
+	                                   albedo_nir_direct, albedo_nir_diffuse/))) .or. &
+	       any((/albedo_vis_direct, albedo_vis_diffuse, albedo_nir_direct, albedo_nir_diffuse/) < 0._colm_r8) .or. &
+	       any((/albedo_vis_direct, albedo_vis_diffuse, albedo_nir_direct, albedo_nir_diffuse/) > 1._colm_r8)) then
+	       call physics_error_fatal("CoLM2024 returned an invalid spectral surface albedo.")
 	    endif
 	    call colm_mpas_get_element_state(element_for_cell(i), canopy_water, snow_water, snow_depth, snow_cover, &
 	                                     leaf_area_index, vegetation_fraction, soil_availability, ground_temperature, &
@@ -932,22 +1011,31 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 		                  albedo/)) >= colm_state_bad_value)) then
 	          call physics_error_fatal("CoLM2024 returned a non-finite or missing required surface field.")
 	       endif
-	       if(.not. all(ieee_is_finite((/friction_velocity, stability_zeta, bulk_richardson, momentum_profile, &
+	       if(.not. all(ieee_is_finite((/friction_velocity, mechanical_friction_velocity, &
+	                                   stability_zeta, bulk_richardson, momentum_profile, &
 	                                   heat_profile, moisture_profile, air_density, heat_exchange_velocity, &
-	                                   moisture_exchange_velocity, momentum_coefficient, enthalpy_coefficient, &
+	                                   moisture_exchange_velocity, heat_exchange_velocity_2m, &
+	                                   moisture_exchange_velocity_2m, momentum_coefficient, enthalpy_coefficient, &
+	                                   momentum_coefficient_10m, &
 	                                   inverse_monin_obukhov/))) .or. &
-	          any(abs((/friction_velocity, stability_zeta, bulk_richardson, momentum_profile, heat_profile, &
+	          any(abs((/friction_velocity, mechanical_friction_velocity, stability_zeta, bulk_richardson, &
+	                  momentum_profile, heat_profile, &
 	                  moisture_profile, air_density, heat_exchange_velocity, moisture_exchange_velocity, &
-	                  momentum_coefficient, enthalpy_coefficient, inverse_monin_obukhov/)) >= colm_state_bad_value)) then
+	                  heat_exchange_velocity_2m, moisture_exchange_velocity_2m, momentum_coefficient, &
+	                  enthalpy_coefficient, momentum_coefficient_10m, &
+	                  inverse_monin_obukhov/)) >= colm_state_bad_value)) then
 	          call physics_error_fatal("CoLM2024 returned a non-finite or missing surface-exchange field.")
 	       endif
 	       if(q2m_colm < 0._colm_r8 .or. q2m_colm >= 1._colm_r8 .or. qsfc_colm < 0._colm_r8 .or. &
 	       qsfc_colm >= 1._colm_r8 .or. emissivity < 0._colm_r8 .or. emissivity > 1._colm_r8 .or. &
 	       albedo < 0._colm_r8 .or. albedo > 1._colm_r8 .or. &
-	       roughness < 0._colm_r8 .or. friction_velocity < 0._colm_r8 .or. air_density <= 0._colm_r8 .or. &
+	       roughness < 0._colm_r8 .or. friction_velocity < 0._colm_r8 .or. &
+	       mechanical_friction_velocity < 0._colm_r8 .or. air_density <= 0._colm_r8 .or. &
 	       momentum_profile <= 0._colm_r8 .or. heat_profile <= 0._colm_r8 .or. moisture_profile <= 0._colm_r8 .or. &
 	       heat_exchange_velocity < 0._colm_r8 .or. moisture_exchange_velocity < 0._colm_r8 .or. &
-	       momentum_coefficient < 0._colm_r8 .or. enthalpy_coefficient < 0._colm_r8) then
+	       heat_exchange_velocity_2m < 0._colm_r8 .or. moisture_exchange_velocity_2m < 0._colm_r8 .or. &
+	       momentum_coefficient < 0._colm_r8 .or. enthalpy_coefficient < 0._colm_r8 .or. &
+	       momentum_coefficient_10m < 0._colm_r8) then
 	          call physics_error_fatal("CoLM2024 returned an out-of-range surface state or exchange field.")
 	       endif
 
@@ -971,7 +1059,7 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	    znt(i) = real(roughness, RKIND)
 	    sfc_albedo(i) = real(albedo, RKIND)
 	    ust(i) = real(friction_velocity, RKIND)
-	    ustm(i) = real(friction_velocity, RKIND)
+	    ustm(i) = real(mechanical_friction_velocity, RKIND)
 	    zol(i) = real(stability_zeta, RKIND)
 	    br(i) = real(bulk_richardson, RKIND)
 	    fm(i) = real(momentum_profile, RKIND)
@@ -979,10 +1067,13 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	    rmol(i) = real(inverse_monin_obukhov, RKIND)
 	    ch(i) = real(heat_exchange_velocity, RKIND)
 	    chs(i) = real(heat_exchange_velocity, RKIND)
+	    chs2(i) = real(heat_exchange_velocity_2m, RKIND)
+	    cqs2(i) = real(moisture_exchange_velocity_2m, RKIND)
 	    flhc(i) = real(air_density * real(cp,colm_r8) * heat_exchange_velocity, RKIND)
 	    flqc(i) = real(air_density * moisture_exchange_velocity, RKIND)
+	    cd(i) = real(momentum_coefficient_10m, RKIND)
 	    cda(i) = real(momentum_coefficient, RKIND)
-	       cka(i) = real(enthalpy_coefficient, RKIND)
+	    cka(i) = real(enthalpy_coefficient, RKIND)
 	    else
 	       if(.not. all(ieee_is_finite((/skin_temp, qsfc_colm, emissivity, roughness, albedo/))) .or. &
 	          any(abs((/skin_temp, qsfc_colm, emissivity, roughness, albedo/)) >= colm_state_bad_value) .or. &
@@ -998,6 +1089,10 @@ subroutine colm2024_pull_mpas_surface(element_for_cell,diag_physics,diag_physics
 	       znt(i) = real(roughness, RKIND)
 	       sfc_albedo(i) = real(albedo, RKIND)
 	    endif
+	    sfc_albedo_vis_dir(i) = real(albedo_vis_direct, RKIND)
+	    sfc_albedo_vis_dif(i) = real(albedo_vis_diffuse, RKIND)
+	    sfc_albedo_nir_dir(i) = real(albedo_nir_direct, RKIND)
+	    sfc_albedo_nir_dif(i) = real(albedo_nir_diffuse, RKIND)
 	    canwat(i) = real(canopy_water, RKIND)
     snow(i) = real(snow_water, RKIND)
     snowh(i) = real(snow_depth, RKIND)

@@ -187,7 +187,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
              ! additional variables required by coupling with WRF model
                emis(i),         z0m(i),          zol(i),          rib(i),          &
                ustar(i),        qstar(i),        tstar(i),                         &
-               fm(i),           fh(i),           fq(i)                             )
+               fm(i),           fh(i),           fq(i),                            &
+               fh2m(i),         fq2m(i),         fm10m(i),                         &
+               diag_u10m(i),    diag_v10m(i),    diag_chs2(i),                     &
+               diag_cqs2(i),    diag_cd10(i)                                       )
 
             ENDDO
          ENDIF

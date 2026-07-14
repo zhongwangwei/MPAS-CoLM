@@ -42,6 +42,7 @@ CONTAINS
               qref       ,rst        ,assim      ,respc      ,fsenl      ,fevpl      ,&
               etr        ,dlrad      ,ulrad      ,z0m        ,zol        ,rib        ,&
               ustar      ,qstar      ,tstar      ,fm         ,fh         ,fq         ,&
+              fh2m       ,fq2m       ,fm10m      ,&
               rootfr     ,&
 !Plant Hydraulic variables
               kmax_sun   ,kmax_sha   ,kmax_xyl   ,kmax_root  ,psi50_sun  ,psi50_sha  ,&
@@ -291,7 +292,10 @@ CONTAINS
         qstar,      &! moisture scaling parameter
         fm,         &! integral of profile function for momentum
         fh,         &! integral of profile function for heat
-        fq           ! integral of profile function for moisture
+        fq,         &! integral of profile function for moisture
+        fh2m,       &! relation for temperature at 2m
+        fq2m,       &! relation for specific humidity at 2m
+        fm10m        ! integral of profile function for momentum at 10m
 
    real(r8), intent(inout) :: &
 !Ozone stress variables
@@ -332,9 +336,6 @@ CONTAINS
         um,         &! wind speed including the stability effect [m/s]
         ur,         &! wind speed at reference height [m/s]
         uaf,        &! velocity of air within foliage [m/s]
-        fh2m,       &! relation for temperature at 2m
-        fq2m,       &! relation for specific humidity at 2m
-        fm10m,      &! integral of profile function for momentum at 10m
         thvstar,    &! virtual potential temperature scaling parameter
         taf,        &! air temperature within canopy space [K]
         qaf,        &! humidity of canopy air [kg/kg]
@@ -414,6 +415,8 @@ CONTAINS
    real(r8) :: fqt, fht, fmtop
    real(r8) :: utop, ueff, ktop
    real(r8) :: phih, z0qg, z0hg
+   real(r8) :: diag_ustar, diag_fh2m, diag_fq2m, diag_fm, diag_fh, diag_fq
+   real(r8) :: profile_obu, profile_um
    real(r8) :: hsink, displasink
    real(r8) gb_mol
    real(r8),dimension(nl_soil) :: k_soil_root    ! radial root and soil conductance
@@ -535,6 +538,12 @@ CONTAINS
 
       IF (forc_height_mode == 'absolute') THEN
 
+#ifdef MPAS_EMBEDDED_COLM
+         IF (hu <= htop+1 .or. ht <= htop+1 .or. hq <= htop+1) THEN
+            CALL CoLM_stop('MPAS embedded CoLM requires the MPAS lowest atmospheric level '// &
+                           'to be more than 1 m above the CoLM canopy top.')
+         ENDIF
+#else
          IF (hu <= htop+1) THEN
             hu_ = htop + 1.
             IF (taux == spval) & ! only print warning for the first time-step
@@ -552,6 +561,7 @@ CONTAINS
             IF (taux == spval) & ! only print warning for the first time-step
                write(6,*) 'Warning: the obs height of q less than htop+1, set it to htop+1.'
          ENDIF
+#endif
 
       ELSE ! relative height
          hu_ = htop + hu
@@ -589,6 +599,8 @@ CONTAINS
 ! Aerodynamical resistances
 !-----------------------------------------------------------------------
 ! Evaluate stability-dependent variables using moz from prior iteration
+         profile_obu = obu
+         profile_um = um
          IF (rd_opt == 3) THEN
             IF (DEF_USE_CBL_HEIGHT) THEN
               CALL moninobukm_leddy(hu_,ht_,hq_,displa,z0mv,z0hv,z0qv,obu,um, &
@@ -1037,22 +1049,14 @@ ENDIF
       etr   = etr + etr_dtl*dtl(it-1)
 
       IF (DEF_USE_PLANTHYDRAULICS) THEN
-         !TODO@yuan: rootflux may not be consistent with etr,
-         !           water imbalance could happen.
+         ! Apply the final leaf-temperature correction to total
+         ! transpiration without discarding layer-to-layer hydraulic
+         ! redistribution in rootflux.
          IF (abs(etr0) .ge. 1.e-15) THEN
              rootflux = rootflux * etr / etr0
          ELSE
              rootflux = rootflux + dz_soi / sum(dz_soi) * etr_dtl* dtl(it-1)
          ENDIF
-
-!        !NOTE: temporal solution to make etr and rootflux consistent.
-!        !TODO: need double check
-!        sumrootr = sum(rootr(:), rootr(:)>0.)
-!        IF (abs(sumrootr) > 0.) THEN
-!           rootr(:) = max(rootr(:),0.) * (etr/sumrootr)
-!        ELSE
-!           rootr(:) = etr*rootfr(:)
-!        ENDIF
       ENDIF
 
       evplwet = evplwet + evplwet_dtl*dtl(it-1)
@@ -1469,6 +1473,17 @@ ENDIF
 !-----------------------------------------------------------------------
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+
+      ! moninobukm returns the canopy-top profile but not the standard
+      ! 10 m momentum profile. Re-evaluate only the diagnostics with the
+      ! converged roughness lengths and Obukhov length.
+      IF (DEF_USE_CBL_HEIGHT) THEN
+         CALL moninobuk_leddy(hu_,ht_,hq_,displa,z0mv,z0hv,z0qv,profile_obu,profile_um,hpbl, &
+                              diag_ustar,diag_fh2m,diag_fq2m,fm10m,diag_fm,diag_fh,diag_fq)
+      ELSE
+         CALL moninobuk(hu_,ht_,hq_,displa,z0mv,z0hv,z0qv,profile_obu,profile_um, &
+                        diag_ustar,diag_fh2m,diag_fq2m,fm10m,diag_fm,diag_fh,diag_fq)
+      ENDIF
 
    END SUBROUTINE LeafTemperature
 !----------------------------------------------------------------------

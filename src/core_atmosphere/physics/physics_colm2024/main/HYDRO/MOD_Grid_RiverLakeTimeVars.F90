@@ -39,6 +39,7 @@ MODULE MOD_Grid_RiverLakeTimeVars
 
    PUBLIC :: read_GridRiverLakeTimeVars
    PUBLIC :: write_GridRiverLakeTimeVars
+   PUBLIC :: validate_GridRiverRestart
    PUBLIC :: update_GridRiverLakeElementDiagnostics
 
 CONTAINS
@@ -88,11 +89,13 @@ CONTAINS
    END SUBROUTINE allocate_GridRiverLakeTimeVars
 
 
-   SUBROUTINE READ_GridRiverLakeTimeVars (file_restart, require_complete_restart)
+   SUBROUTINE READ_GridRiverLakeTimeVars (file_restart, require_complete_restart, checkpoint_family_id, &
+                                          patch_file, pft_file, gridriver_file)
 
    USE MOD_MPAS_MPI
    USE MOD_Namelist
-	   USE MOD_NetCDFSerial, only: ncio_read_bcast_serial, ncio_read_indexed_serial, ncio_var_exist
+	   USE MOD_NetCDFSerial, only: ncio_read_bcast_serial, ncio_read_indexed_serial, &
+	                              ncio_var_exist_bcast_serial
 	   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_ucid
 	   USE MOD_Grid_Reservoir,        only: numresv, totalnumresv, resv_global_index
 	   USE MOD_Vars_Global,           only: spval
@@ -101,14 +104,29 @@ CONTAINS
 
 	   character(len=*), intent(in) :: file_restart
 	   logical, intent(in) :: require_complete_restart
+	   character(len=*), intent(in), optional :: checkpoint_family_id
+	   character(len=*), intent(in), optional :: patch_file, pft_file, gridriver_file
 	   logical :: has_acc_rnof
 	   logical :: has_acctime_rnof
 	   logical :: has_discharge
 
 	      gridriver_restart_file = trim(file_restart)
-	      has_acc_rnof = ncio_var_exist(file_restart, 'acc_rnof_uc', .false.)
-	      has_acctime_rnof = ncio_var_exist(file_restart, 'acctime_rnof', .false.)
-	      has_discharge = ncio_var_exist(file_restart, 'discharge_riv', .false.)
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (require_complete_restart) THEN
+	         IF (.not. present(checkpoint_family_id) .or. .not. present(patch_file) .or. &
+	             .not. present(pft_file) .or. .not. present(gridriver_file)) THEN
+	            CALL CoLM_stop('Complete embedded CoLM river restart validation requires a checkpoint family manifest.')
+	            RETURN
+	         ENDIF
+	         CALL validate_GridRiverRestart(file_restart, checkpoint_family_id, patch_file, &
+	                                            pft_file, gridriver_file)
+	      ENDIF
+#endif
+	      ! Optional-field decisions must be identical before any collective read.
+	      ! Local indexed reads below still require this file on a shared filesystem.
+	      has_acc_rnof = ncio_var_exist_bcast_serial(file_restart, 'acc_rnof_uc', .false.)
+	      has_acctime_rnof = ncio_var_exist_bcast_serial(file_restart, 'acctime_rnof', .false.)
+	      has_discharge = ncio_var_exist_bcast_serial(file_restart, 'discharge_riv', .false.)
 
       IF (.true.) THEN
          CALL validate_gridriver_indices(ucat_ucid, numucat, totalnumucat, 'unit-catchment')
@@ -167,15 +185,27 @@ CONTAINS
    END SUBROUTINE READ_GridRiverLakeTimeVars
 
 
-   SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart)
+   SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart, checkpoint_family_id, patch_file, pft_file, gridriver_file)
 
    USE MOD_MPAS_MPI
    USE MOD_Namelist
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   character(len=*), intent(in), optional :: checkpoint_family_id
+   character(len=*), intent(in), optional :: patch_file, pft_file, gridriver_file
 
-      CALL write_gridriver_restart_mpas_embedded (file_restart)
+#ifdef MPAS_EMBEDDED_COLM
+      IF (.not. present(checkpoint_family_id) .or. .not. present(patch_file) .or. &
+          .not. present(pft_file) .or. .not. present(gridriver_file)) THEN
+         CALL CoLM_stop('Embedded CoLM river restart write requires a checkpoint family manifest.')
+         RETURN
+      ENDIF
+      CALL write_gridriver_restart_mpas_embedded(file_restart, checkpoint_family_id, patch_file, &
+                                                pft_file, gridriver_file)
+#else
+      CALL write_gridriver_restart_mpas_embedded(file_restart)
+#endif
 
 #ifdef GridRiverLakeSediment
       IF (DEF_USE_SEDIMENT) THEN
@@ -185,7 +215,8 @@ CONTAINS
 
    END SUBROUTINE WRITE_GridRiverLakeTimeVars
 
-   SUBROUTINE write_gridriver_restart_mpas_embedded (file_restart)
+   SUBROUTINE write_gridriver_restart_mpas_embedded (file_restart, checkpoint_family_id, patch_file, &
+                                                     pft_file, gridriver_file)
 
    USE mpi, only: MPI_INFO_NULL, MPI_OFFSET_KIND
    USE pnetcdf
@@ -196,6 +227,8 @@ CONTAINS
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   character(len=*), intent(in), optional :: checkpoint_family_id
+   character(len=*), intent(in), optional :: patch_file, pft_file, gridriver_file
 
    integer :: ierr
    integer :: ncid
@@ -208,8 +241,22 @@ CONTAINS
    integer :: var_acctime_rnof
    integer :: var_volresv
    logical :: write_reservoir
+   logical :: write_family_manifest
+   character(len=2048) :: patch_basename, pft_basename, gridriver_basename
 
       write_reservoir = DEF_Reservoir_Method > 0 .and. totalnumresv > 0
+	      write_family_manifest = present(checkpoint_family_id) .and. present(patch_file) .and. &
+	                              present(pft_file) .and. present(gridriver_file)
+	      IF (write_family_manifest) THEN
+	         CALL gridriver_restart_basename(patch_file, patch_basename)
+	         CALL gridriver_restart_basename(pft_file, pft_basename)
+	         CALL gridriver_restart_basename(gridriver_file, gridriver_basename)
+	         IF (trim(checkpoint_family_id) == '' .or. trim(patch_basename) == '' .or. &
+	             trim(pft_basename) == '' .or. trim(gridriver_basename) == '' .or. &
+	             trim(gridriver_basename) == 'NONE') THEN
+	            CALL CoLM_stop('Embedded CoLM river restart received an invalid checkpoint family manifest.')
+	         ENDIF
+	      ENDIF
 
       IF (totalnumucat < 1) THEN
          CALL CoLM_stop('Cannot write an embedded CoLM river restart with no global unit catchments.')
@@ -249,6 +296,19 @@ CONTAINS
          CALL pnetcdf_check(ierr, 'define volresv', file_restart)
       ENDIF
 
+	      IF (write_family_manifest) THEN
+	         ierr = nf90mpi_put_att(ncid, NF90_GLOBAL, 'colm_checkpoint_family_id', trim(checkpoint_family_id))
+	         CALL pnetcdf_check(ierr, 'define checkpoint family ID attribute', file_restart)
+	         ierr = nf90mpi_put_att(ncid, NF90_GLOBAL, 'colm_checkpoint_role', 'gridriver')
+	         CALL pnetcdf_check(ierr, 'define checkpoint role attribute', file_restart)
+	         ierr = nf90mpi_put_att(ncid, NF90_GLOBAL, 'colm_checkpoint_patch_file', trim(patch_basename))
+	         CALL pnetcdf_check(ierr, 'define checkpoint patch-file attribute', file_restart)
+	         ierr = nf90mpi_put_att(ncid, NF90_GLOBAL, 'colm_checkpoint_pft_file', trim(pft_basename))
+	         CALL pnetcdf_check(ierr, 'define checkpoint PFT-file attribute', file_restart)
+	         ierr = nf90mpi_put_att(ncid, NF90_GLOBAL, 'colm_checkpoint_gridriver_file', trim(gridriver_basename))
+	         CALL pnetcdf_check(ierr, 'define checkpoint grid-river-file attribute', file_restart)
+	      ENDIF
+
       ierr = nf90mpi_enddef(ncid)
       CALL pnetcdf_check(ierr, 'end define mode', file_restart)
 
@@ -281,6 +341,76 @@ CONTAINS
       CALL pnetcdf_check(ierr, 'close', file_restart)
 
    END SUBROUTINE write_gridriver_restart_mpas_embedded
+
+   SUBROUTINE validate_GridRiverRestart(file_restart, checkpoint_family_id, patch_file, &
+                                        pft_file, gridriver_file)
+
+   USE netcdf, only: nf90_open, nf90_nowrite, nf90_global, nf90_get_att, nf90_close, nf90_noerr
+   USE MOD_MPAS_MPI, only: CoLM_stop
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: file_restart
+   character(len=*), intent(in) :: checkpoint_family_id
+   character(len=*), intent(in) :: patch_file, pft_file, gridriver_file
+
+   integer :: ierr
+   integer :: ncid
+   character(len=2048) :: actual_family_id, actual_role
+   character(len=2048) :: actual_patch_file, actual_pft_file, actual_gridriver_file
+   character(len=2048) :: expected_patch_file, expected_pft_file, expected_gridriver_file
+
+      CALL gridriver_restart_basename(patch_file, expected_patch_file)
+      CALL gridriver_restart_basename(pft_file, expected_pft_file)
+      CALL gridriver_restart_basename(gridriver_file, expected_gridriver_file)
+
+      ierr = nf90_open(trim(file_restart), nf90_nowrite, ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot open embedded CoLM river restart family member: '//trim(file_restart))
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_family_id', actual_family_id)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Embedded CoLM river restart is missing its checkpoint family ID.')
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_role', actual_role)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Embedded CoLM river restart is missing its checkpoint role.')
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_patch_file', actual_patch_file)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Embedded CoLM river restart is missing its patch-file manifest.')
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_pft_file', actual_pft_file)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Embedded CoLM river restart is missing its PFT-file manifest.')
+      ierr = nf90_get_att(ncid, nf90_global, 'colm_checkpoint_gridriver_file', actual_gridriver_file)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Embedded CoLM river restart is missing its grid-river-file manifest.')
+      ierr = nf90_close(ncid)
+      IF (ierr /= nf90_noerr) CALL CoLM_stop('Cannot close embedded CoLM river restart family member: '//trim(file_restart))
+
+      IF (trim(actual_family_id) /= trim(checkpoint_family_id)) THEN
+         CALL CoLM_stop('Embedded CoLM river restart belongs to a different checkpoint generation.')
+      ENDIF
+      IF (trim(actual_role) /= 'gridriver') THEN
+         CALL CoLM_stop('Embedded CoLM river restart has the wrong checkpoint family role.')
+      ENDIF
+      IF (trim(actual_patch_file) /= trim(expected_patch_file) .or. &
+          trim(actual_pft_file) /= trim(expected_pft_file) .or. &
+          trim(actual_gridriver_file) /= trim(expected_gridriver_file)) THEN
+         CALL CoLM_stop('Embedded CoLM river restart checkpoint family manifest does not match the requested family.')
+      ENDIF
+
+   END SUBROUTINE validate_GridRiverRestart
+
+   SUBROUTINE gridriver_restart_basename(filename, basename)
+
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: filename
+   character(len=*), intent(out) :: basename
+   integer :: separator
+
+      basename = ''
+      IF (trim(filename) == 'NONE') THEN
+         basename = 'NONE'
+         RETURN
+      ENDIF
+      separator = max(scan(trim(filename), '/', back=.true.), &
+                      scan(trim(filename), achar(92), back=.true.))
+      IF (separator >= len_trim(filename)) RETURN
+      basename = filename(separator+1:len_trim(filename))
+
+   END SUBROUTINE gridriver_restart_basename
 
    SUBROUTINE pnetcdf_write_real8_points(ncid, varid, index, data, ndata, global_size, varname, filename)
 

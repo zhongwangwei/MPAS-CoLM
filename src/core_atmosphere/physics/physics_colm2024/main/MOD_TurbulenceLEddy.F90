@@ -184,7 +184,7 @@ CONTAINS
       ENDIF
 
 ! for 2 meter screen humidity
-      zldis=2.+z0h
+      zldis=2.+z0q
       zeta=zldis/obu
       zetat=0.465
       IF(zeta < -zetat)THEN           ! zeta < -1
@@ -406,7 +406,7 @@ CONTAINS
       ENDIF
 
 ! for 2 meter screen humidity
-      zldis=2.+z0h
+      zldis=2.+z0q
       zeta=zldis/obu
       zetat=0.465
       IF(zeta < -zetat)THEN           ! zeta < -1

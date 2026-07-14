@@ -52,7 +52,8 @@ CONTAINS
                       sm          ,tref       ,qref        ,trad        ,&
                       errore      ,emis       ,z0m         ,zol         ,&
                       rib         ,ustar      ,qstar       ,tstar       ,&
-                      fm          ,fh         ,fq          ,pg_rain     ,&
+                      fm          ,fh         ,fq          ,fh2m        ,&
+                      fq2m        ,fm10m      ,pg_rain     ,&
                       pg_snow     ,t_precip   ,snofrz      ,sabg_snow_lyr)
 
 !-----------------------------------------------------------------------
@@ -167,7 +168,10 @@ CONTAINS
         tstar,       &! t* in similarity theory [K]
         fm,          &! integral of profile FUNCTION for momentum
         fh,          &! integral of profile FUNCTION for heat
-        fq            ! integral of profile FUNCTION for moisture
+        fq,          &! integral of profile FUNCTION for moisture
+        fh2m,        &! relation for temperature at 2m
+        fq2m,        &! relation for specific humidity at 2m
+        fm10m         ! integral of profile FUNCTION for momentum at 10m
 
 !-------------------------- Local Variables ----------------------------
    integer i,j
@@ -241,7 +245,7 @@ CONTAINS
                         forc_hpbl,&
                         fsno,cgrnd,cgrndl,cgrnds,&
                         taux,tauy,fsena,fevpa,fseng,fevpg,tref,qref,&
-                        z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq)
+                        z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m)
 
 !=======================================================================
 ! [4] Ground temperature
@@ -341,7 +345,7 @@ CONTAINS
                                     hpbl,&
                                     fsno,cgrnd,cgrndl,cgrnds,&
                                     taux,tauy,fsena,fevpa,fseng,fevpg,tref,qref,&
-                                    z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq)
+                                    z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m)
 
 !=======================================================================
 !  this is the main SUBROUTINE to execute the calculation of thermal processes
@@ -413,7 +417,10 @@ CONTAINS
         qstar,    &! moisture scaling parameter
         fm,       &! integral of profile FUNCTION for momentum
         fh,       &! integral of profile FUNCTION for heat
-        fq         ! integral of profile FUNCTION for moisture
+        fq,       &! integral of profile FUNCTION for moisture
+        fh2m,     &! relation for temperature at 2m
+        fq2m,     &! relation for specific humidity at 2m
+        fm10m      ! integral of profile FUNCTION for momentum at 10m
 
 !-------------------------- Local Variables ----------------------------
    integer niters, &! maximum number of iterations for surface temperature
@@ -433,9 +440,6 @@ CONTAINS
        raw,       &! moisture resistance [s/m]
        raih,      &! temporary variable [kg/m2/s]
        raiw,      &! temporary variable [kg/m2/s]
-       fh2m,      &! relation for temperature at 2m
-       fq2m,      &! relation for specific humidity at 2m
-       fm10m,     &! integral of profile FUNCTION for momentum at 10m
        thvstar,   &! virtual potential temperature scaling parameter
        um,        &! wind speed including the stability effect [m/s]
        wc,        &! convective velocity [m/s]

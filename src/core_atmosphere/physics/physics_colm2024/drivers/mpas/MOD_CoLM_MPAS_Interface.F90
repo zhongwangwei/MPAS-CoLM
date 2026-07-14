@@ -16,17 +16,16 @@ MODULE MOD_CoLM_MPAS_Interface
    USE MOD_Vars_1DFluxes, only: oroflag, fsena, lfevpa, fevpa, fgrnd, rnof, rsur, rsub
    USE MOD_Vars_TimeInvariants, only: patchmask, patchtype, htop
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-	   USE MOD_Vars_PFTimeInvariants, only: htop_p, pftfrac
+	   USE MOD_Vars_PFTimeInvariants, only: pftfrac
 	   USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
 #endif
    USE MOD_Vars_TimeVariables, only: t_grnd, trad, tref, qref, qsfc, emis, z0m, displa, alb, &
 	      ldew, scv, snowdp, fsno, lai, fveg, rstfacsun_out, rstfacsha_out, &
 	      t_soisno, wliq_soisno, wice_soisno, coszen, zol, rib, ustar, fm, fh, fq
+	   USE MOD_Vars_TimeVariables, only: native_u10m => diag_u10m, native_v10m => diag_v10m, &
+	                                      native_chs2 => diag_chs2, native_cqs2 => diag_cqs2, &
+	                                      native_cd10 => diag_cd10
 	   USE MOD_Const_Physical, only: vonkar, denh2o, denice
-   USE MOD_FrictionVelocity, only: moninobuk
-   USE MOD_TurbulenceLEddy, only: moninobuk_leddy
-   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT
-   USE MOD_TimeManager, only: timestamp
 
    IMPLICIT NONE
    PRIVATE
@@ -39,6 +38,7 @@ MODULE MOD_CoLM_MPAS_Interface
    PUBLIC :: colm_mpas_force_restart
    PUBLIC :: colm_mpas_get_surface
    PUBLIC :: colm_mpas_get_element_surface
+   PUBLIC :: colm_mpas_get_element_albedo
    PUBLIC :: colm_mpas_get_element_boundary_state
    PUBLIC :: colm_mpas_get_element_state
    PUBLIC :: colm_mpas_get_element_river_state
@@ -46,14 +46,12 @@ MODULE MOD_CoLM_MPAS_Interface
    logical, save :: colm_mpas_initialized = .false.
    character(len=256), save :: colm_mpas_casename = ''
    character(len=256), save :: colm_mpas_dir_landdata = ''
-   character(len=256), save :: colm_mpas_dir_restart = ''
+   character(len=1024), save :: colm_mpas_dir_restart = ''
    integer, save :: colm_mpas_lc_year = -1
    integer, save :: colm_mpas_last_lai_year = -1
    integer, save :: colm_mpas_last_lai_period = -1
    integer, save :: colm_mpas_last_idate(3) = -1
    integer, save :: colm_mpas_last_restart_idate(3) = -1
-   type(timestamp), save :: colm_mpas_ptstamp
-   type(timestamp), save :: colm_mpas_etstamp
    logical, save :: colm_mpas_restart_ready = .false.
 
    INTERFACE
@@ -70,7 +68,8 @@ MODULE MOD_CoLM_MPAS_Interface
 CONTAINS
 
    SUBROUTINE colm_mpas_initialize_from_namelist(nlfile, ierr, mpas_comm, mpas_cell_id, &
-                                                mpas_cell_lat, mpas_cell_lon, &
+                                                mpas_cell_lat, mpas_cell_lon, mpas_cell_area, &
+                                                mpas_cell_landmask, &
                                                 n_mpas_cells, cell_to_element, mpas_start_idate, &
 	                                                mpas_stop_idate, mpas_timestep, mpas_is_restart)
 	      USE MOD_Namelist, only: read_namelist, DEF_CASE_NAME, DEF_dir_landdata, &
@@ -97,6 +96,7 @@ CONTAINS
       USE MOD_SrfdataRestart, only: mesh_load_from_file, pixelset_load_from_file
       USE MOD_Vars_TimeInvariants, only: allocate_TimeInvariants, READ_TimeInvariants
 	      USE MOD_Vars_TimeVariables, only: allocate_TimeVariables, READ_TimeVariables
+	      USE MOD_NetCDFVector, only: ncio_set_distributed_identity
 	      USE MOD_Opt_Baseflow, only: Opt_Baseflow_init
 	      USE MOD_Vars_1DForcing, only: allocate_1D_Forcing
 	      USE MOD_Vars_1DFluxes, only: allocate_1D_Fluxes
@@ -118,6 +118,8 @@ CONTAINS
       integer, intent(in) :: mpas_cell_id(:)
       real(r8), intent(in) :: mpas_cell_lat(:)
       real(r8), intent(in) :: mpas_cell_lon(:)
+      real(r8), intent(in) :: mpas_cell_area(:)
+      integer, intent(in) :: mpas_cell_landmask(:)
       integer, intent(in) :: n_mpas_cells
       integer, intent(out) :: cell_to_element(:)
       integer, intent(in) :: mpas_start_idate(3)
@@ -127,7 +129,7 @@ CONTAINS
 
       character(len=256) :: casename
       character(len=256) :: dir_landdata
-      character(len=256) :: dir_restart
+      character(len=1024) :: dir_restart
       integer :: lc_year
       integer :: sdate(3)
       integer :: jdate(3)
@@ -138,24 +140,38 @@ CONTAINS
 	      integer :: lai_month
 	      integer :: lai_mday
       integer*8, allocatable :: mpas_cell_id_i8(:)
+	      logical :: river_network_ready
+	      logical :: time_invariants_ready
+	      logical :: time_variables_ready
+	      logical :: forcing_ready
+	      logical :: fluxes_ready
 
       ierr = 1
       IF (colm_mpas_initialized) THEN
          ierr = 0
          RETURN
       ENDIF
+	      river_network_ready = .false.
+	      time_invariants_ready = .false.
+	      time_variables_ready = .false.
+	      forcing_ready = .false.
+	      fluxes_ready = .false.
 
       CALL mpas_mpi_attach(mpas_comm)
 
 	      CALL read_namelist(trim(nlfile))
+	      ierr = 0
 	      IF (.not. ieee_is_finite(mpas_timestep) .or. mpas_timestep <= 0._r8 .or. mpas_timestep > 3600._r8) THEN
 	         IF (mpas_is_root) write(*,'(A)') 'CoLM2024 MPAS timestep must be finite and in (0, 3600] seconds.'
-	         RETURN
+	         ierr = 1
 	      ENDIF
+	      CALL colm_mpas_sync_initialize_status(ierr, 'timestep validation')
+	      IF (ierr /= 0) GO TO 900
 	      DEF_simulation_time%timestep = mpas_timestep
 	      DEF_WRST_FREQ = 'none'
 	      CALL colm_mpas_check_embedded_io(ierr)
-	      IF (ierr /= 0) RETURN
+	      CALL colm_mpas_sync_initialize_status(ierr, 'embedded I/O option validation')
+	      IF (ierr /= 0) GO TO 900
 
 	      casename = DEF_CASE_NAME
       dir_landdata = DEF_dir_landdata
@@ -171,6 +187,7 @@ CONTAINS
       sdate(2) = s_julian
       sdate(3) = DEF_simulation_time%start_sec
 
+	      ierr = 0
 	      IF (mpas_is_restart) THEN
 	         sdate(:) = mpas_start_idate(:)
 	      ELSEIF (any(sdate /= mpas_start_idate)) THEN
@@ -179,8 +196,12 @@ CONTAINS
 	            write(*,'(A,3(I0,1X))') 'MPAS start timestamp (year, day-of-year, second): ', mpas_start_idate
 	            write(*,'(A)') 'Set DEF_simulation_time start values to the MPAS cold-start time.'
 	         ENDIF
-	         RETURN
+	         ierr = 1
 	      ENDIF
+	      CALL colm_mpas_sync_initialize_status(ierr, 'start-time validation')
+	      IF (ierr /= 0) GO TO 900
+
+	      ierr = 0
 	      IF (DEF_simulation_time%spinup_repeat /= 1 .or. &
 	          DEF_simulation_time%spinup_year > sdate(1) .or. &
 	          (DEF_simulation_time%spinup_year == sdate(1) .and. p_julian > sdate(2)) .or. &
@@ -190,8 +211,10 @@ CONTAINS
 	            write(*,'(A)') 'CoLM2024 standalone spinup cycles cannot be embedded inside the MPAS atmosphere clock.'
 	            write(*,'(A)') 'Use spinup_repeat = 1 and a spinup endpoint no later than the MPAS start timestamp.'
 	         ENDIF
-	         RETURN
+	         ierr = 1
 	      ENDIF
+	      CALL colm_mpas_sync_initialize_status(ierr, 'spinup-clock validation')
+	      IF (ierr /= 0) GO TO 900
 
       colm_mpas_casename = casename
       colm_mpas_dir_landdata = dir_landdata
@@ -199,12 +222,6 @@ CONTAINS
       colm_mpas_lc_year = lc_year
       colm_mpas_last_lai_year = -1
       colm_mpas_last_lai_period = -1
-      colm_mpas_ptstamp%year = DEF_simulation_time%spinup_year
-      colm_mpas_ptstamp%day = p_julian
-      colm_mpas_ptstamp%sec = DEF_simulation_time%spinup_sec
-      colm_mpas_etstamp%year = mpas_stop_idate(1)
-      colm_mpas_etstamp%day = mpas_stop_idate(2)
-      colm_mpas_etstamp%sec = mpas_stop_idate(3)
       colm_mpas_last_idate(:) = -1
       colm_mpas_last_restart_idate(:) = -1
 
@@ -214,11 +231,16 @@ CONTAINS
 
       n_mpas = 0
       n_mpas = n_mpas_cells
-      IF (n_mpas < 0) RETURN
-      IF (size(mpas_cell_id) < n_mpas) RETURN
-      IF (size(mpas_cell_lat) < n_mpas) RETURN
-      IF (size(mpas_cell_lon) < n_mpas) RETURN
-      IF (size(cell_to_element) < n_mpas) RETURN
+      ierr = 0
+      IF (n_mpas < 0) ierr = 1
+      IF (size(mpas_cell_id) < max(n_mpas, 0)) ierr = 1
+      IF (size(mpas_cell_lat) < max(n_mpas, 0)) ierr = 1
+      IF (size(mpas_cell_lon) < max(n_mpas, 0)) ierr = 1
+      IF (size(mpas_cell_area) < max(n_mpas, 0)) ierr = 1
+      IF (size(mpas_cell_landmask) < max(n_mpas, 0)) ierr = 1
+      IF (size(cell_to_element) < max(n_mpas, 0)) ierr = 1
+      CALL colm_mpas_sync_initialize_status(ierr, 'MPAS cell-array validation')
+      IF (ierr /= 0) GO TO 900
 
       allocate(mpas_cell_id_i8(n_mpas))
       DO i = 1, n_mpas
@@ -230,7 +252,8 @@ CONTAINS
 
       CALL colm_mpas_claim_owned_blocks(dir_landdata, lc_year, mpas_cell_id_i8, mpas_cell_lat, &
                                          mpas_cell_lon, n_mpas, ierr)
-      IF (ierr /= 0) RETURN
+      CALL colm_mpas_sync_initialize_status(ierr, 'owned-block discovery')
+      IF (ierr /= 0) GO TO 900
 
       CALL mesh_load_from_file(dir_landdata, lc_year, subset_eindex=mpas_cell_id_i8)
       CALL pixelset_load_from_file(dir_landdata, 'landelm', landelm, numelm, lc_year, &
@@ -245,20 +268,34 @@ CONTAINS
 
       IF (n_mpas > 0) THEN
          CALL colm_mpas_restrict_to_mpas_cells(mpas_cell_id, n_mpas, cell_to_element, ierr)
-         IF (ierr /= 0) RETURN
-         CALL colm_mpas_validate_cell_geometry(mpas_cell_id, mpas_cell_lat, mpas_cell_lon, &
-                                               n_mpas, cell_to_element, ierr)
-         IF (ierr /= 0) RETURN
+      ELSE
+         ierr = 0
       ENDIF
+      CALL colm_mpas_sync_initialize_status(ierr, 'MPAS cell restriction')
+      IF (ierr /= 0) GO TO 900
+
+      IF (n_mpas > 0) THEN
+         CALL colm_mpas_validate_cell_geometry(mpas_cell_id, mpas_cell_lat, mpas_cell_lon, &
+                                               mpas_cell_area, n_mpas, cell_to_element, ierr)
+      ELSE
+         ierr = 0
+      ENDIF
+      CALL colm_mpas_sync_initialize_status(ierr, 'MPAS/CoLM cell-geometry validation')
+      IF (ierr /= 0) GO TO 900
+	      CALL ncio_set_distributed_identity(casename, mpas_cell_id_i8, mpas_cell_lat(1:n_mpas), &
+	                                         mpas_cell_lon(1:n_mpas), mpas_cell_area(1:n_mpas))
 
       CALL elm_patch%build(landelm, landpatch, use_frac = .true.)
       CALL colm_mpas_validate_element_patch_map(.false., ierr)
-      IF (ierr /= 0) RETURN
+      CALL colm_mpas_sync_initialize_status(ierr, 'element/patch coverage validation')
+      IF (ierr /= 0) GO TO 900
 
 #ifdef GridRiverLakeFlow
       CALL colm_mpas_check_embedded_riverlake(ierr)
-      IF (ierr /= 0) RETURN
+	      CALL colm_mpas_sync_initialize_status(ierr, 'embedded river-option validation')
+	      IF (ierr /= 0) GO TO 900
       CALL build_riverlake_network()
+	      river_network_ready = .true.
       IF (DEF_Reservoir_Method > 0) CALL reservoir_init()
 #endif
 
@@ -270,15 +307,23 @@ CONTAINS
       jdate = sdate
       CALL adj2begin(jdate)
 
-      CALL allocate_TimeInvariants()
-      CALL READ_TimeInvariants(lc_year, casename, dir_restart)
+	      CALL allocate_TimeInvariants()
+	      time_invariants_ready = .true.
+	      CALL READ_TimeInvariants(lc_year, casename, dir_restart)
+	      CALL colm_mpas_validate_cell_surface_type(mpas_cell_id, mpas_cell_landmask, &
+	                                                n_mpas, cell_to_element, ierr)
+	      CALL colm_mpas_sync_initialize_status(ierr, 'MPAS/CoLM surface-type validation')
+	      IF (ierr /= 0) GO TO 900
 	      CALL colm_mpas_validate_element_patch_map(.true., ierr)
-	      IF (ierr /= 0) RETURN
+	      CALL colm_mpas_sync_initialize_status(ierr, 'active element/patch validation')
+	      IF (ierr /= 0) GO TO 900
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 	      CALL colm_mpas_validate_pft_fractions(ierr)
-	      IF (ierr /= 0) RETURN
+	      CALL colm_mpas_sync_initialize_status(ierr, 'PFT coverage/fraction validation')
+	      IF (ierr /= 0) GO TO 900
 #endif
 	      CALL allocate_TimeVariables()
+	      time_variables_ready = .true.
 	      CALL READ_TimeVariables(jdate, lc_year, casename, dir_restart, mpas_is_restart)
 	      ! Soil hydrology always applies this factor. The embedded path reads a
 	      ! calibrated vector when present and otherwise initializes every patch to 1.
@@ -308,7 +353,9 @@ CONTAINS
 #endif
 
 	      CALL allocate_1D_Forcing()
+	      forcing_ready = .true.
 	      CALL allocate_1D_Fluxes()
+	      fluxes_ready = .true.
 
 #ifdef GridRiverLakeFlow
 	      CALL grid_riverlake_flow_init()
@@ -318,7 +365,116 @@ CONTAINS
 	      colm_mpas_restart_ready = .true.
 	      colm_mpas_initialized = .true.
 	      ierr = 0
+	      RETURN
+
+900   CONTINUE
+	      CALL colm_mpas_cleanup_failed_initialize(river_network_ready, time_invariants_ready, &
+	                                               time_variables_ready, forcing_ready, fluxes_ready)
 	   END SUBROUTINE colm_mpas_initialize_from_namelist
+
+	   SUBROUTINE colm_mpas_sync_initialize_status(ierr, stage)
+	      USE mpi, only: MPI_Allreduce, MPI_INTEGER, MPI_MAX
+	      USE MOD_MPAS_MPI, only: mpas_comm, mpas_is_root, mpas_mpi_ierr, mpas_mpi_check
+	      integer, intent(inout) :: ierr
+	      character(len=*), intent(in) :: stage
+	      integer :: local_status
+	      integer :: global_status
+
+	      local_status = 0
+	      IF (ierr /= 0) local_status = 1
+	      CALL MPI_Allreduce(local_status, global_status, 1, MPI_INTEGER, MPI_MAX, &
+	                         mpas_comm, mpas_mpi_ierr)
+	      CALL mpas_mpi_check('CoLM initialization status reduction: '//trim(stage))
+	      ierr = global_status
+	      IF (global_status /= 0 .and. mpas_is_root) THEN
+	         write(*,'(A)') 'CoLM2024 MPAS initialization failed during '//trim(stage)//'.'
+	      ENDIF
+	   END SUBROUTINE colm_mpas_sync_initialize_status
+
+	   SUBROUTINE colm_mpas_cleanup_failed_initialize(river_network_ready, time_invariants_ready, &
+	                                                   time_variables_ready, forcing_ready, fluxes_ready)
+#ifdef GridRiverLakeFlow
+	      USE MOD_Grid_RiverLakeFlow, only: grid_riverlake_flow_final
+#endif
+	      USE MOD_Vars_1DForcing, only: deallocate_1D_Forcing
+	      USE MOD_Vars_1DFluxes, only: deallocate_1D_Fluxes
+	      USE MOD_Vars_TimeVariables, only: deallocate_TimeVariables
+	      USE MOD_Vars_TimeInvariants, only: deallocate_TimeInvariants
+	      USE MOD_Opt_Baseflow, only: Opt_Baseflow_final
+	      USE MOD_NetCDFVector, only: ncio_reset_distributed_validation
+	      USE MOD_MPAS_MPI, only: mpas_mpi_detach
+	      USE MOD_LandElm, only: landelm
+	      USE MOD_LandPatch, only: patch2elm, grid_patch
+	      USE MOD_Mesh, only: mesh_free_mem
+	      USE MOD_Grid, only: grid_free_mem
+	      USE MOD_Pixel, only: pixel
+	      USE MOD_Block, only: gblock
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+	      USE MOD_LandPFT, only: landpft, numpft, pft2patch
+#endif
+	      logical, intent(in) :: river_network_ready
+	      logical, intent(in) :: time_invariants_ready
+	      logical, intent(in) :: time_variables_ready
+	      logical, intent(in) :: forcing_ready
+	      logical, intent(in) :: fluxes_ready
+
+#ifdef GridRiverLakeFlow
+	      IF (river_network_ready) CALL grid_riverlake_flow_final()
+#endif
+	      CALL Opt_Baseflow_final()
+	      IF (fluxes_ready) CALL deallocate_1D_Fluxes()
+	      IF (forcing_ready) CALL deallocate_1D_Forcing()
+	      IF (time_variables_ready) CALL deallocate_TimeVariables()
+	      IF (time_invariants_ready) CALL deallocate_TimeInvariants()
+
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+	      CALL landpft%forc_free_mem()
+	      IF (allocated(patch_pft_s)) deallocate(patch_pft_s)
+	      IF (allocated(patch_pft_e)) deallocate(patch_pft_e)
+	      IF (allocated(pft2patch)) deallocate(pft2patch)
+	      numpft = 0
+#endif
+	      IF (allocated(elm_patch%substt)) deallocate(elm_patch%substt)
+	      IF (allocated(elm_patch%subend)) deallocate(elm_patch%subend)
+	      IF (allocated(elm_patch%subfrc)) deallocate(elm_patch%subfrc)
+	      IF (allocated(patch2elm%sup)) deallocate(patch2elm%sup)
+	      CALL landpatch%forc_free_mem()
+	      CALL landelm%forc_free_mem()
+	      CALL grid_free_mem(grid_patch)
+	      numpatch = 0
+	      CALL mesh_free_mem()
+
+	      IF (allocated(pixel%lat_s)) deallocate(pixel%lat_s)
+	      IF (allocated(pixel%lat_n)) deallocate(pixel%lat_n)
+	      IF (allocated(pixel%lon_w)) deallocate(pixel%lon_w)
+	      IF (allocated(pixel%lon_e)) deallocate(pixel%lon_e)
+	      pixel%nlon = 0
+	      pixel%nlat = 0
+
+	      IF (allocated(gblock%lat_s)) deallocate(gblock%lat_s)
+	      IF (allocated(gblock%lat_n)) deallocate(gblock%lat_n)
+	      IF (allocated(gblock%lon_w)) deallocate(gblock%lon_w)
+	      IF (allocated(gblock%lon_e)) deallocate(gblock%lon_e)
+	      IF (allocated(gblock%owner_rank)) deallocate(gblock%owner_rank)
+	      IF (allocated(gblock%xblkme)) deallocate(gblock%xblkme)
+	      IF (allocated(gblock%yblkme)) deallocate(gblock%yblkme)
+	      gblock%nxblk = 0
+	      gblock%nyblk = 0
+	      gblock%nblkme = 0
+	      CALL ncio_reset_distributed_validation()
+
+	      CALL mpas_mpi_detach()
+	      colm_mpas_initialized = .false.
+	      colm_mpas_restart_ready = .false.
+	      colm_mpas_casename = ''
+	      colm_mpas_dir_landdata = ''
+	      colm_mpas_dir_restart = ''
+	      colm_mpas_lc_year = -1
+	      colm_mpas_last_lai_year = -1
+	      colm_mpas_last_lai_period = -1
+	      colm_mpas_last_idate(:) = -1
+	      colm_mpas_last_restart_idate(:) = -1
+	   END SUBROUTINE colm_mpas_cleanup_failed_initialize
 
 #ifdef GridRiverLakeFlow
 	   SUBROUTINE colm_mpas_check_embedded_riverlake(ierr)
@@ -611,11 +767,6 @@ CONTAINS
 	      ierr = 0
 	      IF (.not. colm_mpas_initialized) RETURN
 
-	      IF (colm_mpas_last_idate(1) > 0) THEN
-	         CALL colm_mpas_write_restart_if_due(colm_mpas_last_idate, 0._r8, .true., ierr)
-	         IF (ierr /= 0) RETURN
-	      ENDIF
-
 #ifdef GridRiverLakeFlow
 	      CALL grid_riverlake_flow_final()
 #endif
@@ -751,14 +902,15 @@ CONTAINS
 	   END SUBROUTINE colm_mpas_restrict_to_mpas_cells
 
 	   SUBROUTINE colm_mpas_validate_cell_geometry(mpas_cell_id, mpas_cell_lat, mpas_cell_lon, &
-	                                                n_mpas_cells, cell_to_element, ierr)
+	                                                mpas_cell_area, n_mpas_cells, cell_to_element, ierr)
 	      USE MOD_Mesh, only: mesh, numelm
 	      USE MOD_Pixel, only: pixel
-	      USE MOD_Utils, only: normalize_longitude, lon_between_floor
+	      USE MOD_Utils, only: normalize_longitude, lon_between_floor, areaquad
 	      USE MOD_MPAS_MPI, only: mpas_rank
 	      integer, intent(in) :: mpas_cell_id(:)
 	      real(r8), intent(in) :: mpas_cell_lat(:)
 	      real(r8), intent(in) :: mpas_cell_lon(:)
+	      real(r8), intent(in) :: mpas_cell_area(:)
 	      integer, intent(in) :: n_mpas_cells
 	      integer, intent(in) :: cell_to_element(:)
 	      integer, intent(out) :: ierr
@@ -771,20 +923,25 @@ CONTAINS
 	      real(r8) :: lat_deg
 	      real(r8) :: lon_deg
 	      real(r8) :: lon_east_delta
+	      real(r8) :: colm_area
+	      real(r8) :: relative_area_error
 	      logical :: contains_center
 	      real(r8), parameter :: angular_tolerance = 1.e-8_r8
+	      real(r8), parameter :: area_tolerance = 0.05_r8
 
 	      ierr = 1
 	      IF (n_mpas_cells < 1) RETURN
 	      IF (size(mpas_cell_id) < n_mpas_cells .or. size(mpas_cell_lat) < n_mpas_cells .or. &
-	          size(mpas_cell_lon) < n_mpas_cells .or. size(cell_to_element) < n_mpas_cells) RETURN
+	          size(mpas_cell_lon) < n_mpas_cells .or. size(mpas_cell_area) < n_mpas_cells .or. &
+	          size(cell_to_element) < n_mpas_cells) RETURN
 	      IF (.not. allocated(mesh)) RETURN
 	      IF (size(mesh) /= numelm) RETURN
 	      IF (.not. allocated(pixel%lat_s) .or. .not. allocated(pixel%lat_n) .or. &
 	          .not. allocated(pixel%lon_w) .or. .not. allocated(pixel%lon_e)) RETURN
 
 	      DO i = 1, n_mpas_cells
-	         IF (.not. ieee_is_finite(mpas_cell_lat(i)) .or. .not. ieee_is_finite(mpas_cell_lon(i))) RETURN
+	         IF (.not. ieee_is_finite(mpas_cell_lat(i)) .or. .not. ieee_is_finite(mpas_cell_lon(i)) .or. &
+	             .not. ieee_is_finite(mpas_cell_area(i)) .or. mpas_cell_area(i) <= 0._r8) RETURN
 	         IF (abs(mpas_cell_lat(i)) > 0.5_r8 * pi + 1.e-12_r8 .or. &
 	             abs(mpas_cell_lon(i)) > 4._r8 * pi) RETURN
 
@@ -800,6 +957,7 @@ CONTAINS
 	         lon_deg = mpas_cell_lon(i) * 180._r8 / pi
 	         CALL normalize_longitude(lon_deg)
 	         contains_center = .false.
+	         colm_area = 0._r8
 
 	         DO ipxl = 1, mesh(element)%npxl
 	            ilat = mesh(element)%ilat(ipxl)
@@ -807,6 +965,8 @@ CONTAINS
 	            IF (ilat < 1 .or. ilat > pixel%nlat .or. ilon < 1 .or. ilon > pixel%nlon) RETURN
 	            IF (.not. all(ieee_is_finite((/pixel%lat_s(ilat), pixel%lat_n(ilat), &
 	                                            pixel%lon_w(ilon), pixel%lon_e(ilon)/)))) RETURN
+	            colm_area = colm_area + 1.e6_r8 * areaquad(pixel%lat_s(ilat), pixel%lat_n(ilat), &
+	                                                       pixel%lon_w(ilon), pixel%lon_e(ilon))
 
 	            lon_east_delta = abs(modulo(lon_deg - pixel%lon_e(ilon) + 180._r8, 360._r8) - 180._r8)
 	            IF (lat_deg >= pixel%lat_s(ilat) - angular_tolerance .and. &
@@ -814,7 +974,6 @@ CONTAINS
 	                (lon_between_floor(lon_deg, pixel%lon_w(ilon), pixel%lon_e(ilon)) .or. &
 	                 lon_east_delta <= angular_tolerance)) THEN
 	               contains_center = .true.
-	               EXIT
 	            ENDIF
 	         ENDDO
 
@@ -824,10 +983,90 @@ CONTAINS
 	               ', eindex ', mpas_cell_id(i), ', center lon/lat (degrees) ', lon_deg, lat_deg
 	            RETURN
 	         ENDIF
+	         IF (.not. ieee_is_finite(colm_area) .or. colm_area <= 0._r8) RETURN
+	         relative_area_error = abs(colm_area - mpas_cell_area(i)) / max(colm_area, mpas_cell_area(i))
+	         IF (relative_area_error > area_tolerance) THEN
+	            write(*,'(A,I0,A,I0,A,I0,A,2(ES14.6,1X),A,F8.3,A)') &
+	               'CoLM2024 MPAS area mismatch on rank ', mpas_rank, ': local cell ', i, &
+	               ', eindex ', mpas_cell_id(i), ', MPAS/CoLM area (m2) ', mpas_cell_area(i), colm_area, &
+	               ', relative error ', 100._r8 * relative_area_error, '%'
+	            RETURN
+	         ENDIF
 	      ENDDO
 
 	      ierr = 0
 	   END SUBROUTINE colm_mpas_validate_cell_geometry
+
+	   SUBROUTINE colm_mpas_validate_cell_surface_type(mpas_cell_id, mpas_cell_landmask, &
+	                                                    n_mpas_cells, cell_to_element, ierr)
+	      USE MOD_MPAS_MPI, only: mpas_rank
+	      integer, intent(in) :: mpas_cell_id(:)
+	      integer, intent(in) :: mpas_cell_landmask(:)
+	      integer, intent(in) :: n_mpas_cells
+	      integer, intent(in) :: cell_to_element(:)
+	      integer, intent(out) :: ierr
+
+	      integer :: i
+	      integer :: element
+	      integer :: patch
+	      integer :: istt
+	      integer :: iend
+	      real(r8) :: land_fraction
+	      real(r8) :: water_fraction
+	      real(r8) :: wt
+	      logical :: mpas_is_land
+
+	      ierr = 1
+	      IF (n_mpas_cells < 0) RETURN
+	      IF (n_mpas_cells == 0) THEN
+	         ierr = 0
+	         RETURN
+	      ENDIF
+	      IF (size(mpas_cell_id) < n_mpas_cells .or. size(mpas_cell_landmask) < n_mpas_cells .or. &
+	          size(cell_to_element) < n_mpas_cells) RETURN
+	      IF (.not. allocated(elm_patch%substt) .or. .not. allocated(elm_patch%subend) .or. &
+	          .not. allocated(elm_patch%subfrc) .or. .not. allocated(patchtype)) RETURN
+
+	      DO i = 1, n_mpas_cells
+	         IF (mpas_cell_landmask(i) /= 0 .and. mpas_cell_landmask(i) /= 1) RETURN
+	         element = cell_to_element(i)
+	         IF (element < 1 .or. element > size(elm_patch%substt) .or. &
+	             element > size(elm_patch%subend)) RETURN
+	         istt = elm_patch%substt(element)
+	         iend = elm_patch%subend(element)
+	         IF (istt < 1 .or. iend < istt .or. iend > numpatch .or. &
+	             iend > size(elm_patch%subfrc) .or. iend > size(patchtype)) RETURN
+
+	         land_fraction = 0._r8
+	         water_fraction = 0._r8
+	         DO patch = istt, iend
+	            IF (allocated(patchmask)) THEN
+	               IF (patch > size(patchmask)) RETURN
+	               IF (.not. patchmask(patch)) CYCLE
+	            ENDIF
+	            wt = elm_patch%subfrc(patch)
+	            IF (.not. ieee_is_finite(wt) .or. wt < 0._r8) RETURN
+	            IF (patchtype(patch) >= 99) THEN
+	               water_fraction = water_fraction + wt
+	            ELSE
+	               land_fraction = land_fraction + wt
+	            ENDIF
+	         ENDDO
+	         IF (land_fraction + water_fraction <= 0._r8) RETURN
+
+	         mpas_is_land = mpas_cell_landmask(i) == 1
+	         IF ((mpas_is_land .and. land_fraction < water_fraction) .or. &
+	             (.not. mpas_is_land .and. water_fraction < land_fraction)) THEN
+	            write(*,'(A,I0,A,I0,A,I0,A,I0,A,2(F8.5,1X))') &
+	               'CoLM2024 MPAS surface-type mismatch on rank ', mpas_rank, ': local cell ', i, &
+	               ', eindex ', mpas_cell_id(i), ', MPAS landmask ', mpas_cell_landmask(i), &
+	               ', CoLM land/water fractions ', land_fraction, water_fraction
+	            RETURN
+	         ENDIF
+	      ENDDO
+
+	      ierr = 0
+	   END SUBROUTINE colm_mpas_validate_cell_surface_type
 
 	   SUBROUTINE colm_mpas_validate_pixelset_element_map(pixelset, num_elements, ierr)
 	      USE MOD_Pixelset, only: pixelset_type
@@ -971,6 +1210,10 @@ CONTAINS
 	         pft_end = patch_pft_e(patch)
 	         IF (pft_start == -1 .or. pft_end == -1) THEN
 	            IF (pft_start /= -1 .or. pft_end /= -1) EXIT
+	            ! Soil/vegetation patches enter Thermal's PFT reduction and
+	            ! therefore must not have an empty PFT slice.  Non-vegetated
+	            ! patch types legitimately carry no PFTs.
+	            IF (patchtype(patch) == 0) EXIT
 	         ELSE
 	            IF (pft_start < 1 .or. pft_end < pft_start .or. pft_end > numpft) EXIT
 	            IF (.not. all(ieee_is_finite(pftfrac(pft_start:pft_end)))) EXIT
@@ -1194,8 +1437,6 @@ CONTAINS
 	         colm_mpas_last_lai_period = lai_period
 	      ENDIF
 	      colm_mpas_last_idate(:) = idate(:)
-	      CALL colm_mpas_write_restart_if_due(idate, deltim, .false., ierr)
-	      IF (ierr /= 0) RETURN
 	      ierr = 0
 	   END SUBROUTINE colm_mpas_step
 
@@ -1205,23 +1446,17 @@ CONTAINS
 	      ierr = 1
 	      IF (.not. colm_mpas_initialized) RETURN
 	      IF (colm_mpas_last_idate(1) <= 0) RETURN
-	      CALL colm_mpas_write_restart_if_due(colm_mpas_last_idate, 0._r8, .true., ierr)
+	      CALL colm_mpas_write_restart(colm_mpas_last_idate, ierr)
 	   END SUBROUTINE colm_mpas_force_restart
 
-	   SUBROUTINE colm_mpas_write_restart_if_due(idate, deltim, force, ierr)
-	      USE MOD_Namelist, only: DEF_WRST_FREQ
+	   SUBROUTINE colm_mpas_write_restart(idate, ierr)
 	      USE MOD_TimeManager, only: adj2begin
-	      USE MOD_Vars_TimeVariables, only: save_to_restart, WRITE_TimeVariables
+	      USE MOD_Vars_TimeVariables, only: WRITE_TimeVariables
 	      integer, intent(in) :: idate(3)
-	      real(r8), intent(in) :: deltim
-	      logical, intent(in) :: force
 	      integer, intent(out) :: ierr
 
-	      type(timestamp) :: itstamp
 	      integer :: write_idate(3)
 	      integer :: write_lc_year
-	      logical :: should_write
-	      character(len=256) :: wrst_freq
 
 	      ierr = 0
 	      IF (.not. colm_mpas_restart_ready) RETURN
@@ -1230,20 +1465,6 @@ CONTAINS
 	      CALL adj2begin(write_idate)
 
 	      IF (all(write_idate == colm_mpas_last_restart_idate)) RETURN
-
-	      itstamp%year = idate(1)
-	      itstamp%day = idate(2)
-	      itstamp%sec = idate(3)
-
-	      wrst_freq = trim(adjustl(DEF_WRST_FREQ))
-	      IF (wrst_freq == '' .or. wrst_freq == 'none' .or. wrst_freq == 'NONE') THEN
-	         should_write = force .or. colm_mpas_timestamp_reached(itstamp, colm_mpas_etstamp)
-	      ELSEIF (force) THEN
-	         should_write = .true.
-	      ELSE
-	         should_write = save_to_restart(idate, deltim, itstamp, colm_mpas_ptstamp, colm_mpas_etstamp)
-	      ENDIF
-	      IF (.not. should_write) RETURN
 
 #ifdef LULCC
 	      IF (write_idate(1) >= 2000) THEN
@@ -1257,29 +1478,18 @@ CONTAINS
 
 	      CALL WRITE_TimeVariables(write_idate, write_lc_year, colm_mpas_casename, colm_mpas_dir_restart)
 	      colm_mpas_last_restart_idate(:) = write_idate(:)
-	   END SUBROUTINE colm_mpas_write_restart_if_due
-
-	   LOGICAL FUNCTION colm_mpas_timestamp_reached(tstamp, target)
-	      type(timestamp), intent(in) :: tstamp
-	      type(timestamp), intent(in) :: target
-
-	      colm_mpas_timestamp_reached = .false.
-	      IF (tstamp%year > target%year) THEN
-	         colm_mpas_timestamp_reached = .true.
-	      ELSEIF (tstamp%year == target%year .and. tstamp%day > target%day) THEN
-	         colm_mpas_timestamp_reached = .true.
-	      ELSEIF (tstamp%year == target%year .and. tstamp%day == target%day .and. tstamp%sec >= target%sec) THEN
-	         colm_mpas_timestamp_reached = .true.
-	      ENDIF
-	   END FUNCTION colm_mpas_timestamp_reached
+	   END SUBROUTINE colm_mpas_write_restart
 
 	   SUBROUTINE colm_mpas_get_surface(patch, sensible, latent, evaporation, ground_heat, runoff, &
 	                                    surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
 	                                    u10m, v10m, &
 	                                    surface_humidity, emissivity, roughness, albedo, friction_velocity, &
+	                                    mechanical_friction_velocity, &
 	                                    stability_zeta, bulk_richardson, momentum_profile, heat_profile, &
 	                                    moisture_profile, air_density, heat_exchange_velocity, &
-	                                    moisture_exchange_velocity, momentum_coefficient, enthalpy_coefficient, &
+	                                    moisture_exchange_velocity, heat_exchange_velocity_2m, &
+	                                    moisture_exchange_velocity_2m, momentum_coefficient, enthalpy_coefficient, &
+	                                    momentum_coefficient_10m, &
 	                                    inverse_monin_obukhov, ierr)
 	      integer, intent(in) :: patch
 	      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
@@ -1287,11 +1497,15 @@ CONTAINS
 	      real(r8), intent(out) :: u10m, v10m
 	      real(r8), intent(out) :: surface_humidity
 	      real(r8), intent(out) :: emissivity, roughness, albedo
-	      real(r8), intent(out) :: friction_velocity, stability_zeta, bulk_richardson
+	      real(r8), intent(out) :: friction_velocity, mechanical_friction_velocity
+	      real(r8), intent(out) :: stability_zeta, bulk_richardson
 	      real(r8), intent(out) :: momentum_profile, heat_profile
 	      real(r8), intent(out) :: moisture_profile, air_density
 	      real(r8), intent(out) :: heat_exchange_velocity, moisture_exchange_velocity
-	      real(r8), intent(out) :: momentum_coefficient, enthalpy_coefficient, inverse_monin_obukhov
+	      real(r8), intent(out) :: heat_exchange_velocity_2m, moisture_exchange_velocity_2m
+	      real(r8), intent(out) :: momentum_coefficient, enthalpy_coefficient
+	      real(r8), intent(out) :: momentum_coefficient_10m
+	      real(r8), intent(out) :: inverse_monin_obukhov
 	      integer, intent(out) :: ierr
 	      real(r8) :: incoming_shortwave
 	      real(r8) :: bad_value
@@ -1317,6 +1531,7 @@ CONTAINS
 	      roughness = spval
       albedo = spval
 	      friction_velocity = spval
+	      mechanical_friction_velocity = spval
 	      stability_zeta = spval
 	      bulk_richardson = spval
 	      momentum_profile = spval
@@ -1325,8 +1540,11 @@ CONTAINS
 	      air_density = spval
 	      heat_exchange_velocity = spval
 	      moisture_exchange_velocity = spval
+	      heat_exchange_velocity_2m = spval
+	      moisture_exchange_velocity_2m = spval
 	      momentum_coefficient = spval
 	      enthalpy_coefficient = spval
+	      momentum_coefficient_10m = spval
 	      inverse_monin_obukhov = spval
 
       IF (.not. allocated(fsena)) RETURN
@@ -1409,6 +1627,16 @@ CONTAINS
 	      IF (allocated(forc_rhoair)) THEN
 	         IF (patch <= size(forc_rhoair)) air_density = forc_rhoair(patch)
 	      ENDIF
+	      IF (allocated(forc_us) .and. allocated(forc_vs)) THEN
+	         IF (patch <= size(forc_us) .and. patch <= size(forc_vs) .and. &
+	             abs(momentum_profile) < bad_value .and. momentum_profile > tiny(1._r8) .and. &
+	             all(ieee_is_finite((/forc_us(patch), forc_vs(patch)/)))) THEN
+	            ! Match MPAS USTM: use the resolved wind, excluding the
+	            ! convective velocity enhancement included in CoLM USTAR.
+	            mechanical_friction_velocity = vonkar * &
+	               sqrt(forc_us(patch)**2 + forc_vs(patch)**2) / momentum_profile
+	         ENDIF
+	      ENDIF
 	      IF (abs(friction_velocity) < bad_value .and. friction_velocity >= 0._r8) THEN
 	         IF (abs(heat_profile) < bad_value .and. heat_profile > tiny(1._r8)) &
 	            heat_exchange_velocity = vonkar * friction_velocity / heat_profile
@@ -1443,7 +1671,10 @@ CONTAINS
 	               inverse_monin_obukhov = stability_zeta / (reference_height_u - displa(patch))
 	         ENDIF
 	      ENDIF
-	      CALL colm_mpas_get_patch_10m_wind(patch, u10m, v10m, ierr)
+	      CALL colm_mpas_get_patch_similarity_diagnostics(patch, u10m, v10m, &
+	                                                       heat_exchange_velocity_2m, &
+	                                                       moisture_exchange_velocity_2m, &
+	                                                       momentum_coefficient_10m, ierr)
 	      IF (ierr /= 0) RETURN
 	      ierr = 0
 	   END SUBROUTINE colm_mpas_get_surface
@@ -1455,127 +1686,76 @@ CONTAINS
 	      real(r8), intent(out) :: height_q
 	      integer, intent(out) :: ierr
 
-	      real(r8) :: canopy_top
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-	      integer :: pft_start
-	      integer :: pft_end
-#endif
-
 	      ierr = 1
 	      height_u = spval
 	      height_t = spval
 	      height_q = spval
 	      IF (.not. allocated(forc_hgt_u) .or. .not. allocated(forc_hgt_t) .or. &
-	          .not. allocated(forc_hgt_q) .or. .not. allocated(htop)) RETURN
+	          .not. allocated(forc_hgt_q)) RETURN
 	      IF (patch < 1 .or. patch > size(forc_hgt_u) .or. patch > size(forc_hgt_t) .or. &
-	          patch > size(forc_hgt_q) .or. patch > size(htop)) RETURN
+	          patch > size(forc_hgt_q)) RETURN
 	      IF (.not. all(ieee_is_finite((/forc_hgt_u(patch), forc_hgt_t(patch), &
-	                                      forc_hgt_q(patch), htop(patch)/)))) RETURN
+	                                      forc_hgt_q(patch)/)))) RETURN
 	      IF (forc_hgt_u(patch) <= 0._r8 .or. forc_hgt_t(patch) <= 0._r8 .or. &
-	          forc_hgt_q(patch) <= 0._r8 .or. htop(patch) < 0._r8) RETURN
+	          forc_hgt_q(patch) <= 0._r8) RETURN
 
-	      canopy_top = htop(patch)
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-	      IF (allocated(patch_pft_s) .and. allocated(patch_pft_e) .and. allocated(htop_p)) THEN
-	         IF (patch <= size(patch_pft_s) .and. patch <= size(patch_pft_e)) THEN
-	            pft_start = patch_pft_s(patch)
-	            pft_end = patch_pft_e(patch)
-	            IF (pft_start >= 1 .and. pft_end >= pft_start .and. pft_end <= size(htop_p)) THEN
-	               IF (.not. all(ieee_is_finite(htop_p(pft_start:pft_end))) .or. &
-	                   any(htop_p(pft_start:pft_end) < 0._r8)) RETURN
-	               canopy_top = max(canopy_top, maxval(htop_p(pft_start:pft_end)))
-	            ENDIF
-	         ENDIF
-	      ENDIF
-#endif
-
-	      height_u = max(forc_hgt_u(patch), canopy_top + 1._r8)
-	      height_t = max(forc_hgt_t(patch), canopy_top + 1._r8)
-	      height_q = max(forc_hgt_q(patch), canopy_top + 1._r8)
+	      ! The similarity diagnostics were computed at the actual forcing heights.
+	      ! Canopy clearance is enforced in the leaf-temperature solvers; never
+	      ! relabel the same wind/temperature/humidity state at a different height.
+	      height_u = forc_hgt_u(patch)
+	      height_t = forc_hgt_t(patch)
+	      height_q = forc_hgt_q(patch)
 	      ierr = 0
 	   END SUBROUTINE colm_mpas_get_patch_reference_heights
 
-	   SUBROUTINE colm_mpas_get_patch_10m_wind(patch, u10m, v10m, ierr)
+	   SUBROUTINE colm_mpas_get_patch_similarity_diagnostics(patch, u10m, v10m, &
+	                                                          heat_exchange_velocity_2m, &
+	                                                          moisture_exchange_velocity_2m, &
+	                                                          momentum_coefficient_10m, ierr)
 	      integer, intent(in) :: patch
 	      real(r8), intent(out) :: u10m
 	      real(r8), intent(out) :: v10m
+	      real(r8), intent(out) :: heat_exchange_velocity_2m
+	      real(r8), intent(out) :: moisture_exchange_velocity_2m
+	      real(r8), intent(out) :: momentum_coefficient_10m
 	      integer, intent(out) :: ierr
-
-	      real(r8) :: zldis
-	      real(r8) :: obu
-	      real(r8) :: effective_wind
-	      real(r8) :: calculated_ustar
-	      real(r8) :: fh2m
-	      real(r8) :: fq2m
-	      real(r8) :: fm10m
-	      real(r8) :: calculated_fm
-	      real(r8) :: calculated_fh
-	      real(r8) :: calculated_fq
-	      real(r8) :: reference_height_u
-	      real(r8) :: reference_height_t
-	      real(r8) :: reference_height_q
 
 	      ierr = 1
 	      u10m = spval
 	      v10m = spval
-	      IF (.not. allocated(forc_us) .or. .not. allocated(forc_vs) .or. &
-	          .not. allocated(forc_hgt_u) .or. .not. allocated(forc_hgt_t) .or. &
-	          .not. allocated(forc_hgt_q) .or. .not. allocated(forc_hpbl) .or. &
-	          .not. allocated(displa) .or. .not. allocated(z0m) .or. &
-	          .not. allocated(zol) .or. .not. allocated(ustar) .or. .not. allocated(fm)) RETURN
-	      IF (patch < 1 .or. patch > size(forc_us) .or. patch > size(forc_vs) .or. &
-	          patch > size(forc_hgt_u) .or. patch > size(forc_hgt_t) .or. &
-	          patch > size(forc_hgt_q) .or. patch > size(forc_hpbl) .or. &
-	          patch > size(displa) .or. patch > size(z0m) .or. patch > size(zol) .or. &
-	          patch > size(ustar) .or. patch > size(fm)) RETURN
-	      IF (.not. all(ieee_is_finite((/forc_us(patch), forc_vs(patch), forc_hgt_u(patch), &
-	                                      forc_hgt_t(patch), forc_hgt_q(patch), forc_hpbl(patch), &
-	                                      displa(patch), z0m(patch), zol(patch), ustar(patch), fm(patch)/)))) RETURN
+	      heat_exchange_velocity_2m = spval
+	      moisture_exchange_velocity_2m = spval
+	      momentum_coefficient_10m = spval
+	      IF (.not. allocated(native_u10m) .or. .not. allocated(native_v10m) .or. &
+	          .not. allocated(native_chs2) .or. .not. allocated(native_cqs2) .or. &
+	          .not. allocated(native_cd10)) RETURN
+	      IF (patch < 1 .or. patch > size(native_u10m) .or. patch > size(native_v10m) .or. &
+	          patch > size(native_chs2) .or. patch > size(native_cqs2) .or. &
+	          patch > size(native_cd10)) RETURN
 
-	      CALL colm_mpas_get_patch_reference_heights(patch, reference_height_u, reference_height_t, &
-	                                                 reference_height_q, ierr)
-	      IF (ierr /= 0) RETURN
-	      zldis = reference_height_u - displa(patch)
-	      IF (zldis <= 0._r8 .or. reference_height_t <= displa(patch) .or. &
-	          reference_height_q <= displa(patch) .or. z0m(patch) <= 0._r8 .or. &
-	          ustar(patch) < 0._r8 .or. fm(patch) <= 0._r8) RETURN
-	      IF (DEF_USE_CBL_HEIGHT .and. forc_hpbl(patch) < 0._r8) RETURN
-
-	      IF (abs(zol(patch)) > tiny(1._r8)) THEN
-	         obu = zldis / zol(patch)
-	      ELSE
-	         obu = huge(1._r8)
-	      ENDIF
-	      effective_wind = ustar(patch) * fm(patch) / vonkar
-	      IF (.not. ieee_is_finite(obu) .or. .not. ieee_is_finite(effective_wind) .or. &
-	          effective_wind < 0._r8) RETURN
-
-	      IF (DEF_USE_CBL_HEIGHT) THEN
-	         CALL moninobuk_leddy(reference_height_u, reference_height_t, reference_height_q, &
-	                              displa(patch), z0m(patch), z0m(patch), z0m(patch), obu, &
-	                              effective_wind, forc_hpbl(patch), calculated_ustar, fh2m, fq2m, &
-	                              fm10m, calculated_fm, calculated_fh, calculated_fq)
-	      ELSE
-	         CALL moninobuk(reference_height_u, reference_height_t, reference_height_q, &
-	                        displa(patch), z0m(patch), z0m(patch), z0m(patch), obu, &
-	                        effective_wind, calculated_ustar, fh2m, fq2m, fm10m, &
-	                        calculated_fm, calculated_fh, calculated_fq)
-	      ENDIF
-	      IF (.not. ieee_is_finite(fm10m) .or. fm10m <= 0._r8) RETURN
-
-	      u10m = forc_us(patch) * fm10m / fm(patch)
-	      v10m = forc_vs(patch) * fm10m / fm(patch)
-	      IF (.not. ieee_is_finite(u10m) .or. .not. ieee_is_finite(v10m)) RETURN
+	      u10m = native_u10m(patch)
+	      v10m = native_v10m(patch)
+	      heat_exchange_velocity_2m = native_chs2(patch)
+	      moisture_exchange_velocity_2m = native_cqs2(patch)
+	      momentum_coefficient_10m = native_cd10(patch)
+	      IF (.not. all(ieee_is_finite((/u10m, v10m, heat_exchange_velocity_2m, &
+	                                      moisture_exchange_velocity_2m, &
+	                                      momentum_coefficient_10m/)))) RETURN
+	      IF (heat_exchange_velocity_2m < 0._r8 .or. moisture_exchange_velocity_2m < 0._r8 .or. &
+	          momentum_coefficient_10m < 0._r8) RETURN
 	      ierr = 0
-	   END SUBROUTINE colm_mpas_get_patch_10m_wind
+	   END SUBROUTINE colm_mpas_get_patch_similarity_diagnostics
 
 	   SUBROUTINE colm_mpas_get_element_surface(element, sensible, latent, evaporation, ground_heat, runoff, &
 	                                            surface_runoff, subsurface_runoff, skin_temp, t2m, q2m, &
 	                                            u10m, v10m, &
 	                                            surface_humidity, emissivity, roughness, albedo, friction_velocity, &
+	                                            mechanical_friction_velocity, &
 	                                            stability_zeta, bulk_richardson, momentum_profile, heat_profile, &
 	                                            moisture_profile, air_density, heat_exchange_velocity, &
-	                                            moisture_exchange_velocity, momentum_coefficient, enthalpy_coefficient, &
+	                                            moisture_exchange_velocity, heat_exchange_velocity_2m, &
+	                                            moisture_exchange_velocity_2m, momentum_coefficient, enthalpy_coefficient, &
+	                                            momentum_coefficient_10m, &
 	                                            inverse_monin_obukhov, ierr)
 	      integer, intent(in) :: element
 	      real(r8), intent(out) :: sensible, latent, evaporation, ground_heat, runoff
@@ -1583,11 +1763,15 @@ CONTAINS
 	      real(r8), intent(out) :: u10m, v10m
 	      real(r8), intent(out) :: surface_humidity
 	      real(r8), intent(out) :: emissivity, roughness, albedo
-	      real(r8), intent(out) :: friction_velocity, stability_zeta, bulk_richardson
+	      real(r8), intent(out) :: friction_velocity, mechanical_friction_velocity
+	      real(r8), intent(out) :: stability_zeta, bulk_richardson
 	      real(r8), intent(out) :: momentum_profile, heat_profile
 	      real(r8), intent(out) :: moisture_profile, air_density
 	      real(r8), intent(out) :: heat_exchange_velocity, moisture_exchange_velocity
-	      real(r8), intent(out) :: momentum_coefficient, enthalpy_coefficient, inverse_monin_obukhov
+	      real(r8), intent(out) :: heat_exchange_velocity_2m, moisture_exchange_velocity_2m
+	      real(r8), intent(out) :: momentum_coefficient, enthalpy_coefficient
+	      real(r8), intent(out) :: momentum_coefficient_10m
+	      real(r8), intent(out) :: inverse_monin_obukhov
       integer, intent(out) :: ierr
 
       integer :: patch
@@ -1601,18 +1785,24 @@ CONTAINS
 	      real(r8) :: radiative_wt
 	      real(r8) :: heat_conductance_sum
 	      real(r8) :: moisture_conductance_sum
+	      real(r8) :: heat_2m_conductance_sum
+	      real(r8) :: moisture_2m_conductance_sum
 	      real(r8) :: humidity_conductance_sum
-	      real(r8) :: exchange_wt(12)
+	      real(r8) :: exchange_wt(16)
 	      real(r8) :: bad_value
       real(r8) :: patch_sensible, patch_latent, patch_evaporation, patch_ground_heat
       real(r8) :: patch_runoff, patch_surface_runoff, patch_subsurface_runoff
 	      real(r8) :: patch_skin_temp, patch_t2m, patch_q2m, patch_u10m, patch_v10m, patch_surface_humidity
 	      real(r8) :: patch_emissivity, patch_roughness, patch_albedo
-	      real(r8) :: patch_friction_velocity, patch_stability_zeta, patch_bulk_richardson
+	      real(r8) :: patch_friction_velocity, patch_mechanical_friction_velocity
+	      real(r8) :: patch_stability_zeta, patch_bulk_richardson
 	      real(r8) :: patch_momentum_profile, patch_heat_profile
 	      real(r8) :: patch_moisture_profile, patch_air_density
 	      real(r8) :: patch_heat_exchange_velocity, patch_moisture_exchange_velocity
-	      real(r8) :: patch_momentum_coefficient, patch_enthalpy_coefficient, patch_inverse_monin_obukhov
+	      real(r8) :: patch_heat_exchange_velocity_2m, patch_moisture_exchange_velocity_2m
+	      real(r8) :: patch_momentum_coefficient, patch_enthalpy_coefficient
+	      real(r8) :: patch_momentum_coefficient_10m
+	      real(r8) :: patch_inverse_monin_obukhov
 
       ierr = 1
       sensible = spval
@@ -1632,6 +1822,7 @@ CONTAINS
       roughness = spval
       albedo = spval
 	      friction_velocity = spval
+	      mechanical_friction_velocity = spval
 	      stability_zeta = spval
 	      bulk_richardson = spval
 	      momentum_profile = spval
@@ -1640,8 +1831,11 @@ CONTAINS
 	      air_density = spval
 	      heat_exchange_velocity = spval
 	      moisture_exchange_velocity = spval
+	      heat_exchange_velocity_2m = spval
+	      moisture_exchange_velocity_2m = spval
 	      momentum_coefficient = spval
 	      enthalpy_coefficient = spval
+	      momentum_coefficient_10m = spval
 	      inverse_monin_obukhov = spval
 
       IF (.not. allocated(elm_patch%substt)) RETURN
@@ -1676,6 +1870,7 @@ CONTAINS
 	      emissivity = 0._r8
       roughness = 0._r8
 	      friction_velocity = 0._r8
+	      mechanical_friction_velocity = 0._r8
 	      stability_zeta = 0._r8
 	      bulk_richardson = 0._r8
 	      momentum_profile = 0._r8
@@ -1684,14 +1879,19 @@ CONTAINS
 	      air_density = 0._r8
 	      heat_exchange_velocity = 0._r8
 	      moisture_exchange_velocity = 0._r8
+	      heat_exchange_velocity_2m = 0._r8
+	      moisture_exchange_velocity_2m = 0._r8
 	      momentum_coefficient = 0._r8
 	      enthalpy_coefficient = 0._r8
+	      momentum_coefficient_10m = 0._r8
 	      inverse_monin_obukhov = 0._r8
       albedo_sum = 0._r8
       albedo_wt = 0._r8
 	      radiative_wt = 0._r8
 	      heat_conductance_sum = 0._r8
 	      moisture_conductance_sum = 0._r8
+	      heat_2m_conductance_sum = 0._r8
+	      moisture_2m_conductance_sum = 0._r8
 	      humidity_conductance_sum = 0._r8
 	      exchange_wt(:) = 0._r8
 	      bad_value = 0.5_r8 * abs(spval)
@@ -1713,10 +1913,13 @@ CONTAINS
 		                                    patch_skin_temp, patch_t2m, patch_q2m, patch_u10m, patch_v10m, &
 		                                    patch_surface_humidity, &
 	                                    patch_emissivity, patch_roughness, patch_albedo, patch_friction_velocity, &
+	                                    patch_mechanical_friction_velocity, &
 	                                    patch_stability_zeta, patch_bulk_richardson, patch_momentum_profile, &
 	                                    patch_heat_profile, patch_moisture_profile, patch_air_density, &
 	                                    patch_heat_exchange_velocity, patch_moisture_exchange_velocity, &
+	                                    patch_heat_exchange_velocity_2m, patch_moisture_exchange_velocity_2m, &
 	                                    patch_momentum_coefficient, patch_enthalpy_coefficient, &
+	                                    patch_momentum_coefficient_10m, &
 	                                    patch_inverse_monin_obukhov, patch_ierr)
 	         IF (patch_ierr /= 0) THEN
 	            WRITE(*,*) 'Error: failed to retrieve CoLM2024 patch surface:', element, patch, patch_ierr
@@ -1735,12 +1938,23 @@ CONTAINS
 	         IF (patch_t2m <= 0._r8 .or. patch_q2m < 0._r8 .or. patch_q2m >= 1._r8 .or. &
 	             patch_surface_humidity < 0._r8 .or. patch_surface_humidity >= 1._r8 .or. &
 	             patch_emissivity < 0._r8 .or. patch_emissivity > 1._r8 .or. patch_roughness < 0._r8) RETURN
-	         IF (.not. all(ieee_is_finite((/patch_air_density, patch_heat_exchange_velocity, &
-	                                        patch_moisture_exchange_velocity/)))) RETURN
-	         IF (any(abs((/patch_air_density, patch_heat_exchange_velocity, &
-	                       patch_moisture_exchange_velocity/)) >= bad_value)) RETURN
+	         IF (.not. all(ieee_is_finite((/patch_air_density, patch_friction_velocity, &
+	                                        patch_mechanical_friction_velocity, patch_heat_exchange_velocity, &
+	                                        patch_moisture_exchange_velocity, patch_heat_exchange_velocity_2m, &
+	                                        patch_moisture_exchange_velocity_2m, patch_momentum_coefficient, &
+	                                        patch_enthalpy_coefficient, patch_momentum_coefficient_10m, &
+	                                        patch_inverse_monin_obukhov/)))) RETURN
+	         IF (any(abs((/patch_air_density, patch_friction_velocity, patch_mechanical_friction_velocity, &
+	                       patch_heat_exchange_velocity, patch_moisture_exchange_velocity, &
+	                       patch_heat_exchange_velocity_2m, patch_moisture_exchange_velocity_2m, &
+	                       patch_momentum_coefficient, patch_enthalpy_coefficient, &
+	                       patch_momentum_coefficient_10m, patch_inverse_monin_obukhov/)) >= bad_value)) RETURN
 	         IF (patch_air_density <= 0._r8 .or. patch_heat_exchange_velocity < 0._r8 .or. &
-	             patch_moisture_exchange_velocity < 0._r8) RETURN
+	             patch_moisture_exchange_velocity < 0._r8 .or. &
+	             patch_heat_exchange_velocity_2m < 0._r8 .or. patch_moisture_exchange_velocity_2m < 0._r8 .or. &
+	             patch_mechanical_friction_velocity < 0._r8 .or. patch_momentum_coefficient < 0._r8 .or. &
+	             patch_enthalpy_coefficient < 0._r8 .or. patch_momentum_coefficient_10m < 0._r8 .or. &
+	             abs(patch_inverse_monin_obukhov) >= bad_value) RETURN
 
 	         sumwt = sumwt + wt
 	         sensible = sensible + wt * patch_sensible
@@ -1767,6 +1981,9 @@ CONTAINS
 	            friction_velocity = friction_velocity + wt * patch_friction_velocity**2
 	            exchange_wt(1) = exchange_wt(1) + wt
 	         ENDIF
+	         mechanical_friction_velocity = mechanical_friction_velocity + &
+	                                        wt * patch_mechanical_friction_velocity**2
+	         exchange_wt(13) = exchange_wt(13) + wt
 	         IF (abs(patch_stability_zeta) < bad_value) THEN
 	            stability_zeta = stability_zeta + wt * patch_stability_zeta
 	            exchange_wt(2) = exchange_wt(2) + wt
@@ -1795,11 +2012,17 @@ CONTAINS
 	                                wt * patch_air_density * patch_heat_exchange_velocity
 	         moisture_conductance_sum = moisture_conductance_sum + &
 	                                    wt * patch_air_density * patch_moisture_exchange_velocity
+	         heat_2m_conductance_sum = heat_2m_conductance_sum + &
+	                                   wt * patch_air_density * patch_heat_exchange_velocity_2m
+	         moisture_2m_conductance_sum = moisture_2m_conductance_sum + &
+	                                       wt * patch_air_density * patch_moisture_exchange_velocity_2m
 	         humidity_conductance_sum = humidity_conductance_sum + &
 	                                    wt * patch_air_density * patch_moisture_exchange_velocity * &
 	                                    patch_surface_humidity
 	         exchange_wt(8) = exchange_wt(8) + wt
 	         exchange_wt(9) = exchange_wt(9) + wt
+	         exchange_wt(14) = exchange_wt(14) + wt
+	         exchange_wt(15) = exchange_wt(15) + wt
 	         IF (abs(patch_momentum_coefficient) < bad_value .and. patch_momentum_coefficient >= 0._r8) THEN
 	            momentum_coefficient = momentum_coefficient + wt * patch_momentum_coefficient
 	            exchange_wt(10) = exchange_wt(10) + wt
@@ -1812,6 +2035,8 @@ CONTAINS
 	            inverse_monin_obukhov = inverse_monin_obukhov + wt * patch_inverse_monin_obukhov
 	            exchange_wt(12) = exchange_wt(12) + wt
 	         ENDIF
+	         momentum_coefficient_10m = momentum_coefficient_10m + wt * patch_momentum_coefficient_10m
+	         exchange_wt(16) = exchange_wt(16) + wt
          IF (patch_albedo >= 0._r8 .and. patch_albedo <= 1._r8) THEN
             albedo_sum = albedo_sum + wt * patch_albedo
             albedo_wt = albedo_wt + wt
@@ -1835,6 +2060,7 @@ CONTAINS
 	         emissivity = spval
 	         roughness = spval
 	         friction_velocity = spval
+	         mechanical_friction_velocity = spval
 	         stability_zeta = spval
 	         bulk_richardson = spval
 	         momentum_profile = spval
@@ -1843,8 +2069,11 @@ CONTAINS
 	         air_density = spval
 	         heat_exchange_velocity = spval
 	         moisture_exchange_velocity = spval
+	         heat_exchange_velocity_2m = spval
+	         moisture_exchange_velocity_2m = spval
 	         momentum_coefficient = spval
 	         enthalpy_coefficient = spval
+	         momentum_coefficient_10m = spval
 	         inverse_monin_obukhov = spval
 	         RETURN
       ENDIF
@@ -1868,6 +2097,11 @@ CONTAINS
 	         friction_velocity = sqrt(friction_velocity / exchange_wt(1))
 	      ELSE
 	         friction_velocity = spval
+	      ENDIF
+	      IF (exchange_wt(13) > 0._r8) THEN
+	         mechanical_friction_velocity = sqrt(mechanical_friction_velocity / exchange_wt(13))
+	      ELSE
+	         mechanical_friction_velocity = spval
 	      ENDIF
 	      IF (exchange_wt(2) > 0._r8) THEN
 	         stability_zeta = stability_zeta / exchange_wt(2)
@@ -1909,6 +2143,16 @@ CONTAINS
 	      ELSE
 	         moisture_exchange_velocity = spval
 	      ENDIF
+	      IF (exchange_wt(14) > 0._r8 .and. air_density > 0._r8) THEN
+	         heat_exchange_velocity_2m = heat_2m_conductance_sum / (sumwt * air_density)
+	      ELSE
+	         heat_exchange_velocity_2m = spval
+	      ENDIF
+	      IF (exchange_wt(15) > 0._r8 .and. air_density > 0._r8) THEN
+	         moisture_exchange_velocity_2m = moisture_2m_conductance_sum / (sumwt * air_density)
+	      ELSE
+	         moisture_exchange_velocity_2m = spval
+	      ENDIF
 	      IF (moisture_conductance_sum > tiny(1._r8)) THEN
 	         surface_humidity = humidity_conductance_sum / moisture_conductance_sum
 	      ELSE
@@ -1931,9 +2175,81 @@ CONTAINS
 	      ELSE
 	         inverse_monin_obukhov = spval
 	      ENDIF
+	      IF (exchange_wt(16) > 0._r8) THEN
+	         momentum_coefficient_10m = momentum_coefficient_10m / exchange_wt(16)
+	      ELSE
+	         momentum_coefficient_10m = spval
+	      ENDIF
       IF (albedo_wt > 0._r8) albedo = albedo_sum / albedo_wt
       ierr = 0
 	   END SUBROUTINE colm_mpas_get_element_surface
+
+	   SUBROUTINE colm_mpas_get_element_albedo(element, albedo_vis_direct, albedo_vis_diffuse, &
+	                                            albedo_nir_direct, albedo_nir_diffuse, ierr)
+	      integer, intent(in) :: element
+	      real(r8), intent(out) :: albedo_vis_direct, albedo_vis_diffuse
+	      real(r8), intent(out) :: albedo_nir_direct, albedo_nir_diffuse
+	      integer, intent(out) :: ierr
+
+	      integer :: patch
+	      integer :: istt
+	      integer :: iend
+	      real(r8) :: wt
+	      real(r8) :: sumwt
+
+	      ierr = 1
+	      albedo_vis_direct = spval
+	      albedo_vis_diffuse = spval
+	      albedo_nir_direct = spval
+	      albedo_nir_diffuse = spval
+
+	      IF (.not. allocated(elm_patch%substt) .or. .not. allocated(elm_patch%subend) .or. &
+	          .not. allocated(elm_patch%subfrc) .or. .not. allocated(alb)) RETURN
+	      IF (size(alb,1) < 2 .or. size(alb,2) < 2) RETURN
+	      IF (numpatch < 1 .or. size(elm_patch%subfrc) < numpatch .or. size(alb,3) < numpatch) RETURN
+	      IF (allocated(patchmask)) THEN
+	         IF (size(patchmask) < numpatch) RETURN
+	      ENDIF
+	      IF (element < 1 .or. element > size(elm_patch%substt) .or. &
+	          element > size(elm_patch%subend)) RETURN
+
+	      istt = elm_patch%substt(element)
+	      iend = elm_patch%subend(element)
+	      IF (istt < 1 .or. iend < istt .or. iend > numpatch .or. &
+	          iend > size(elm_patch%subfrc) .or. iend > size(alb,3)) RETURN
+
+	      albedo_vis_direct = 0._r8
+	      albedo_vis_diffuse = 0._r8
+	      albedo_nir_direct = 0._r8
+	      albedo_nir_diffuse = 0._r8
+	      sumwt = 0._r8
+
+	      DO patch = istt, iend
+	         IF (allocated(patchmask)) THEN
+	            IF (.not. patchmask(patch)) CYCLE
+	         ENDIF
+	         wt = elm_patch%subfrc(patch)
+	         IF (.not. ieee_is_finite(wt) .or. wt < 0._r8) RETURN
+	         IF (wt <= 0._r8) CYCLE
+	         IF (.not. all(ieee_is_finite((/alb(1,1,patch), alb(1,2,patch), &
+	                                        alb(2,1,patch), alb(2,2,patch)/)))) RETURN
+	         IF (any((/alb(1,1,patch), alb(1,2,patch), alb(2,1,patch), alb(2,2,patch)/) < 0._r8) .or. &
+	             any((/alb(1,1,patch), alb(1,2,patch), alb(2,1,patch), alb(2,2,patch)/) > 1._r8)) RETURN
+
+	         albedo_vis_direct = albedo_vis_direct + wt * alb(1,1,patch)
+	         albedo_vis_diffuse = albedo_vis_diffuse + wt * alb(1,2,patch)
+	         albedo_nir_direct = albedo_nir_direct + wt * alb(2,1,patch)
+	         albedo_nir_diffuse = albedo_nir_diffuse + wt * alb(2,2,patch)
+	         sumwt = sumwt + wt
+	      ENDDO
+
+	      IF (sumwt <= 0._r8) RETURN
+	      albedo_vis_direct = albedo_vis_direct / sumwt
+	      albedo_vis_diffuse = albedo_vis_diffuse / sumwt
+	      albedo_nir_direct = albedo_nir_direct / sumwt
+	      albedo_nir_diffuse = albedo_nir_diffuse / sumwt
+	      ierr = 0
+	   END SUBROUTINE colm_mpas_get_element_albedo
 
 	   SUBROUTINE colm_mpas_get_element_boundary_state(element, skin_temp, surface_humidity, &
 	                                                    emissivity, roughness, albedo, ierr)

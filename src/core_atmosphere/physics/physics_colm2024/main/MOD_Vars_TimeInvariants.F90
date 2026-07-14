@@ -465,7 +465,8 @@ CONTAINS
    character(len=*), intent(in) :: dir_restart
 
    ! Local variables
-   character(len=256) :: file_restart, cyear, lndname
+   character(len=:), allocatable :: file_restart
+   character(len=4) :: cyear
 
       write(cyear,'(i4.4)') lc_year
       file_restart = trim(dir_restart) // '/const/' // trim(casename) //'_restart_const' // '_lc' // trim(cyear) // '.nc'
@@ -665,7 +666,8 @@ CONTAINS
    character(len=*), intent(in) :: dir_restart
 
    ! Local Variables
-   character(len=256) :: file_restart, cyear
+   character(len=:), allocatable :: file_restart
+   character(len=4) :: cyear
    integer :: compress
 
       compress = DEF_REST_CompressLevel

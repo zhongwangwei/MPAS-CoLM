@@ -219,16 +219,20 @@ ENDIF
 
    END SUBROUTINE READ_PFTimeVariables
 
-   SUBROUTINE WRITE_PFTimeVariables (file_restart)
+   SUBROUTINE WRITE_PFTimeVariables (file_restart, checkpoint_family_id)
 
    USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
                            DEF_USE_IRRIGATION
    USE MOD_LandPFT
    USE MOD_NetCDFVector
    USE MOD_Vars_Global
+#ifdef MPAS_EMBEDDED_COLM
+   USE MOD_MPAS_MPI, only: CoLM_stop
+#endif
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   character(len=*), intent(in), optional :: checkpoint_family_id
 
    ! Local variables
    integer :: compress
@@ -239,7 +243,14 @@ ENDIF
 	      IF (numpft <= 0) RETURN
 #endif
 
-	      CALL ncio_create_file_vector (file_restart, landpft)
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (.not. present(checkpoint_family_id)) THEN
+	         CALL CoLM_stop('Embedded CoLM PFT restart write is missing its checkpoint family ID.')
+	      ENDIF
+	      CALL ncio_create_file_vector(file_restart, landpft, checkpoint_family_id, 'pft')
+#else
+	      CALL ncio_create_file_vector(file_restart, landpft)
+#endif
 	      CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
       CALL ncio_define_dimension_vector (file_restart, landpft, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpft, 'rtyp', 2)
@@ -578,6 +589,14 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: fm            (:) ! integral of profile FUNCTION for momentum
    real(r8), allocatable :: fh            (:) ! integral of profile FUNCTION for heat
    real(r8), allocatable :: fq            (:) ! integral of profile FUNCTION for moisture
+   real(r8), allocatable :: fh2m          (:) ! relation for temperature at 2 m
+   real(r8), allocatable :: fq2m          (:) ! relation for specific humidity at 2 m
+   real(r8), allocatable :: fm10m         (:) ! integral of profile FUNCTION for momentum at 10 m
+   real(r8), allocatable :: diag_u10m     (:) ! 10 m zonal wind derived at the PFT level
+   real(r8), allocatable :: diag_v10m     (:) ! 10 m meridional wind derived at the PFT level
+   real(r8), allocatable :: diag_chs2     (:) ! 2 m heat exchange velocity
+   real(r8), allocatable :: diag_cqs2     (:) ! 2 m moisture exchange velocity
+   real(r8), allocatable :: diag_cd10     (:) ! 10 m momentum coefficient
 
    real(r8), allocatable :: irrig_rate           (:) ! irrigation rate [mm s-1]
    real(r8), allocatable :: actual_irrig         (:) ! actual irrigation amount [kg/m2]
@@ -771,6 +790,14 @@ CONTAINS
             allocate (fm                          (numpatch)); fm            (:) = spval
             allocate (fh                          (numpatch)); fh            (:) = spval
             allocate (fq                          (numpatch)); fq            (:) = spval
+            allocate (fh2m                        (numpatch)); fh2m          (:) = spval
+            allocate (fq2m                        (numpatch)); fq2m          (:) = spval
+            allocate (fm10m                       (numpatch)); fm10m         (:) = spval
+            allocate (diag_u10m                   (numpatch)); diag_u10m     (:) = spval
+            allocate (diag_v10m                   (numpatch)); diag_v10m     (:) = spval
+            allocate (diag_chs2                   (numpatch)); diag_chs2     (:) = spval
+            allocate (diag_cqs2                   (numpatch)); diag_cqs2     (:) = spval
+            allocate (diag_cd10                   (numpatch)); diag_cd10     (:) = spval
 
             allocate ( irrig_rate                 (numpatch)); irrig_rate             (:) = spval
             allocate ( deficit_irrig              (numpatch)); deficit_irrig          (:) = spval
@@ -927,6 +954,11 @@ CONTAINS
 #endif
             deallocate (coszen                 )
             deallocate (alb                    )
+#ifdef HYPERSPECTRAL
+            deallocate (alb_hires              )
+            deallocate (reflectance_out        )
+            deallocate (transmittance_out      )
+#endif
             deallocate (ssun                   )
             deallocate (ssha                   )
             deallocate (ssoi                   )
@@ -973,6 +1005,14 @@ CONTAINS
             deallocate (fm                     )
             deallocate (fh                     )
             deallocate (fq                     )
+            deallocate (fh2m                   )
+            deallocate (fq2m                   )
+            deallocate (fm10m                  )
+            deallocate (diag_u10m              )
+            deallocate (diag_v10m              )
+            deallocate (diag_chs2              )
+            deallocate (diag_cqs2              )
+            deallocate (diag_cd10              )
 
             deallocate (irrig_rate             )
             deallocate (deficit_irrig          )
@@ -1085,6 +1125,19 @@ CONTAINS
    END FUNCTION save_to_restart
 
 
+#ifdef MPAS_EMBEDDED_COLM
+   SUBROUTINE configure_mpas_restart_identity(site)
+
+   USE MOD_NetCDFVector, only: ncio_require_distributed_identity
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: site
+
+      CALL ncio_require_distributed_identity(site)
+
+   END SUBROUTINE configure_mpas_restart_identity
+#endif
+
    SUBROUTINE WRITE_TimeVariables (idate, lc_year, site, dir_restart)
 
    !====================================================================
@@ -1108,22 +1161,36 @@ CONTAINS
    character(len=*), intent(in) :: dir_restart
 
    ! Local variables
-	   character(len=256) :: file_restart
-	   character(len=256) :: file_restart_vector
+	   character(len=:), allocatable :: file_restart
+	   character(len=:), allocatable :: file_restart_vector
+#ifdef MPAS_EMBEDDED_COLM
+	   character(len=:), allocatable :: file_restart_pft_manifest
+	   character(len=:), allocatable :: file_restart_gridriver_manifest
+	   character(len=96) :: checkpoint_family_id
+	   logical :: write_pft_restart
+#endif
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=256) :: file_restart_pft
+	   character(len=:), allocatable :: file_restart_pft
 #endif
 #endif
-   character(len=14)  :: cdate
-   character(len=256) :: cyear         !character for lc_year
+	   character(len=14)  :: cdate
+	   character(len=4) :: cyear         !character for lc_year
    integer :: compress
 
       compress = DEF_REST_CompressLevel
 
       ! land cover type year
       write(cyear,'(i4.4)') lc_year
-      write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
+	      write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
+
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL configure_mpas_restart_identity(site)
+	      CALL ncio_create_checkpoint_family_id(checkpoint_family_id)
+	      file_restart_pft_manifest = 'NONE'
+	      file_restart_gridriver_manifest = 'NONE'
+	      write_pft_restart = .false.
+#endif
 
       IF (mpas_is_root) THEN
          CALL make_directory(trim(dir_restart)//'/'//trim(cdate))
@@ -1140,7 +1207,21 @@ CONTAINS
 #ifdef MPAS_EMBEDDED_COLM
 	      file_restart_pft = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'// &
 	                         trim(cdate)//'_lc'//trim(cyear)//'.nc'
-	      CALL ncio_begin_distributed_write(file_restart_pft)
+#ifdef SinglePoint
+	      write_pft_restart = patchtypes(SITE_landtype) == 0
+#else
+	      write_pft_restart = .true.
+#endif
+	      IF (write_pft_restart) THEN
+	         file_restart_pft_manifest = file_restart_pft
+	         CALL ncio_begin_distributed_write(file_restart_pft)
+	      ENDIF
+#endif
+#endif
+#ifdef GridRiverLakeFlow
+#ifdef MPAS_EMBEDDED_COLM
+	      file_restart_gridriver_manifest = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) // &
+	         '_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 #endif
 #endif
 
@@ -1148,7 +1229,11 @@ CONTAINS
 	      IF (numpatch > 0) THEN
 #endif
 
-	      CALL ncio_create_file_vector (file_restart, landpatch)
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL ncio_create_file_vector(file_restart, landpatch, checkpoint_family_id, 'patch')
+#else
+	      CALL ncio_create_file_vector(file_restart, landpatch)
+#endif
 	      CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
 
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'snow',     -maxsnl       )
@@ -1288,7 +1373,11 @@ ENDIF
 #else
          file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 #endif
-         CALL WRITE_PFTimeVariables (file_restart)
+#ifdef MPAS_EMBEDDED_COLM
+         CALL WRITE_PFTimeVariables(file_restart, checkpoint_family_id)
+#else
+         CALL WRITE_PFTimeVariables(file_restart)
+#endif
       ENDIF
 #else
 #ifdef MPAS_EMBEDDED_COLM
@@ -1296,7 +1385,11 @@ ENDIF
 #else
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 #endif
-      CALL WRITE_PFTimeVariables (file_restart)
+#ifdef MPAS_EMBEDDED_COLM
+      CALL WRITE_PFTimeVariables(file_restart, checkpoint_family_id)
+#else
+      CALL WRITE_PFTimeVariables(file_restart)
+#endif
 #endif
 #endif
 
@@ -1326,16 +1419,30 @@ ENDIF
 #ifdef MPAS_EMBEDDED_COLM
 	      ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-	      CALL ncio_complete_distributed_write(file_restart_pft)
+	      IF (write_pft_restart) THEN
+	         CALL ncio_complete_distributed_write(file_restart_pft, cdate, checkpoint_family_id, 'pft', &
+	            file_restart_vector, file_restart_pft_manifest, file_restart_gridriver_manifest)
+	      ENDIF
 #endif
 #endif
 
 #ifdef GridRiverLakeFlow
+#ifdef MPAS_EMBEDDED_COLM
+	      file_restart = file_restart_gridriver_manifest
+	      CALL WRITE_GridRiverLakeTimeVars(file_restart, checkpoint_family_id, file_restart_vector, &
+	                                      file_restart_pft_manifest, file_restart_gridriver_manifest)
+#else
 	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-	      CALL WRITE_GridRiverLakeTimeVars (file_restart)
+	      CALL WRITE_GridRiverLakeTimeVars(file_restart)
+#endif
 #endif
 
-	      CALL ncio_complete_distributed_write(file_restart_vector)
+#ifdef MPAS_EMBEDDED_COLM
+	      CALL ncio_complete_distributed_write(file_restart_vector, cdate, checkpoint_family_id, 'patch', &
+	         file_restart_vector, file_restart_pft_manifest, file_restart_gridriver_manifest)
+#else
+	      CALL ncio_complete_distributed_write(file_restart_vector, cdate)
+#endif
 
 	   END SUBROUTINE WRITE_TimeVariables
 
@@ -1366,11 +1473,14 @@ ENDIF
 	   logical, intent(in) :: require_complete_restart
 
    ! Local variables
-   character(len=256) :: file_restart
-   character(len=14)  :: cdate, cyear
+	   character(len=:), allocatable :: file_restart
+	   character(len=14)  :: cdate, cyear
 #ifdef MPAS_EMBEDDED_COLM
-	   character(len=512) :: complete_marker
-	   logical :: marker_exists
+	   character(len=:), allocatable :: file_restart_vector
+	   character(len=:), allocatable :: file_restart_pft_manifest
+	   character(len=:), allocatable :: file_restart_gridriver_manifest
+	   character(len=96) :: checkpoint_family_id
+	   logical :: read_pft_restart
 #endif
 
 #ifdef MPAS_MPI
@@ -1385,16 +1495,46 @@ ENDIF
       ! land cover type year
       write(cyear,'(i4.4)') lc_year
 
-      write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
-      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+	      write(cdate,'(i4.4,"-",i3.3,"-",i5.5)') idate(1), idate(2), idate(3)
+	      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 
 #ifdef MPAS_EMBEDDED_COLM
+	      CALL configure_mpas_restart_identity(site)
 	      IF (require_complete_restart) THEN
-	         complete_marker = trim(file_restart)//'.mpas_complete'
-	         inquire(file=trim(complete_marker), exist=marker_exists)
-	         IF (.not. marker_exists) THEN
-	            CALL CoLM_stop('MPAS restart requires a completed CoLM patch checkpoint: '//trim(complete_marker))
+	         file_restart_vector = file_restart
+	         file_restart_pft_manifest = 'NONE'
+	         file_restart_gridriver_manifest = 'NONE'
+	         read_pft_restart = .false.
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+#ifdef SinglePoint
+	         read_pft_restart = patchtypes(SITE_landtype) == 0
+#else
+	         read_pft_restart = .true.
+#endif
+	         IF (read_pft_restart) THEN
+	            file_restart_pft_manifest = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) // &
+	               '_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
 	         ENDIF
+#endif
+#ifdef GridRiverLakeFlow
+	         file_restart_gridriver_manifest = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) // &
+	            '_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+#endif
+	         CALL ncio_validate_distributed_restart(file_restart_vector, cdate, 'patch', &
+	            expected_patch_file=file_restart_vector, expected_pft_file=file_restart_pft_manifest, &
+	            expected_gridriver_file=file_restart_gridriver_manifest, &
+	            checkpoint_family_id=checkpoint_family_id)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+	         IF (read_pft_restart) THEN
+	            CALL ncio_validate_distributed_restart(file_restart_pft_manifest, cdate, 'pft', &
+	               checkpoint_family_id, file_restart_vector, file_restart_pft_manifest, &
+	               file_restart_gridriver_manifest)
+	         ENDIF
+#endif
+#ifdef GridRiverLakeFlow
+	         CALL VALIDATE_GridRiverRestart(file_restart_gridriver_manifest, checkpoint_family_id, &
+	            file_restart_vector, file_restart_pft_manifest, file_restart_gridriver_manifest)
+#endif
 	      ENDIF
 #endif
 
@@ -1524,15 +1664,6 @@ ENDIF
       ENDIF
 #else
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-#ifdef MPAS_EMBEDDED_COLM
-	      IF (require_complete_restart) THEN
-	         complete_marker = trim(file_restart)//'.mpas_complete'
-	         inquire(file=trim(complete_marker), exist=marker_exists)
-	         IF (.not. marker_exists) THEN
-	            CALL CoLM_stop('MPAS restart requires a completed CoLM PFT checkpoint: '//trim(complete_marker))
-	         ENDIF
-	      ENDIF
-#endif
       CALL READ_PFTimeVariables (file_restart)
 #endif
 #endif
@@ -1553,7 +1684,16 @@ ENDIF
 
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
-	      CALL READ_GridRiverLakeTimeVars (file_restart, require_complete_restart)
+#ifdef MPAS_EMBEDDED_COLM
+	      IF (require_complete_restart) THEN
+	         CALL READ_GridRiverLakeTimeVars(file_restart, require_complete_restart, checkpoint_family_id, &
+	            file_restart_vector, file_restart_pft_manifest, file_restart_gridriver_manifest)
+	      ELSE
+	         CALL READ_GridRiverLakeTimeVars(file_restart, require_complete_restart)
+	      ENDIF
+#else
+	      CALL READ_GridRiverLakeTimeVars(file_restart, require_complete_restart)
+#endif
 #endif
 
 #ifdef MPAS_EMBEDDED_COLM

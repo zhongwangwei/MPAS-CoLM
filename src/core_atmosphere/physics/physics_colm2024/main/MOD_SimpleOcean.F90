@@ -26,7 +26,7 @@ CONTAINS
    SUBROUTINE socean (dosst,deltim,oro,hu,ht,hq,&
               us,vs,tm,qm,rhoair,psrf,sabg,frl,tssea,tssub,scv,&
               taux,tauy,fsena,fevpa,lfevpa,fseng,fevpg,tref,qref,&
-              z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,emis,olrg)
+              z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m,emis,olrg)
 !-----------------------------------------------------------------------
 !            Simple Ocean Model
 !  1. calculate sea surface fluxes, based on CLM
@@ -82,6 +82,9 @@ CONTAINS
    real(r8), intent(out) :: fm     ! integral of profile FUNCTION for momentum
    real(r8), intent(out) :: fh     ! integral of profile FUNCTION for heat
    real(r8), intent(out) :: fq     ! integral of profile FUNCTION for moisture
+   real(r8), intent(out) :: fh2m   ! relation for temperature at 2m
+   real(r8), intent(out) :: fq2m   ! relation for specific humidity at 2m
+   real(r8), intent(out) :: fm10m  ! integral of profile FUNCTION for momentum at 10m
    real(r8), intent(out) :: emis   ! averaged bulk surface emissivity
    real(r8), intent(out) :: olrg   ! longwave up flux at surface [W/m2]
 
@@ -137,7 +140,7 @@ CONTAINS
       CALL seafluxes (oro,hu,ht,hq,&
                       us,vs,tm,qm,rhoair,psrf,tssea,&
                       taux,tauy,fsena,fevpa,fseng,fevpg,tref,qref,&
-                      z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,cgrndl,cgrnds)
+                      z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m,cgrndl,cgrnds)
 
       IF(nint(oro).eq.0)THEN             ! ocean
          lfevpa = fevpa*hvap
@@ -184,7 +187,7 @@ CONTAINS
    SUBROUTINE seafluxes (oro,hu,ht,hq,&
                          us,vs,tm,qm,rhoair,psrf,tssea,&
                          taux,tauy,fsena,fevpa,fseng,fevpg,tref,qref,&
-                         z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,cgrndl,cgrnds)
+              z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq,fh2m,fq2m,fm10m,cgrndl,cgrnds)
 
 !=======================================================================
 !  this is the main SUBROUTINE to execute the calculation of thermal processes
@@ -236,6 +239,9 @@ CONTAINS
         fm,       &! integral of profile FUNCTION for momentum
         fh,       &! integral of profile FUNCTION for heat
         fq,       &! integral of profile FUNCTION for moisture
+        fh2m,     &! relation for temperature at 2m
+        fq2m,     &! relation for specific humidity at 2m
+        fm10m,    &! integral of profile FUNCTION for momentum at 10m
         cgrndl,   &! deriv, of soil sensible heat flux wrt soil temp [w/m2/k]
         cgrnds     ! deriv of soil latent heat flux wrt soil temp [w/m**2/k]
 
@@ -262,9 +268,6 @@ CONTAINS
        raw,       &! moisture resistance [s/m]
        raih,      &! temporary variable [kg/m2/s]
        raiw,      &! temporary variable [kg/m2/s]
-       fh2m,      &! relation for temperature at 2m
-       fq2m,      &! relation for specific humidity at 2m
-       fm10m,     &! integral of profile FUNCTION for momentum at 10m
        thm,       &! intermediate variable (tm+0.0098*ht)
        th,        &! potential temperature (kelvin)
        thv,       &! virtual potential temperature (kelvin)

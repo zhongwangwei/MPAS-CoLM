@@ -58,7 +58,8 @@ CONTAINS
                cgrndl     ,cgrnds     ,tref       ,qref       ,rst        ,assim      ,&
                respc      ,fsenl      ,fevpl      ,etr        ,dlrad      ,ulrad      ,&
                z0m        ,zol        ,rib        ,ustar      ,qstar      ,tstar      ,&
-               fm         ,fh         ,fq         ,vegwp      ,gs0sun     ,gs0sha     ,&
+               fm         ,fh         ,fq         ,fh2m       ,fq2m       ,fm10m      ,&
+               vegwp      ,gs0sun     ,gs0sha     ,&
                assimsun   ,etrsun     ,assimsha   ,etrsha     ,&
 !Ozone stress variables
                o3coefv_sun,o3coefv_sha,o3coefg_sun,o3coefg_sha,&
@@ -277,7 +278,10 @@ CONTAINS
         qstar,         &! moisture scaling parameter
         fm,            &! integral of profile function for momentum
         fh,            &! integral of profile function for heat
-        fq              ! integral of profile function for moisture
+        fq,            &! integral of profile function for moisture
+        fh2m,          &! relation for temperature at 2m
+        fq2m,          &! relation for specific humidity at 2m
+        fm10m           ! integral of profile function for momentum at 10m
 
    real(r8), intent(inout) :: &
         cgrnd,         &! deriv. of soil energy flux wrt to soil temp [w/m2/k]
@@ -355,9 +359,6 @@ CONTAINS
         um,            &! wind speed including the stability effect [m/s]
         ur,            &! wind speed at reference height [m/s]
         uaf,           &! velocity of air within foliage [m/s]
-        fh2m,          &! relation for temperature at 2m
-        fq2m,          &! relation for specific humidity at 2m
-        fm10m,         &! integral of profile function for momentum at 10m
         thvstar,       &! virtual potential temperature scaling parameter
         eah,           &! canopy air vapor pressure (pa)
         pco2g,         &! co2 pressure (pa) at ground surface (pa)
@@ -414,7 +415,9 @@ CONTAINS
 
    integer it, nmozsgn
 
-   real(r8) w, csoilcn, z0mg, z0hg, z0qg, elwmax, elwdif, sumrootflux
+   real(r8) w, csoilcn, z0mg, z0hg, z0qg, elwmax, elwdif
+   real(r8) diag_ustar, diag_fh2m, diag_fq2m, diag_fm, diag_fh, diag_fq
+   real(r8) profile_obu, profile_um
    real(r8) cintsun(3, ps:pe), cintsha(3, ps:pe)
    real(r8),dimension(ps:pe)   :: delta, fac, etr0
    real(r8),dimension(ps:pe)   :: irab, dirab_dtl, fsenl_dtl, fevpl_dtl
@@ -443,6 +446,7 @@ CONTAINS
    real(r8) :: sqrtdragc! sqrt(drag coefficient)
    real(r8) :: lm       ! mix length within canopy
    real(r8) :: fai      ! canopy frontal area index
+   real(r8) :: active_canopy_top ! tallest active PFT canopy [m]
 
    real(r8), dimension(0:nlay) :: &
         z0m_lays,      &! roughness length for momentum for the layer and below
@@ -520,6 +524,12 @@ CONTAINS
 ! only process with vegetated patches
 
       lsai(:) = lai(:) + sai(:)
+      active_canopy_top = 0._r8
+      DO i = ps, pe
+         IF (fcover(i) > 0._r8 .and. lsai(i) > 1.e-6_r8) THEN
+            active_canopy_top = max(active_canopy_top, htop(i))
+         ENDIF
+      ENDDO
       is_vegetated_patch = .false.
 
       DO i = ps, pe
@@ -923,6 +933,13 @@ CONTAINS
 
       IF (forc_height_mode == 'absolute') THEN
 
+#ifdef MPAS_EMBEDDED_COLM
+	         IF (hu <= active_canopy_top+1._r8 .or. ht <= active_canopy_top+1._r8 .or. &
+	             hq <= active_canopy_top+1._r8) THEN
+            CALL CoLM_stop('MPAS embedded CoLM requires the MPAS lowest atmospheric level '// &
+	                           'to be more than 1 m above every active CoLM PFT canopy top.')
+         ENDIF
+#else
          IF (hu <= htop_lay(toplay)+1) THEN
             hu_ = htop_lay(toplay) + 1.
             IF (taux == spval) & ! only print warning for the first time-step
@@ -940,6 +957,7 @@ CONTAINS
             IF (taux == spval) & ! only print warning for the first time-step
                write(6,*) 'Warning: the obs height of q less than htop+1, set it to htop+1.'
          ENDIF
+#endif
 
       ELSE ! relative height
          hu_ = htop_lay(toplay) + hu
@@ -979,6 +997,8 @@ CONTAINS
 ! Aerodynamical resistances
 !-----------------------------------------------------------------------
 ! Evaluate stability-dependent variables using moz from prior iteration
+         profile_obu = obu
+         profile_um = um
 
          IF (DEF_USE_CBL_HEIGHT) THEN
             CALL moninobukm_leddy(hu_,ht_,hq_,displa_lays(toplay),z0mv,z0hv,z0qv,obu,um, &
@@ -1796,21 +1816,22 @@ ENDIF
             etr (i) = etr(i) + etr_dtl(i)*dtl(it-1,i)
 
             IF (DEF_USE_PLANTHYDRAULICS) THEN
-               !TODO@yuan: rootflux may not be consistent with etr,
-               !           water imbalance could happen.
-               IF(abs(etr0(i)) .ge. 1.e-15)THEN
+               ! Keep the layer-resolved hydraulic redistribution while
+               ! applying the final leaf-temperature correction to total
+               ! transpiration.  Clipping negative layer fluxes here would
+               ! make the PC path inconsistent with LeafTemperature.
+               IF (abs(etr0(i)) .ge. 1.e-15) THEN
                   rootflux(:,i) = rootflux(:,i) * etr(i) / etr0(i)
                ELSE
-                  rootflux(:,i) = rootflux(:,i) + dz_soi / sum(dz_soi) * etr_dtl(i)* dtl(it-1,i)
+                  rootflux(:,i) = rootflux(:,i) + dz_soi / sum(dz_soi) * &
+                     etr_dtl(i) * dtl(it-1,i)
                ENDIF
 
-               !NOTE: temporal solution to make etr and rootflux consistent.
-               !TODO: need double check
-               sumrootflux = sum(rootflux(:,i), rootflux(:,i)>0.)
-               IF (abs(sumrootflux) > 0.) THEN
-                  rootflux(:,i) = max(rootflux(:,i),0.) * (etr(i)/sumrootflux)
-               ELSE
-                  rootflux(:,i) = etr(i)*rootfr(:,i)
+               IF (abs(etr(i) - sum(rootflux(:,i))) > 1.e-7_r8) THEN
+                  write(6,*) 'Water balance violation in vegetation PC hydraulics', &
+                     ipatch, i, etr(i), sum(rootflux(:,i)), &
+                     abs(etr(i) - sum(rootflux(:,i)))
+                  CALL CoLM_stop()
                ENDIF
             ENDIF
 
@@ -2064,6 +2085,15 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+
+      IF (DEF_USE_CBL_HEIGHT) THEN
+         CALL moninobuk_leddy(hu_,ht_,hq_,displa_lays(toplay),z0mv,z0hv,z0qv, &
+                              profile_obu,profile_um,hpbl,diag_ustar,diag_fh2m,diag_fq2m, &
+                              fm10m,diag_fm,diag_fh,diag_fq)
+      ELSE
+         CALL moninobuk(hu_,ht_,hq_,displa_lays(toplay),z0mv,z0hv,z0qv,profile_obu,profile_um, &
+                        diag_ustar,diag_fh2m,diag_fq2m,fm10m,diag_fm,diag_fh,diag_fq)
+      ENDIF
 
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------

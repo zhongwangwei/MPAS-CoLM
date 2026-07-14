@@ -3025,7 +3025,7 @@
                      packages="sfclayer"/>
 
                 <var name="fm" type="real" dimensions="nCells Time" units="unitless"
-                     description="integrated stability function for moisture"
+                     description="integrated stability function for momentum"
                      packages="sfclayer"/>
 
 
@@ -3473,6 +3473,22 @@
                 <var name="sfc_albedo" type="real" dimensions="nCells Time" units="unitless"
                      description="surface albedo"/>
 
+                <var name="sfc_albedo_vis_dir" type="real" dimensions="nCells Time" units="unitless"
+                     description="direct-beam surface albedo in the visible spectrum"
+                     packages="sf_colm2024_in"/>
+
+                <var name="sfc_albedo_vis_dif" type="real" dimensions="nCells Time" units="unitless"
+                     description="diffuse-beam surface albedo in the visible spectrum"
+                     packages="sf_colm2024_in"/>
+
+                <var name="sfc_albedo_nir_dir" type="real" dimensions="nCells Time" units="unitless"
+                     description="direct-beam surface albedo in the near-infrared spectrum"
+                     packages="sf_colm2024_in"/>
+
+                <var name="sfc_albedo_nir_dif" type="real" dimensions="nCells Time" units="unitless"
+                     description="diffuse-beam surface albedo in the near-infrared spectrum"
+                     packages="sf_colm2024_in"/>
+
                 <var name="sfc_emiss" type="real" dimensions="nCells Time" units="unitless"
                      description="surface emissivity"/>
 
@@ -3848,7 +3864,7 @@
                      description="snow water equivalent"/>
 
                 <var name="snowc" type="real" dimensions="nCells Time" units="unitless"
-                     description="flag for snow on ground (=0 no snow; =1,otherwise"/>
+                     description="fractional snow cover of the ground (0 to 1)"/>
 
                 <var name="snowh" type="real" dimensions="nCells Time" units="m"
                      description="physical snow depth"/>

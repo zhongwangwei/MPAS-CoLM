@@ -39,6 +39,7 @@ MODULE MOD_NetCDFSerial
    END INTERFACE ncio_get_attr
 
    PUBLIC :: ncio_var_exist
+   PUBLIC :: ncio_var_exist_bcast_serial
    PUBLIC :: ncio_inquire_varsize
    PUBLIC :: ncio_inquire_length
 
@@ -354,6 +355,39 @@ CONTAINS
       ENDIF
 
    END FUNCTION ncio_var_exist
+
+   !---------------------------------------------------------
+   logical FUNCTION ncio_var_exist_bcast_serial (filename, dataname, readflag)
+
+#ifdef MPAS_MPI
+   USE mpi, only: MPI_LOGICAL, mpi_bcast
+   USE MOD_MPAS_MPI, only: mpas_is_root, mpas_root, mpas_comm, mpas_mpi_ierr, mpas_mpi_check
+#endif
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: filename
+   character(len=*), intent(in) :: dataname
+   logical, optional, intent(in) :: readflag
+
+   logical :: readflag_
+
+      readflag_ = .true.
+      IF (present(readflag)) readflag_ = readflag
+
+#ifdef MPAS_MPI
+      ! This is collective: root supplies one metadata decision for all ranks.
+      ! It does not make subsequent rank-local reads work on a non-shared file system.
+      ncio_var_exist_bcast_serial = .false.
+      IF (mpas_is_root) THEN
+         ncio_var_exist_bcast_serial = ncio_var_exist(filename, dataname, readflag_)
+      ENDIF
+      CALL mpi_bcast(ncio_var_exist_bcast_serial, 1, MPI_LOGICAL, mpas_root, mpas_comm, mpas_mpi_ierr)
+      CALL mpas_mpi_check('serial NetCDF variable-existence broadcast')
+#else
+      ncio_var_exist_bcast_serial = ncio_var_exist(filename, dataname, readflag_)
+#endif
+
+   END FUNCTION ncio_var_exist_bcast_serial
 
    !---------------------------------------------------------
    SUBROUTINE ncio_inquire_length (filename, dataname, length)
